@@ -29,14 +29,14 @@ pip install -r requirements.txt
 
 ### Create Yahoo Developer App
 
+**📖 For detailed instructions with screenshots and troubleshooting, see [YAHOO_SETUP.md](YAHOO_SETUP.md)**
+
+Quick steps:
 1. Go to https://developer.yahoo.com/apps/
-2. Click "Create an App"
-3. Configure:
-   - **Application Name**: Your choice (e.g., "My Fantasy Football App")
-   - **Application Type**: Installed Application
-   - **Redirect URI**: `http://localhost:8000/callback`
-   - **API Permissions**: Fantasy Sports - Read
-4. Save your **Client ID** and **Client Secret**
+2. Create an app with type "Installed Application"
+3. Set redirect URI: `http://localhost:8000/callback`
+4. Enable "Fantasy Sports - Read" permission
+5. Save your **Client ID** and **Client Secret**
 
 ### Configure Environment
 
@@ -105,6 +105,21 @@ After running `setup_yahoo_auth.py`, find your credentials in `.env`:
 - YAHOO_GUID (your Yahoo user ID)
 
 ## Step 5: Verify Installation
+
+### Run Verification Script
+
+Check your setup is correct:
+```bash
+python utils/verify_setup.py
+```
+
+This will verify:
+- ✅ .env file configuration
+- ✅ Credential format
+- ✅ Python dependencies
+- ✅ Claude Desktop configuration
+
+### Test in Claude Desktop
 
 1. Restart Claude Desktop
 2. Look for "fantasy-football" in the MCP tools list

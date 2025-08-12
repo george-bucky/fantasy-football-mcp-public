@@ -34,6 +34,7 @@ pip install -r requirements.txt
 ```
 
 3. Configure Yahoo API credentials:
+   - Follow [YAHOO_SETUP.md](YAHOO_SETUP.md) for detailed credential setup
    - Copy `.env.example` to `.env`
    - Add your Yahoo API credentials
    - Run authentication: `python utils/setup_yahoo_auth.py`
