@@ -10,7 +10,7 @@
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/fantasy-football-mcp.git
+git clone https://github.com/derekrbreese/fantasy-football-mcp-public.git
 cd fantasy-football-mcp
 ```
 
@@ -236,7 +236,7 @@ Then restart Claude Desktop.
 ## Support
 
 For issues or questions:
-1. Check the [GitHub repository](https://github.com/yourusername/fantasy-football-mcp)
+1. Check the [GitHub repository](https://github.com/derekrbreese/fantasy-football-mcp-public)
 2. Review the CLAUDE.md file for development details
 3. Ensure your Yahoo tokens are current
 

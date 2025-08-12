@@ -31,7 +31,7 @@ Please be respectful and professional in all interactions. We aim to create a we
 
 1. Clone your fork:
 ```bash
-git clone https://github.com/yourusername/fantasy-football-mcp.git
+git clone https://github.com/derekrbreese/fantasy-football-mcp-public.git
 cd fantasy-football-mcp
 ```
 

@@ -120,7 +120,7 @@ def demo_expected_responses():
                 "percentage": 0.615,
                 "points_for": 1456.82,
                 "points_against": 1389.26,
-                "manager": "Derek",
+                "manager": "Manager1",
                 "logo_url": "https://s.yimg.com/dh/ap/fantasy/img/mlb/icon_01_64.gif"
             },
             {

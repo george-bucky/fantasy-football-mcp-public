@@ -1,3 +1,8 @@
+# Claude-specific files
+.claude/
+*.claude
+claude_desktop_config.json
+
 # Environment variables - NEVER commit these!
 .env
 .env.*

@@ -50,7 +50,7 @@ import json
 
 # Your credentials
 CLIENT_ID = "YOUR_CLIENT_ID_HERE"
-CLIENT_SECRET = "your_redacted_value"
+CLIENT_SECRET = "YOUR_CLIENT_SECRET_HERE"
 
 # The code you got from Yahoo
 AUTH_CODE = "paste_your_code_here"
@@ -93,7 +93,7 @@ query = YahooFantasySportsQuery(
     game_code="nfl",
     game_id=423,  # 2024 season
     yahoo_consumer_key="YOUR_CONSUMER_KEY_HERE",
-    yahoo_consumer_secret="your_redacted_value",
+    yahoo_consumer_secret="YOUR_CONSUMER_SECRET_HERE",
     browser_callback=True
 )
 
@@ -117,7 +117,7 @@ Add to your MCP configuration:
       "args": ["/path/to/fantasy-football-mcp/src/mcp_server.py"],
       "env": {
         "YAHOO_CLIENT_ID": "YOUR_CLIENT_ID_HERE",
-        "YAHOO_CLIENT_SECRET": "your_redacted_value",
+        "YAHOO_CLIENT_SECRET": "YOUR_CLIENT_SECRET_HERE",
         "PYTHONPATH": "/path/to/fantasy-football-mcp"
       }
     }

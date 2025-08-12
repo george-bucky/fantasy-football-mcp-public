@@ -39,7 +39,7 @@ For detailed step-by-step installation instructions, see **[INSTALLATION.md](INS
 
 1. Clone this repository:
 ```bash
-git clone https://github.com/yourusername/fantasy-football-mcp.git
+git clone https://github.com/derekrbreese/fantasy-football-mcp-public.git
 cd fantasy-football-mcp
 ```
 
