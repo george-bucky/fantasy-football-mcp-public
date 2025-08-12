@@ -1,0 +1,87 @@
+# Environment variables - NEVER commit these!
+.env
+.env.*
+!.env.example
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Cache and logs
+.cache/
+logs/
+*.log
+
+# Authentication and tokens
+.auth/
+.tokens/
+token.json
+yahoo_token.json
+*.token
+*_token.json
+refresh_token.txt
+access_token.txt
+
+# Test files and debug output
+test_*.py
+debug_*.py
+*_test.py
+*_debug.py
+find_*.py
+parse_*.py
+exchange_code.py
+demo_usage.py
+quick_validation.py
+
+# JSON test data
+all_leagues_raw.json
+find_my_team.json
+test_standings.json
+yahoo_teams_raw.json
+*_raw.json
+
+# Config files with sensitive data
+claude_desktop_config.json
+mcp_config*.json
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+tmp/
+
+# Documentation drafts
+FIX_*.md
+CACHE_MANAGER_README.md
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Validation data cache
+tests_and_validation/data/*.parquet
+tests_and_validation/data/*.json
+tests_and_validation/data/*.png
+tests_and_validation/data/*.csv
+tests_and_validation/data/*.html
