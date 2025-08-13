@@ -33,10 +33,11 @@ cd fantasy-football-mcp-public
 pip install -r requirements.txt
 ```
 
-3. Configure Yahoo API credentials:
-   - Follow [YAHOO_SETUP.md](YAHOO_SETUP.md) for detailed credential setup
+3. Configure API credentials:
+   - **Yahoo API**: Follow [YAHOO_SETUP.md](YAHOO_SETUP.md) for detailed setup
+   - **Reddit API** (optional): See [REDDIT_SETUP.md](REDDIT_SETUP.md) for player sentiment analysis
    - Copy `.env.example` to `.env`
-   - Add your Yahoo API credentials
+   - Add your API credentials
    - Run authentication: `python utils/setup_yahoo_auth.py`
 
 4. Configure Claude Desktop:
