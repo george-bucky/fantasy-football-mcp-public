@@ -1,3 +1,5 @@
+[![MSeeP.ai Security Assessment Badge](https://mseep.net/pr/derekrbreese-fantasy-football-mcp-public-badge.png)](https://mseep.ai/app/derekrbreese-fantasy-football-mcp-public)
+
 # Fantasy Football MCP Server
 
 A Model Context Protocol (MCP) server for Yahoo Fantasy Football integration with Claude Desktop. Features advanced lineup optimization, draft assistance, and comprehensive league management.
