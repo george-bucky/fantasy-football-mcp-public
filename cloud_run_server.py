@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 # Import the existing MCP server components
-import fantasy_football_multi_league as mcp_server
+import fantasy_football_multi_league
 
 # Load environment variables
 load_dotenv()
@@ -147,7 +147,7 @@ async def list_tools(api_key: str = Depends(verify_api_key)):
     """List available MCP tools."""
     try:
         # Get tools from the MCP server
-        tools = await mcp_server.list_tools()
+        tools = await fantasy_football_multi_league.list_tools()
         tools_info = []
         
         for tool in tools:
@@ -197,7 +197,7 @@ async def handle_mcp_request(
         
         elif request.method == "tools/list":
             # Get tools from the MCP server
-            tools = await mcp_server.list_tools()
+            tools = await fantasy_football_multi_league.list_tools()
             tools_list = []
             
             for tool in tools:
@@ -227,7 +227,7 @@ async def handle_mcp_request(
             
             try:
                 # Use the MCP server's call_tool function
-                result = await mcp_server.call_tool(tool_name, tool_args)
+                result = await fantasy_football_multi_league.call_tool(tool_name, tool_args)
                 
                 # Convert TextContent result to MCP response format
                 content = []
