@@ -151,7 +151,7 @@ async def root():
     }
 
 @app.get("/tools")
-async def list_tools(api_key: str = Depends(verify_api_key)):
+async def list_tools():
     """List available MCP tools."""
     try:
         # Get tools from the MCP server
@@ -179,10 +179,7 @@ async def list_tools(api_key: str = Depends(verify_api_key)):
         }
 
 @app.post("/mcp", response_model=MCPResponse)
-async def handle_mcp_request(
-    request: MCPRequest,
-    api_key: str = Depends(verify_api_key)
-):
+async def handle_mcp_request(request: MCPRequest):
     """Handle MCP protocol requests."""
     logger.info(f"MCP request: {request.method} with params: {request.params}")
     

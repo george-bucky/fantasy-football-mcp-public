@@ -147,8 +147,7 @@ deploy_service() {
         --max-instances=10 \
         --concurrency=80 \
         --timeout=3600 \
-        --no-allow-unauthenticated \
-        --set-env-vars="PORT=${PORT}" \
+        --allow-unauthenticated \
         --set-secrets="YAHOO_CONSUMER_KEY=YAHOO_CONSUMER_KEY:latest" \
         --set-secrets="YAHOO_CONSUMER_SECRET=YAHOO_CONSUMER_SECRET:latest" \
         --set-secrets="YAHOO_ACCESS_TOKEN=YAHOO_ACCESS_TOKEN:latest" \
