@@ -1,0 +1,62 @@
+# Version control
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+dist
+build
+venv/
+.venv/
+env/
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+docs/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp
+
+# Development files
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Local development scripts
+test_*.py
+*_test.py
+
+# Cache directories
+.cache/
+.mypy_cache/
+.ruff_cache/
