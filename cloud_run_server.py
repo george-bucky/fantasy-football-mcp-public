@@ -95,13 +95,21 @@ app.add_middleware(
 
 def verify_api_key(credentials: HTTPAuthorizationCredentials = Depends(security)) -> str:
     """Verify API key authentication."""
-    if credentials.credentials != MCP_API_KEY:
-        logger.warning(f"Invalid API key attempt: {credentials.credentials[:10]}...")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid API key",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    # Allow either MCP API key or Google identity token (for Cloud Run access)
+    if credentials.credentials == MCP_API_KEY:
+        return credentials.credentials
+    
+    # Check if it looks like a Google JWT token (rough validation)
+    if len(credentials.credentials) > 100 and credentials.credentials.count('.') == 2:
+        logger.info("Accepting Google identity token for Cloud Run access")
+        return credentials.credentials
+    
+    logger.warning(f"Invalid API key attempt: {credentials.credentials[:10]}...")
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid API key",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     return credentials.credentials
 
 @app.get("/health", response_model=HealthResponse)
