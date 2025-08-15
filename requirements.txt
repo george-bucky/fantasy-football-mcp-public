@@ -10,34 +10,34 @@ asyncio-pool==0.6.0
 aiohttp==3.11.11
 aiocache==0.12.3
 
-# Data processing
-pandas==2.2.3
-numpy==1.26.4
-scipy==1.11.4
-scikit-learn==1.3.2
-statsmodels==0.14.1
+# Data processing (optional - for analytics features)
+pandas>=2.2.3
+numpy>=1.26.4
+# scipy>=1.11.4
+# scikit-learn>=1.3.2
+# statsmodels>=0.14.1
 
 # Utilities
 loguru==0.7.3
 click==8.1.8
-rich==13.9.6
+rich==13.9.4
 
-# Testing
-pytest==8.3.4
-pytest-asyncio==0.25.2
-pytest-mock==3.14.0
-pytest-cov==6.0.0
-aioresponses==0.7.6
+# Testing (optional - removed for production)
+# pytest>=8.3.3
+# pytest-asyncio>=0.25.2
+# pytest-mock>=3.14.0
+# pytest-cov>=6.0.0
+# aioresponses>=0.7.6
 
-# Development
-black==24.10.0
-mypy==1.14.1
-ruff==0.9.1
+# Development (optional - removed for production)
+# black>=24.10.0
+# mypy>=1.14.1
+# ruff>=0.9.1
 
-# Validation & Historical Analysis
-nfl-data-py==0.3.3
-matplotlib==3.7.1
-seaborn==0.12.2
+# Validation & Historical Analysis (optional)
+# nfl-data-py==0.3.3
+# matplotlib>=3.7.1
+# seaborn>=0.12.2
 
 # Reddit API and Sentiment Analysis
 praw==7.8.1
