@@ -16,8 +16,8 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, Query, Form
-from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request, Query, Form, Header
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -258,9 +258,17 @@ async def token(
 
 # MCP Endpoints (No auth required for testing)
 @app.post("/mcp")
-async def mcp_handler(request: MCPRequest):
+@app.post("/mcp/message")  # Alternative endpoint Claude.ai might use
+async def mcp_handler(
+    request: MCPRequest,
+    authorization: Optional[str] = Header(None)
+):
     """Handle MCP protocol requests."""
+    # Log request details for debugging
     logger.info(f"MCP request: {request.method}")
+    logger.info(f"Auth header: {authorization[:20] if authorization else 'None'}")
+    logger.info(f"Request ID: {request.id}")
+    logger.info(f"Request params: {request.params}")
     
     try:
         if request.method == "initialize":
@@ -348,6 +356,44 @@ async def root():
 async def health():
     """Health check endpoint."""
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+
+# SSE endpoint for Claude.ai (if it prefers SSE)
+@app.get("/mcp/sse")
+async def mcp_sse(authorization: Optional[str] = Header(None)):
+    """Server-Sent Events endpoint for MCP."""
+    async def event_generator():
+        # Send initial connection event
+        yield f"data: {json.dumps({'type': 'connection', 'status': 'connected'})}\n\n"
+        
+        # Keep connection alive
+        while True:
+            await asyncio.sleep(30)
+            yield f"data: {json.dumps({'type': 'ping'})}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable Nginx buffering
+        }
+    )
+
+# Additional transport endpoint
+@app.options("/mcp")
+@app.options("/mcp/message")
+async def mcp_options():
+    """Handle OPTIONS requests for CORS preflight."""
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "86400"
+        }
+    )
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
