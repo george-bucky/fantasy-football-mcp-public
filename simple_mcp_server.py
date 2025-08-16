@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, Query, Form, Header
+from fastapi import FastAPI, HTTPException, Request, Query, Form, Header, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -379,6 +379,88 @@ async def mcp_sse(authorization: Optional[str] = Header(None)):
             "X-Accel-Buffering": "no"  # Disable Nginx buffering
         }
     )
+
+# WebSocket endpoint for MCP (Claude.ai likely uses this)
+@app.websocket("/mcp")
+@app.websocket("/mcp/ws")
+async def mcp_websocket(websocket: WebSocket):
+    """WebSocket endpoint for MCP protocol."""
+    await websocket.accept()
+    logger.info("WebSocket connection accepted")
+    
+    try:
+        while True:
+            # Receive message
+            data = await websocket.receive_text()
+            request = json.loads(data)
+            logger.info(f"WebSocket MCP request: {request.get('method')}")
+            
+            # Process MCP request
+            if request.get("method") == "initialize":
+                response = {
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {
+                            "tools": {"listChanged": False}
+                        },
+                        "serverInfo": {
+                            "name": "fantasy-football-mcp",
+                            "version": "3.0.0"
+                        }
+                    },
+                    "id": request.get("id")
+                }
+            elif request.get("method") == "tools/list":
+                response = {
+                    "jsonrpc": "2.0",
+                    "result": {"tools": app.cached_tools},
+                    "id": request.get("id")
+                }
+            elif request.get("method") == "tools/call":
+                tool_name = request.get("params", {}).get("name")
+                tool_args = request.get("params", {}).get("arguments", {})
+                
+                try:
+                    result = await fantasy_football_multi_league.call_tool(tool_name, tool_args)
+                    content = []
+                    for text_content in result:
+                        content.append({
+                            "type": "text",
+                            "text": text_content.text
+                        })
+                    response = {
+                        "jsonrpc": "2.0",
+                        "result": {"content": content},
+                        "id": request.get("id")
+                    }
+                except Exception as e:
+                    response = {
+                        "jsonrpc": "2.0",
+                        "error": {
+                            "code": -32603,
+                            "message": str(e)
+                        },
+                        "id": request.get("id")
+                    }
+            else:
+                response = {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32601,
+                        "message": f"Method not found: {request.get('method')}"
+                    },
+                    "id": request.get("id")
+                }
+            
+            # Send response
+            await websocket.send_text(json.dumps(response))
+            
+    except WebSocketDisconnect:
+        logger.info("WebSocket disconnected")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await websocket.close()
 
 # Additional transport endpoint
 @app.options("/mcp")
