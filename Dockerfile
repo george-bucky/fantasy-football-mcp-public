@@ -32,6 +32,6 @@ ENV PYTHONUNBUFFERED=1
 # Expose port (Cloud Run will set PORT env var)
 EXPOSE 8080
 
-# Run the FastAPI server for Cloud Run using uvicorn
-# Cloud Run sets PORT env variable dynamically
-CMD uvicorn cloud_run_server:app --host 0.0.0.0 --port ${PORT:-8080}
+# Run the FastAPI server for Render using uvicorn
+# Render sets PORT env variable dynamically
+CMD uvicorn render_server:app --host 0.0.0.0 --port ${PORT:-8080}
