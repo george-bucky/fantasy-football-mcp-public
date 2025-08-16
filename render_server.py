@@ -129,6 +129,23 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Fantasy Football MCP Server on Render")
     logger.info(f"Allowed redirect URIs: {ALLOWED_REDIRECT_URIS}")
     logger.info(f"Allowed client IDs: {ALLOWED_CLIENT_IDS}")
+    
+    # Preload tools to avoid timeout on first request
+    try:
+        logger.info("Preloading MCP tools...")
+        tools = await fantasy_football_multi_league.list_tools()
+        app._cached_tools = []
+        for tool in tools:
+            app._cached_tools.append({
+                "name": tool.name,
+                "description": tool.description,
+                "inputSchema": tool.inputSchema
+            })
+        logger.info(f"Preloaded {len(app._cached_tools)} tools successfully")
+    except Exception as e:
+        logger.error(f"Failed to preload tools: {e}")
+        app._cached_tools = []
+    
     yield
     logger.info("Shutting down Fantasy Football MCP Server")
 
@@ -439,7 +456,7 @@ async def handle_mcp_request(
     token: Optional[str] = Depends(verify_token)
 ):
     """Handle MCP protocol requests - PUBLIC endpoint (auth optional)."""
-    logger.debug(f"MCP request: {request.method}")
+    logger.info(f"MCP request: {request.method} from client (auth: {bool(token)})")
     
     try:
         if request.method == "initialize":
@@ -459,18 +476,21 @@ async def handle_mcp_request(
             )
         
         elif request.method == "tools/list":
-            tools = await fantasy_football_multi_league.list_tools()
-            tools_list = []
-            
-            for tool in tools:
-                tools_list.append({
-                    "name": tool.name,
-                    "description": tool.description,
-                    "inputSchema": tool.inputSchema
-                })
+            # Cache tools list for faster response
+            if not hasattr(app, '_cached_tools'):
+                logger.info("Loading tools for the first time...")
+                tools = await fantasy_football_multi_league.list_tools()
+                app._cached_tools = []
+                for tool in tools:
+                    app._cached_tools.append({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "inputSchema": tool.inputSchema
+                    })
+                logger.info(f"Cached {len(app._cached_tools)} tools")
             
             return MCPResponse(
-                result={"tools": tools_list},
+                result={"tools": app._cached_tools},
                 id=request.id
             )
         
