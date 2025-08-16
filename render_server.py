@@ -175,6 +175,8 @@ def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(s
     return None
 
 @app.get("/")
+@app.post("/")  # Claude.ai might POST to root
+@app.head("/")  # Claude.ai might HEAD to root
 async def root():
     """Root endpoint with basic information."""
     return {
@@ -189,7 +191,8 @@ async def root():
             "oauth": {
                 "authorize": "/oauth/authorize",
                 "token": "/oauth/token",
-                "discovery": "/.well-known/oauth-authorization-server"
+                "discovery": "/.well-known/oauth-authorization-server",
+                "resource": "/.well-known/oauth-protected-resource"
             }
         },
         "authentication": "OAuth 2.0 supported but not required for MCP endpoints"
@@ -231,6 +234,20 @@ async def oauth_discovery():
         "grant_types_supported": ["authorization_code"],
         "token_endpoint_auth_methods_supported": ["client_secret_post", "none"],
         "code_challenge_methods_supported": ["plain", "S256"]
+    }
+
+# OAuth Protected Resource metadata - Required by Claude.ai
+@app.get("/.well-known/oauth-protected-resource")
+async def oauth_protected_resource():
+    """OAuth protected resource metadata for Claude.ai."""
+    base_url = os.getenv("RENDER_EXTERNAL_URL", "https://fantasy-football-mcp-server.onrender.com")
+    return {
+        "resource": base_url,
+        "oauth_authorization_server": f"{base_url}/.well-known/oauth-authorization-server",
+        "scopes_supported": ["read", "write"],
+        "bearer_methods_supported": ["header"],
+        "resource_documentation": f"{base_url}/docs",
+        "resource_signing_alg_values_supported": ["RS256", "HS256"]
     }
 
 @app.get("/oauth/authorize")
