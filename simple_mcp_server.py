@@ -101,7 +101,10 @@ app.add_middleware(
 )
 
 # OAuth Discovery Endpoints (SimpleScraper style)
+# Serve at both root and under /mcp for Claude.ai compatibility
 @app.get("/.well-known/oauth-authorization-server")
+@app.get("/mcp/.well-known/oauth-authorization-server")
+@app.get("/sse/.well-known/oauth-authorization-server")
 async def oauth_authorization_server():
     """OAuth authorization server metadata."""
     base_url = os.getenv("RENDER_EXTERNAL_URL", "https://fantasy-football-mcp-server.onrender.com")
@@ -119,6 +122,8 @@ async def oauth_authorization_server():
     }
 
 @app.get("/.well-known/oauth-protected-resource")
+@app.get("/mcp/.well-known/oauth-protected-resource")
+@app.get("/sse/.well-known/oauth-protected-resource")
 async def oauth_protected_resource():
     """OAuth protected resource metadata."""
     base_url = os.getenv("RENDER_EXTERNAL_URL", "https://fantasy-football-mcp-server.onrender.com")
