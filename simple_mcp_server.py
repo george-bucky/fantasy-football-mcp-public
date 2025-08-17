@@ -123,13 +123,36 @@ async def oauth_protected_resource():
     """OAuth protected resource metadata."""
     base_url = os.getenv("RENDER_EXTERNAL_URL", "https://fantasy-football-mcp-server.onrender.com")
     return {
+        # Minimal list used by some clients
         "authorization_servers": [
             {
                 "issuer": base_url,
                 "authorization_endpoint": f"{base_url}/authorize"
             }
-        ]
+        ],
+        # Additional fields used by other clients
+        "resource": base_url,
+        "oauth_authorization_server": f"{base_url}/.well-known/oauth-authorization-server",
+        "scopes_supported": ["read", "write"],
+        "bearer_methods_supported": ["header"]
     }
+
+# Public tools endpoint to manually verify tool discovery
+@app.get("/tools")
+async def list_tools_public():
+    try:
+        tools = await fantasy_football_multi_league.list_tools()
+        tools_info = []
+        for tool in tools:
+            tools_info.append({
+                "name": tool.name,
+                "description": tool.description,
+                "inputSchema": tool.inputSchema
+            })
+        return {"tools": tools_info, "count": len(tools_info)}
+    except Exception as e:
+        logger.error(f"Error listing tools: {e}")
+        return {"tools": [], "count": 0, "error": str(e)}
 
 # Dynamic Client Registration (SimpleScraper style)
 @app.post("/register")
@@ -276,7 +299,8 @@ async def mcp_handler(
                 result={
                     "protocolVersion": "2024-11-05",
                     "capabilities": {
-                        "tools": {"listChanged": False}
+                        "tools": {"listChanged": True},
+                        "resources": {"listChanged": False}
                     },
                     "serverInfo": {
                         "name": "fantasy-football-mcp",
@@ -385,7 +409,17 @@ async def mcp_sse(authorization: Optional[str] = Header(None)):
 @app.websocket("/mcp/ws")
 async def mcp_websocket(websocket: WebSocket):
     """WebSocket endpoint for MCP protocol."""
-    await websocket.accept()
+    # Echo back requested subprotocol (e.g., 'mcp') if provided by client
+    requested_subprotocols = websocket.headers.get("sec-websocket-protocol")
+    selected_subprotocol = None
+    if requested_subprotocols:
+        # Header may be a comma-separated list
+        requested = [p.strip() for p in requested_subprotocols.split(",")]
+        if "mcp" in requested:
+            selected_subprotocol = "mcp"
+        elif requested:
+            selected_subprotocol = requested[0]
+    await websocket.accept(subprotocol=selected_subprotocol)
     logger.info("WebSocket connection accepted")
     
     try:
@@ -402,7 +436,8 @@ async def mcp_websocket(websocket: WebSocket):
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {
-                            "tools": {"listChanged": False}
+                            "tools": {"listChanged": True},
+                            "resources": {"listChanged": False}
                         },
                         "serverInfo": {
                             "name": "fantasy-football-mcp",

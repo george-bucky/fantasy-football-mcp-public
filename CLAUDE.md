@@ -6,37 +6,54 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Fantasy Football MCP (Model Context Protocol) server integrating Yahoo Fantasy Sports API with advanced lineup optimization. Uses Sleeper API for expert rankings, defensive matchup analysis, and position-normalized FLEX decisions. Production server: `fantasy_football_multi_league.py`.
 
+Supports multiple deployment strategies:
+- **Local MCP** for Claude Code (stdio mode)
+- **Remote MCP** for Claude.ai via Render (OAuth + HTTP/WebSocket)
+- **Docker** containerization for cloud deployments
+
 ## Essential Commands
 
 ### Running & Testing
 ```bash
-# Main MCP server
+# Main MCP server (local stdio mode)
 python fantasy_football_multi_league.py
 
-# Run validation suite (tests model accuracy on historical data)
-python tests_and_validation/run_validation.py
+# Run local MCP server with environment variables
+./run_local_mcp.sh
 
-# Test borderline lineup decisions only
-python tests_and_validation/run_real_decisions.py
+# Test OAuth authentication flow
+python test_oauth.py
 
-# Test FLEX decision logic
-python tests_and_validation/test_flex_decisions.py
-
-# Analyze detailed FLEX performance
-python tests_and_validation/analyze_flex_performance.py
+# Test MCP connection
+python test_connection.py
 ```
 
 ### Token Management
 ```bash
 python refresh_yahoo_token.py   # Refresh expired token (expires hourly)
 python reauth_yahoo.py          # Full re-authentication
+python setup_yahoo_auth.py      # Initial Yahoo OAuth setup
 ```
 
 ### Development
 ```bash
 pip install -r requirements.txt
-black . --line-length 100
-pytest tests/ -v
+black . --line-length 100       # Format code (see pyproject.toml)
+ruff check .                     # Lint code
+mypy src/                        # Type checking
+pytest tests/ -v                 # Run tests (when available)
+```
+
+### Deployment
+```bash
+# Deploy to Render (auto-deploys from main branch)
+./deploy_to_render.sh
+
+# Build Docker image
+docker build -t fantasy-football-mcp .
+
+# Run Docker container locally
+docker run -p 8080:8080 --env-file .env fantasy-football-mcp
 ```
 
 ## Architecture
@@ -57,11 +74,6 @@ pytest tests/ -v
 **Matchup Analyzer** (`matchup_analyzer.py`)
 - Sigmoid transformation with k=0.05 for matchup scores
 - Non-linear scoring to differentiate elite/poor defenses
-
-### Validation Framework (`tests_and_validation/`)
-- Rolling holdout validation: train weeks 1-N, predict N+1
-- Real decision validator: focuses on borderline calls only
-- Current performance: 80.8% accuracy, +2.09 pts/decision, 91% efficiency
 
 ### Strategy Weights (Balanced)
 ```python
@@ -86,6 +98,26 @@ pytest tests/ -v
 - **Statistical framework**: Value Over Replacement Player calculations and positional scarcity
 - **Edge case handling**: Early/mid/late draft phases, positional runs, opportunity cost
 
+## Server Implementations
+
+### Main MCP Server (`fantasy_football_multi_league.py`)
+- **Mode**: stdio (for Claude Code CLI)
+- **Protocol**: Standard MCP JSON-RPC
+- **Authentication**: Direct Yahoo API with tokens from environment
+- **Use case**: Local Claude Code integration
+
+### Render Server (`render_server.py`)
+- **Mode**: HTTP/SSE for Claude.ai
+- **OAuth**: Flexible validation for Claude.ai compatibility
+- **Storage**: File-based token persistence
+- **Features**: Consent page, debug logging, relaxed client validation
+
+### Simple MCP Server (`simple_mcp_server.py`)
+- **Mode**: HTTP/WebSocket/SSE for Claude.ai
+- **OAuth**: SimpleScraper-style with PKCE support
+- **Features**: Dynamic client registration, no client auth required
+- **Endpoints**: `/mcp`, `/mcp/ws`, `/mcp/sse`, `/register`, `/authorize`, `/token`
+
 ## Critical Configuration
 
 ### Environment Variables (.env)
@@ -95,6 +127,34 @@ YAHOO_CONSUMER_SECRET=your_redacted_value
 YAHOO_ACCESS_TOKEN=[current_token]
 YAHOO_REFRESH_TOKEN=[current_refresh_token]
 YAHOO_GUID=your_redacted_value  # Required for multi-league
+
+# For remote MCP servers (Render deployment)
+DEBUG=true
+ALLOWED_CLIENT_IDS=*
+ALLOWED_REDIRECT_URIS=*
+OAUTH_CLIENT_SECRET=your_redacted_value
+CORS_ORIGINS=*
+RENDER_EXTERNAL_URL=https://fantasy-football-mcp-server.onrender.com
+```
+
+### Claude Code Configuration (~/.claude.json)
+```json
+{
+  "fantasy-football": {
+    "type": "stdio",
+    "command": "python",
+    "args": [
+      "/path/to/fantasy-football-mcp/fantasy_football_multi_league.py"
+    ],
+    "env": {
+      "YAHOO_ACCESS_TOKEN": "...",
+      "YAHOO_CONSUMER_KEY": "...",
+      "YAHOO_CONSUMER_SECRET": "...",
+      "YAHOO_REFRESH_TOKEN": "...",
+      "YAHOO_GUID": "your_redacted_value"
+    }
+  }
+}
 ```
 
 ### Yahoo API Response Patterns
@@ -149,18 +209,19 @@ teams[key]["team"][0]  # List of dict elements
 - **Aggressive**: Chase upside, target breakout candidates
 - **Balanced**: Optimal mix of safety and upside potential
 
-## Validation Results
+## Model Performance Metrics
 
-Current model performance (2023 season validation):
-- **80.8%** accuracy on borderline decisions
-- **80%** FLEX decision accuracy (position-normalized)
-- **+2.09** points per decision
-- **91.2%** lineup efficiency
-- **84%** precision on start/sit calls
+Target model performance (when validation suite is implemented):
+- **80%+** accuracy on borderline decisions
+- **80%+** FLEX decision accuracy (position-normalized)
+- **+2.0** points per decision average
+- **90%+** lineup efficiency
+- **85%+** precision on start/sit calls
 
-Problem areas:
-- Week 17 (players resting): 58% efficiency
-- Some weeks show negative decision value (bench > starters)
+Known challenges:
+- Week 17 (players resting for playoffs)
+- Injury report timing delays
+- Weather impact on game-time decisions
 
 ## Common Issues
 
@@ -176,11 +237,16 @@ Problem areas:
 
 **"Only showing one league"**
 - Verify YAHOO_GUID in .env
-- Test: `python test_all_leagues.py`
+- Check team ownership detection in `fantasy_football_multi_league.py`
+
+**Claude.ai Remote MCP Connection (-32000 errors)**
+- Known issue with Claude.ai's MCP implementation
+- Use Claude Code (local) for reliable connection
+- Monitor Render logs for OAuth debugging
 
 ## Git Workflow
 
-Current branch: `sleeper-api-integration`
+Current branch: `main` (previously `sleeper-api-integration`)
 
 Commit format:
 ```bash
@@ -192,8 +258,50 @@ Details here
 Co-Authored-By: Claude <noreply@anthropic.com>"
 ```
 
+Types: feat, fix, docs, style, refactor, test, chore
+
 ## Active Leagues (2025)
 1. Example League 1 (461.l.900001) - Team: BreesusChr1st
 2. Example League 2 (461.l.900002)
 3. Example League 3 (461.l.900003)
 4. Example League 4 (461.l.900004)
+
+## Render Deployment
+
+Service URL: https://fantasy-football-mcp-server.onrender.com
+
+Monitor deployment:
+```bash
+# Check deployment status
+render deploys list fantasy-football-mcp-server
+
+# View logs
+render logs fantasy-football-mcp-server -o text
+
+# Trigger manual deploy
+git push origin main  # Auto-deploys from main branch
+```
+
+## Docker Build
+
+```dockerfile
+# Key configuration in Dockerfile:
+FROM python:3.11-slim
+CMD uvicorn simple_mcp_server:app --host 0.0.0.0 --port ${PORT:-8080}
+```
+
+Build and run locally:
+```bash
+docker build -t ff-mcp .
+docker run -p 8080:8080 --env-file .env ff-mcp
+```
+
+## Code Quality Standards
+
+- **Formatting**: Black with 100-char line length
+- **Linting**: Ruff with E, W, F, I, B, C4, UP rules
+- **Type checking**: MyPy with strict mode
+- **Testing**: Pytest with asyncio support
+- **Coverage**: Target 80%+ for critical paths
+
+See `pyproject.toml` for detailed configuration.
