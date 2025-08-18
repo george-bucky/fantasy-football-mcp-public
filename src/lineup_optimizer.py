@@ -7,9 +7,9 @@ Combines Yahoo data, Sleeper rankings, and matchup analysis
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 import numpy as np
-from matchup_analyzer import matchup_analyzer
-from sleeper_api import sleeper_client, get_trending_adds
-from position_normalizer import position_normalizer
+from src.matchup_analyzer import matchup_analyzer
+from src.sleeper_api import sleeper_client, get_trending_adds
+from src.position_normalizer import position_normalizer
 
 
 @dataclass
@@ -267,13 +267,30 @@ class LineupOptimizer:
                                                 pos_data = p["selected_position"][0]
                                                 player_obj.roster_position = pos_data.get("position", "")
                                                 player_obj.is_starter = pos_data.get("position") != "BN"
-                                            if "display_position" in p:
+                                            # Primary position from display_position if available
+                                            if "display_position" in p and p["display_position"]:
                                                 player_obj.position = p["display_position"]
                                             if "editorial_team_abbr" in p:
                                                 player_obj.team = p["editorial_team_abbr"]
                                             # Get opponent from matchup data if available
                                             if "matchup" in p:
                                                 player_obj.opponent = p.get("matchup", "")
+
+                                    # Fallbacks if position wasn't set
+                                    if not player_obj.position:
+                                        # Use roster_position as fallback (e.g., QB, RB, WR, TE, K, DEF)
+                                        if getattr(player_obj, "roster_position", ""):
+                                            # Normalize defense label
+                                            rp = player_obj.roster_position
+                                            player_obj.position = "DEF" if rp in ["DEF", "D/ST", "DST"] else rp
+                                        else:
+                                            # Try to find any position field present in elements
+                                            for p in player_array:
+                                                if isinstance(p, dict):
+                                                    if "position" in p and p["position"]:
+                                                        val = p["position"]
+                                                        player_obj.position = "DEF" if val in ["DEF", "D/ST", "DST"] else val
+                                                        break
                                     
                                     players.append(player_obj)
         
@@ -421,7 +438,7 @@ class LineupOptimizer:
                 player.matchup_description = desc
             
             # Get Sleeper projection
-            from sleeper_api import get_player_projection
+            from src.sleeper_api import get_player_projection
             proj = await get_player_projection(player.name)
             if proj:
                 player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
@@ -582,6 +599,17 @@ class LineupOptimizer:
         if defs:
             starters["DEF"] = defs[0]
             bench.extend(defs[1:])
+
+        # Ensure we have at least one starter to avoid downstream errors
+        if not starters:
+            return {
+                "starters": {},
+                "bench": players,
+                "recommendations": [
+                    "No valid starters could be determined from roster data."
+                ],
+                "strategy_used": strategy
+            }
         
         # Generate recommendations
         recommendations = self._generate_recommendations(starters, bench, players)
@@ -601,6 +629,8 @@ class LineupOptimizer:
     ) -> List[str]:
         """Generate specific recommendations based on analysis."""
         recommendations = []
+        if not starters:
+            return recommendations
         
         # Check for elite/stud players on bench (should never happen)
         for player in bench:
@@ -632,6 +662,7 @@ class LineupOptimizer:
                 )
         
         # Highlight best matchups
+        # Guard: only compute if we have starters
         best_matchup = max(starters.values(), key=lambda x: x.matchup_score)
         if best_matchup.matchup_score >= 80:
             if best_matchup.player_tier in ["elite", "stud"]:

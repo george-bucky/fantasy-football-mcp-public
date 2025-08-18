@@ -12,7 +12,7 @@ from datetime import datetime
 import hashlib
 
 # Import caching from our yahoo utils
-from yahoo_api_utils import ResponseCache
+from src.yahoo_api_utils import ResponseCache
 
 
 class SleeperAPI:

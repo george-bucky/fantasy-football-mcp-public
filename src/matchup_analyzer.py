@@ -5,7 +5,7 @@ Analyzes player matchups against opposing defenses
 """
 
 from typing import Dict, List, Optional, Tuple
-from sleeper_api import sleeper_client
+from src.sleeper_api import sleeper_client
 
 
 class MatchupAnalyzer:
@@ -152,7 +152,7 @@ class MatchupAnalyzer:
         score, description = self.get_matchup_score(opp_team, position)
         
         # Get Sleeper projection if available
-        from sleeper_api import get_player_projection
+        from src.sleeper_api import get_player_projection
         sleeper_proj = await get_player_projection(player_name)
         sleeper_pts = None
         if sleeper_proj:
