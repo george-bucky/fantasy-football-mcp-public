@@ -1049,7 +1049,68 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                                             "points_for": team_standings.get("points_for", 0),
                                             "points_against": team_standings.get("points_against", 0)
                                         })
-            
+ 
+            # Deep fallback: traverse entire payload to find any team arrays with team_standings
+            if not standings:
+                def traverse_and_collect(obj):
+                    if isinstance(obj, dict):
+                        # Direct team block
+                        if "team" in obj and isinstance(obj["team"], list):
+                            team_array = obj["team"]
+                            team_name = None
+                            team_st = {}
+                            for el in team_array:
+                                if isinstance(el, dict):
+                                    if "name" in el:
+                                        nv = el["name"]
+                                        team_name = nv.get("full") if isinstance(nv, dict) else nv
+                                    if "team_standings" in el and isinstance(el["team_standings"], dict):
+                                        team_st = el["team_standings"]
+                            if team_name:
+                                standings.append({
+                                    "rank": team_st.get("rank", 0),
+                                    "team": team_name,
+                                    "wins": team_st.get("outcome_totals", {}).get("wins", 0),
+                                    "losses": team_st.get("outcome_totals", {}).get("losses", 0),
+                                    "ties": team_st.get("outcome_totals", {}).get("ties", 0),
+                                    "points_for": team_st.get("points_for", 0),
+                                    "points_against": team_st.get("points_against", 0)
+                                })
+                        for v in obj.values():
+                            traverse_and_collect(v)
+                    elif isinstance(obj, list):
+                        for v in obj:
+                            traverse_and_collect(v)
+                try:
+                    traverse_and_collect(data.get("fantasy_content", {}))
+                except Exception:
+                    pass
+
+            # Final fallback: Use get_all_teams_info to build placeholder standings
+            if not standings:
+                try:
+                    teams = await get_all_teams_info(league_key)
+                    if teams:
+                        # Assign ranks based on draft_position if available, else alphabetical
+                        if any(t.get("draft_position") for t in teams):
+                            teams_sorted = sorted(teams, key=lambda t: t.get("draft_position", 9999))
+                        else:
+                            teams_sorted = sorted(teams, key=lambda t: str(t.get("name", "")))
+                        standings = [
+                            {
+                                "rank": idx + 1,
+                                "team": (t.get("name", "Unknown").get("full") if isinstance(t.get("name"), dict) else t.get("name", "Unknown")),
+                                "wins": 0,
+                                "losses": 0,
+                                "ties": 0,
+                                "points_for": 0,
+                                "points_against": 0
+                            }
+                            for idx, t in enumerate(teams_sorted)
+                        ]
+                except Exception:
+                    pass
+
             # Sort by rank
             standings.sort(key=lambda x: x["rank"])
             
