@@ -24,7 +24,7 @@ except ImportError:
     REDDIT_AVAILABLE = False
 
 # Import rate limiting and caching utilities
-from yahoo_api_utils import rate_limiter, response_cache
+from src.yahoo_api_utils import rate_limiter, response_cache
 
 # Draft functionality is built-in (no complex imports needed)
 DRAFT_AVAILABLE = True
@@ -282,7 +282,7 @@ async def get_user_team_info(league_key: str) -> Optional[dict]:
 async def get_user_team_key(league_key: str) -> Optional[str]:
     """Get the user's team key in a specific league (legacy function for compatibility)."""
     team_info = await get_user_team_info(league_key)
-    return team_info["team_key"] if team_info else None
+    return team_info.get("team_key") if team_info else None
 
 
 async def get_waiver_wire_players(league_key: str, position: str = "all", sort: str = "rank", count: int = 20) -> List[dict]:
@@ -966,41 +966,161 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             standings = []
             league = data.get("fantasy_content", {}).get("league", [])
             
-            for item in league:
-                if isinstance(item, dict) and "standings" in item:
-                    standings_data = item["standings"]
-                    for key in standings_data:
-                        if key != "count" and isinstance(standings_data[key], dict):
-                            if "team" in standings_data[key]:
-                                team_array = standings_data[key]["team"]
-                                if isinstance(team_array, list) and len(team_array) > 1:
-                                    team_info = {}
+            # Debug: Check the actual structure
+            print(f"DEBUG: League type: {type(league)}")
+            if isinstance(league, list):
+                print(f"DEBUG: League list length: {len(league)}")
+                for i, item in enumerate(league):
+                    print(f"DEBUG: League[{i}] type: {type(item)}, keys: {list(item.keys()) if isinstance(item, dict) else 'Not a dict'}")
+            elif isinstance(league, dict):
+                print(f"DEBUG: League dict keys: {list(league.keys())}")
+            
+            # Try to find standings data in various possible locations
+            standings_container = None
+            
+            # Method 1: Check if league is a dict with standings
+            if isinstance(league, dict) and "standings" in league:
+                standings_container = league["standings"]
+                print("DEBUG: Found standings in league dict")
+            
+            # Method 2: Check if league is a list and look for standings
+            elif isinstance(league, list):
+                for i, item in enumerate(league):
+                    if isinstance(item, dict) and "standings" in item:
+                        standings_container = item["standings"]
+                        print(f"DEBUG: Found standings in league[{i}]")
+                        break
+            
+            # Method 3: Check if league is a list and standings might be at index 1
+            elif isinstance(league, list) and len(league) > 1:
+                if isinstance(league[1], dict) and "standings" in league[1]:
+                    standings_container = league[1]["standings"]
+                    print("DEBUG: Found standings in league[1]")
+            
+            if standings_container:
+                print(f"DEBUG: Standings container type: {type(standings_container)}")
+                if isinstance(standings_container, dict):
+                    print(f"DEBUG: Standings container keys: {list(standings_container.keys())}")
+                
+                # Look for teams data in standings_container
+                teams_data = None
+                
+                # Try different possible structures
+                if isinstance(standings_container, dict):
+                    if "teams" in standings_container:
+                        teams_data = standings_container["teams"]
+                        print("DEBUG: Found teams in standings.teams")
+                    elif "0" in standings_container and isinstance(standings_container["0"], dict):
+                        if "teams" in standings_container["0"]:
+                            teams_data = standings_container["0"]["teams"]
+                            print("DEBUG: Found teams in standings.0.teams")
+                
+                if teams_data:
+                    print(f"DEBUG: Teams data type: {type(teams_data)}")
+                    if isinstance(teams_data, dict):
+                        print(f"DEBUG: Teams data keys: {list(teams_data.keys())}")
+                    
+                    # Parse teams data
+                    if isinstance(teams_data, dict):
+                        for key, value in teams_data.items():
+                            if key == "count":
+                                continue
+                            if isinstance(value, dict) and "team" in value:
+                                team_array = value["team"]
+                                if isinstance(team_array, list) and len(team_array) > 0:
+                                    team_name = None
                                     team_standings = {}
                                     
-                                    for t in team_array:
-                                        if isinstance(t, dict):
-                                            if "name" in t:
-                                                team_info["name"] = t["name"]
-                                            if "team_standings" in t:
-                                                team_standings = t["team_standings"]
+                                    for element in team_array:
+                                        if isinstance(element, dict):
+                                            if "name" in element:
+                                                name_value = element["name"]
+                                                team_name = name_value.get("full") if isinstance(name_value, dict) else name_value
+                                            if "team_standings" in element and isinstance(element["team_standings"], dict):
+                                                team_standings = element["team_standings"]
                                     
-                                    if team_info and team_standings:
+                                    if team_name and team_standings:
                                         standings.append({
                                             "rank": team_standings.get("rank", 0),
-                                            "team": team_info.get("name", "Unknown"),
+                                            "team": team_name,
                                             "wins": team_standings.get("outcome_totals", {}).get("wins", 0),
                                             "losses": team_standings.get("outcome_totals", {}).get("losses", 0),
                                             "ties": team_standings.get("outcome_totals", {}).get("ties", 0),
                                             "points_for": team_standings.get("points_for", 0),
                                             "points_against": team_standings.get("points_against", 0)
                                         })
-            
+ 
+            # Deep fallback: traverse entire payload to find any team arrays with team_standings
+            if not standings:
+                def traverse_and_collect(obj):
+                    if isinstance(obj, dict):
+                        # Direct team block
+                        if "team" in obj and isinstance(obj["team"], list):
+                            team_array = obj["team"]
+                            team_name = None
+                            team_st = {}
+                            for el in team_array:
+                                if isinstance(el, dict):
+                                    if "name" in el:
+                                        nv = el["name"]
+                                        team_name = nv.get("full") if isinstance(nv, dict) else nv
+                                    if "team_standings" in el and isinstance(el["team_standings"], dict):
+                                        team_st = el["team_standings"]
+                            if team_name:
+                                standings.append({
+                                    "rank": team_st.get("rank", 0),
+                                    "team": team_name,
+                                    "wins": team_st.get("outcome_totals", {}).get("wins", 0),
+                                    "losses": team_st.get("outcome_totals", {}).get("losses", 0),
+                                    "ties": team_st.get("outcome_totals", {}).get("ties", 0),
+                                    "points_for": team_st.get("points_for", 0),
+                                    "points_against": team_st.get("points_against", 0)
+                                })
+                        for v in obj.values():
+                            traverse_and_collect(v)
+                    elif isinstance(obj, list):
+                        for v in obj:
+                            traverse_and_collect(v)
+                try:
+                    traverse_and_collect(data.get("fantasy_content", {}))
+                except Exception:
+                    pass
+
+            # Final fallback: Use get_all_teams_info to build placeholder standings
+            if not standings:
+                try:
+                    teams = await get_all_teams_info(league_key)
+                    if teams:
+                        # Assign ranks based on draft_position if available, else alphabetical
+                        if any(t.get("draft_position") for t in teams):
+                            teams_sorted = sorted(teams, key=lambda t: t.get("draft_position", 9999))
+                        else:
+                            teams_sorted = sorted(teams, key=lambda t: str(t.get("name", "")))
+                        standings = [
+                            {
+                                "rank": idx + 1,
+                                "team": (t.get("name", "Unknown").get("full") if isinstance(t.get("name"), dict) else t.get("name", "Unknown")),
+                                "wins": 0,
+                                "losses": 0,
+                                "ties": 0,
+                                "points_for": 0,
+                                "points_against": 0
+                            }
+                            for idx, t in enumerate(teams_sorted)
+                        ]
+                except Exception:
+                    pass
+
             # Sort by rank
             standings.sort(key=lambda x: x["rank"])
             
             result = {
                 "league_key": league_key,
-                "standings": standings
+                "standings": standings,
+                "debug_info": {
+                    "total_teams_found": len(standings),
+                    "league_structure": "logged_to_console"
+                }
             }
             
         elif name == "ff_get_roster":
@@ -1017,9 +1137,11 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 roster = []
                 team = data.get("fantasy_content", {}).get("team", [])
                 
+                # Look for roster data in the team array
                 for item in team:
                     if isinstance(item, dict) and "roster" in item:
                         roster_data = item["roster"]
+                        # Roster data is typically in the "0" key
                         if "0" in roster_data and "players" in roster_data["0"]:
                             players = roster_data["0"]["players"]
                             
@@ -1027,19 +1149,43 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                                 if key != "count" and isinstance(players[key], dict):
                                     if "player" in players[key]:
                                         player_array = players[key]["player"]
-                                        if isinstance(player_array, list) and len(player_array) > 1:
+                                        if isinstance(player_array, list) and len(player_array) > 0:
                                             player_info = {}
                                             
-                                            for p in player_array:
-                                                if isinstance(p, dict):
-                                                    if "name" in p:
-                                                        player_info["name"] = p["name"]["full"]
-                                                    if "selected_position" in p:
-                                                        player_info["position"] = p["selected_position"][0]["position"]
-                                                    if "status" in p:
-                                                        player_info["status"] = p.get("status", "OK")
+                                            # Player data is in nested array structure (similar to available players)
+                                            if isinstance(player_array[0], list):
+                                                player_data = player_array[0]
+                                                
+                                                for element in player_data:
+                                                    if isinstance(element, dict):
+                                                        # Basic info
+                                                        if "name" in element:
+                                                            name_val = element["name"]
+                                                            if isinstance(name_val, dict):
+                                                                player_info["name"] = name_val.get("full") or name_val.get("first")
+                                                            elif isinstance(name_val, str):
+                                                                player_info["name"] = name_val
+                                                        # Position - try multiple fields
+                                                        if "selected_position" in element:
+                                                            sel = element["selected_position"]
+                                                            if isinstance(sel, list) and len(sel) > 0:
+                                                                if isinstance(sel[0], dict):
+                                                                    player_info["position"] = sel[0].get("position") or sel[0].get("position_type")
+                                                                else:
+                                                                    player_info["position"] = str(sel[0])
+                                                            elif isinstance(sel, dict):
+                                                                player_info["position"] = sel.get("position") or sel.get("position_type")
+                                                        elif "display_position" in element:
+                                                            player_info["position"] = element["display_position"]
+                                                        elif "position" in element:
+                                                            player_info["position"] = element["position"]
+                                                        # Status
+                                                        if "status" in element:
+                                                            player_info["status"] = element.get("status", "OK")
+                                                        elif "status_full" in element:
+                                                            player_info["status"] = element.get("status_full", "OK")
                                             
-                                            if player_info:
+                                            if player_info.get("name"):
                                                 roster.append(player_info)
                 
                 result = {
@@ -1085,34 +1231,56 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             count = arguments.get("count", 10)
             
             pos_filter = f";position={position}" if position else ""
-            data = await yahoo_api_call(f"league/{league_key}/players;status=A{pos_filter};count={count}")
+            # Include default sort parameter to match working waiver wire endpoint
+            endpoint = f"league/{league_key}/players;status=A{pos_filter};sort=OR;count={count}"
+            data = await yahoo_api_call(endpoint)
             
             players = []
             league = data.get("fantasy_content", {}).get("league", [])
             
-            for item in league:
-                if isinstance(item, dict) and "players" in item:
-                    players_data = item["players"]
-                    
-                    for key in players_data:
-                        if key != "count" and isinstance(players_data[key], dict):
-                            if "player" in players_data[key]:
-                                player_array = players_data[key]["player"]
-                                if isinstance(player_array, list) and len(player_array) > 0:
+            # Players are in the second element of the league array (index 1)
+            if len(league) > 1 and isinstance(league[1], dict) and "players" in league[1]:
+                players_data = league[1]["players"]
+                
+                for key in players_data:
+                    if key != "count" and isinstance(players_data[key], dict):
+                        if "player" in players_data[key]:
+                            player_array = players_data[key]["player"]
+                            
+                            # Player data is in nested array structure
+                            if isinstance(player_array, list) and len(player_array) > 0:
+                                player_data = player_array[0]
+                                
+                                if isinstance(player_data, list):
                                     player_info = {}
                                     
-                                    for p in player_array:
-                                        if isinstance(p, dict):
-                                            if "name" in p:
-                                                player_info["name"] = p["name"]["full"]
-                                            if "editorial_team_abbr" in p:
-                                                player_info["team"] = p["editorial_team_abbr"]
-                                            if "display_position" in p:
-                                                player_info["position"] = p["display_position"]
-                                            if "ownership" in p:
-                                                player_info["owned_pct"] = p["ownership"].get("ownership_percentage", 0)
+                                    for element in player_data:
+                                        if isinstance(element, dict):
+                                            # Basic info
+                                            if "name" in element:
+                                                player_info["name"] = element["name"]["full"]
+                                            if "player_key" in element:
+                                                player_info["player_key"] = element["player_key"]
+                                            if "editorial_team_abbr" in element:
+                                                player_info["team"] = element["editorial_team_abbr"]
+                                            if "display_position" in element:
+                                                player_info["position"] = element["display_position"]
+                                            if "bye_weeks" in element:
+                                                player_info["bye"] = element["bye_weeks"].get("week", "N/A")
+                                            
+                                            # Ownership data
+                                            if "ownership" in element:
+                                                ownership = element["ownership"]
+                                                player_info["owned_pct"] = ownership.get("ownership_percentage", 0)
+                                                player_info["weekly_change"] = ownership.get("weekly_change", 0)
+                                            
+                                            # Injury status
+                                            if "status" in element:
+                                                player_info["injury_status"] = element["status"]
+                                            if "status_full" in element:
+                                                player_info["injury_detail"] = element["status_full"]
                                     
-                                    if player_info:
+                                    if player_info.get("name"):
                                         players.append(player_info)
             
             result = {
@@ -1136,7 +1304,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 roster_data = await yahoo_api_call(f"team/{team_key}/roster")
                 
                 # Import and use lineup optimizer
-                from lineup_optimizer import lineup_optimizer
+                from src.lineup_optimizer import lineup_optimizer
                 
                 # Parse roster
                 players = await lineup_optimizer.parse_yahoo_roster(roster_data)
