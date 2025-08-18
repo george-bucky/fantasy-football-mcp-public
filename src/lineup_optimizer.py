@@ -263,7 +263,7 @@ class LineupOptimizer:
                                         if isinstance(p, dict):
                                             if "name" in p:
                                                 player_obj.name = p["name"]["full"]
-                                            if "selected_position" in p:
+                                            if "selected_position" in p and isinstance(p["selected_position"], list) and len(p["selected_position"]) > 0:
                                                 pos_data = p["selected_position"][0]
                                                 player_obj.roster_position = pos_data.get("position", "")
                                                 player_obj.is_starter = pos_data.get("position") != "BN"

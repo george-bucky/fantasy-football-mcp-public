@@ -282,7 +282,7 @@ async def get_user_team_info(league_key: str) -> Optional[dict]:
 async def get_user_team_key(league_key: str) -> Optional[str]:
     """Get the user's team key in a specific league (legacy function for compatibility)."""
     team_info = await get_user_team_info(league_key)
-    return team_info["team_key"] if team_info else None
+    return team_info.get("team_key") if team_info else None
 
 
 async def get_waiver_wire_players(league_key: str, position: str = "all", sort: str = "rank", count: int = 20) -> List[dict]:
@@ -966,34 +966,35 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             standings = []
             league = data.get("fantasy_content", {}).get("league", [])
             
-            for item in league:
-                if isinstance(item, dict) and "standings" in item:
-                    standings_data = item["standings"]
-                    for key in standings_data:
-                        if key != "count" and isinstance(standings_data[key], dict):
-                            if "team" in standings_data[key]:
-                                team_array = standings_data[key]["team"]
-                                if isinstance(team_array, list) and len(team_array) > 1:
-                                    team_info = {}
-                                    team_standings = {}
-                                    
-                                    for t in team_array:
-                                        if isinstance(t, dict):
-                                            if "name" in t:
-                                                team_info["name"] = t["name"]
-                                            if "team_standings" in t:
-                                                team_standings = t["team_standings"]
-                                    
-                                    if team_info and team_standings:
-                                        standings.append({
-                                            "rank": team_standings.get("rank", 0),
-                                            "team": team_info.get("name", "Unknown"),
-                                            "wins": team_standings.get("outcome_totals", {}).get("wins", 0),
-                                            "losses": team_standings.get("outcome_totals", {}).get("losses", 0),
-                                            "ties": team_standings.get("outcome_totals", {}).get("ties", 0),
-                                            "points_for": team_standings.get("points_for", 0),
-                                            "points_against": team_standings.get("points_against", 0)
-                                        })
+            # Standings are typically in the second element of the league array (index 1)
+            if len(league) > 1 and isinstance(league[1], dict) and "standings" in league[1]:
+                standings_data = league[1]["standings"]
+                
+                for key in standings_data:
+                    if key != "count" and isinstance(standings_data[key], dict):
+                        if "team" in standings_data[key]:
+                            team_array = standings_data[key]["team"]
+                            if isinstance(team_array, list) and len(team_array) > 1:
+                                team_info = {}
+                                team_standings = {}
+                                
+                                for t in team_array:
+                                    if isinstance(t, dict):
+                                        if "name" in t:
+                                            team_info["name"] = t["name"]
+                                        if "team_standings" in t:
+                                            team_standings = t["team_standings"]
+                                
+                                if team_info and team_standings:
+                                    standings.append({
+                                        "rank": team_standings.get("rank", 0),
+                                        "team": team_info.get("name", "Unknown"),
+                                        "wins": team_standings.get("outcome_totals", {}).get("wins", 0),
+                                        "losses": team_standings.get("outcome_totals", {}).get("losses", 0),
+                                        "ties": team_standings.get("outcome_totals", {}).get("ties", 0),
+                                        "points_for": team_standings.get("points_for", 0),
+                                        "points_against": team_standings.get("points_against", 0)
+                                    })
             
             # Sort by rank
             standings.sort(key=lambda x: x["rank"])
@@ -1034,8 +1035,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                                                 if isinstance(p, dict):
                                                     if "name" in p:
                                                         player_info["name"] = p["name"]["full"]
-                                                    if "selected_position" in p:
-                                                        player_info["position"] = p["selected_position"][0]["position"]
+                                                    if "selected_position" in p and isinstance(p["selected_position"], list) and len(p["selected_position"]) > 0:
+                                                        player_info["position"] = p["selected_position"][0].get("position", "Unknown")
                                                     if "status" in p:
                                                         player_info["status"] = p.get("status", "OK")
                                             
@@ -1085,34 +1086,56 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             count = arguments.get("count", 10)
             
             pos_filter = f";position={position}" if position else ""
-            data = await yahoo_api_call(f"league/{league_key}/players;status=A{pos_filter};count={count}")
+            # Include default sort parameter to match working waiver wire endpoint
+            endpoint = f"league/{league_key}/players;status=A{pos_filter};sort=OR;count={count}"
+            data = await yahoo_api_call(endpoint)
             
             players = []
             league = data.get("fantasy_content", {}).get("league", [])
             
-            for item in league:
-                if isinstance(item, dict) and "players" in item:
-                    players_data = item["players"]
-                    
-                    for key in players_data:
-                        if key != "count" and isinstance(players_data[key], dict):
-                            if "player" in players_data[key]:
-                                player_array = players_data[key]["player"]
-                                if isinstance(player_array, list) and len(player_array) > 0:
+            # Players are in the second element of the league array (index 1)
+            if len(league) > 1 and isinstance(league[1], dict) and "players" in league[1]:
+                players_data = league[1]["players"]
+                
+                for key in players_data:
+                    if key != "count" and isinstance(players_data[key], dict):
+                        if "player" in players_data[key]:
+                            player_array = players_data[key]["player"]
+                            
+                            # Player data is in nested array structure
+                            if isinstance(player_array, list) and len(player_array) > 0:
+                                player_data = player_array[0]
+                                
+                                if isinstance(player_data, list):
                                     player_info = {}
                                     
-                                    for p in player_array:
-                                        if isinstance(p, dict):
-                                            if "name" in p:
-                                                player_info["name"] = p["name"]["full"]
-                                            if "editorial_team_abbr" in p:
-                                                player_info["team"] = p["editorial_team_abbr"]
-                                            if "display_position" in p:
-                                                player_info["position"] = p["display_position"]
-                                            if "ownership" in p:
-                                                player_info["owned_pct"] = p["ownership"].get("ownership_percentage", 0)
+                                    for element in player_data:
+                                        if isinstance(element, dict):
+                                            # Basic info
+                                            if "name" in element:
+                                                player_info["name"] = element["name"]["full"]
+                                            if "player_key" in element:
+                                                player_info["player_key"] = element["player_key"]
+                                            if "editorial_team_abbr" in element:
+                                                player_info["team"] = element["editorial_team_abbr"]
+                                            if "display_position" in element:
+                                                player_info["position"] = element["display_position"]
+                                            if "bye_weeks" in element:
+                                                player_info["bye"] = element["bye_weeks"].get("week", "N/A")
+                                            
+                                            # Ownership data
+                                            if "ownership" in element:
+                                                ownership = element["ownership"]
+                                                player_info["owned_pct"] = ownership.get("ownership_percentage", 0)
+                                                player_info["weekly_change"] = ownership.get("weekly_change", 0)
+                                            
+                                            # Injury status
+                                            if "status" in element:
+                                                player_info["injury_status"] = element["status"]
+                                            if "status_full" in element:
+                                                player_info["injury_detail"] = element["status_full"]
                                     
-                                    if player_info:
+                                    if player_info.get("name"):
                                         players.append(player_info)
             
             result = {
