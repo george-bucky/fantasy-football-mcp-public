@@ -24,7 +24,7 @@ except ImportError:
     REDDIT_AVAILABLE = False
 
 # Import rate limiting and caching utilities
-from yahoo_api_utils import rate_limiter, response_cache
+from src.yahoo_api_utils import rate_limiter, response_cache
 
 # Draft functionality is built-in (no complex imports needed)
 DRAFT_AVAILABLE = True
@@ -1136,7 +1136,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 roster_data = await yahoo_api_call(f"team/{team_key}/roster")
                 
                 # Import and use lineup optimizer
-                from lineup_optimizer import lineup_optimizer
+                from src.lineup_optimizer import lineup_optimizer
                 
                 # Parse roster
                 players = await lineup_optimizer.parse_yahoo_roster(roster_data)
