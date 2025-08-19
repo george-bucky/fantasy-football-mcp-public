@@ -33,10 +33,6 @@ You'll need the following credentials:
    - If name is taken, add numbers or make it more specific
    - ⚠️ This name must be unique across ALL Yahoo apps
 
-   ### Application Type
-   - Select: **"Installed Application"**
-   - ❌ Do NOT select "Web Application" (this will cause OAuth issues)
-
    ### Description
    - Example: "Personal fantasy football management tool for lineup optimization"
    - Must be at least 25 characters
@@ -48,7 +44,7 @@ You'll need the following credentials:
    ### Redirect URI(s)
    - Enter: `http://localhost:8000/callback`
    - ⚠️ **CRITICAL**: 
-     - Must be HTTP not HTTPS for localhost
+     - Must be HTTPS not HTTP for localhost
      - Must NOT have trailing slash
      - Must match EXACTLY in your code
 
@@ -57,10 +53,10 @@ You'll need the following credentials:
    - Click the checkbox for **"Read"** permission
    - ✅ Only select Read (not Read/Write)
 
-   ### Contact Email
-   - Use your email address
+   ### OAuth Client Type
+   - Pick Confidential Client - Choose for traditional apps.
 
-3. **Create the App**
+4. **Create the App**
    - Click "Create App" button
    - You'll see a confirmation screen
 
