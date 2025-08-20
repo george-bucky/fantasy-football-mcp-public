@@ -64,7 +64,7 @@ try:
         query = YahooFantasySportsQuery(
             league_id="",  # Empty to get all leagues
             game_code="nfl",
-            game_id=423,  # 2024 NFL season
+            game_id=449,  # 2025 NFL season
             yahoo_consumer_key=CLIENT_ID,
             yahoo_consumer_secret=CLIENT_SECRET,
             browser_callback=True,  # Opens browser automatically
@@ -84,7 +84,7 @@ try:
             print(f"✅ Connected! Found {len(user_games) if user_games else 0} games")
             
             # Try to get leagues
-            user_leagues = query.get_user_leagues()
+            user_leagues = query.get_user_leagues_by_game_key("449")  # NFL 2025 season
             if user_leagues:
                 print(f"✅ Found {len(user_leagues)} leagues:")
                 for i, league in enumerate(user_leagues, 1):
