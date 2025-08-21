@@ -540,6 +540,54 @@ class DataFetcherAgent:
             logger.error(f"Error getting injury report: {e}")
             raise
     
+    async def get_opponent_roster(
+        self, 
+        league_key: str, 
+        opponent_team_key: str, 
+        week: int = None
+    ) -> Dict[str, Any]:
+        """
+        Get opponent team roster for matchup analysis.
+        
+        Args:
+            league_key: Yahoo league identifier
+            opponent_team_key: Yahoo opponent team identifier
+            week: Optional week number (current week if not specified)
+            
+        Returns:
+            Opponent roster information dictionary
+        """
+        cache_key = f"opponent_roster:{league_key}:{opponent_team_key}:{week or 'current'}"
+        
+        # Check cache first
+        cached_data = await self.cache_manager.get(cache_key)
+        if cached_data is not None:
+            logger.debug(f"Returning cached opponent roster for team {opponent_team_key}, week {week}")
+            return cached_data
+        
+        try:
+            # Use the existing get_roster method with opponent team key
+            roster_info = await self.get_roster(league_key, opponent_team_key, week)
+            
+            # Add opponent-specific metadata
+            roster_info['is_opponent'] = True
+            roster_info['opponent_team_key'] = opponent_team_key
+            
+            # Cache opponent roster data
+            await self.cache_manager.set(
+                cache_key,
+                roster_info,
+                ttl=timedelta(hours=2),  # Same TTL as regular rosters
+                tags=["roster", "opponent", "yahoo_api", f"league:{league_key}"]
+            )
+            
+            logger.info(f"Retrieved opponent roster for team {opponent_team_key}, {len(roster_info['players'])} players")
+            return roster_info
+            
+        except Exception as e:
+            logger.error(f"Error getting opponent roster for team {opponent_team_key}: {e}")
+            raise
+    
     async def fetch_multiple_leagues_data(
         self,
         league_keys: List[str],

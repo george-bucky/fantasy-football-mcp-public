@@ -55,7 +55,9 @@ pip install -r requirements.txt
 
 ### Team Management  
 - `ff_get_roster` - Get your team roster
-- `ff_get_matchup` - View matchup details
+- `ff_get_matchup` - View matchup details with opponent analysis
+- `ff_get_opponent_roster` - Get opponent's roster for matchup planning
+- `ff_get_opponent_roster_comparison` - Detailed roster comparison and insights
 - `ff_get_optimal_lineup` - Get AI lineup recommendations
 
 ### Player Discovery
