@@ -285,6 +285,43 @@ async def get_user_team_key(league_key: str) -> Optional[str]:
     return team_info["team_key"] if team_info else None
 
 
+def parse_team_roster(data: dict) -> List[dict]:
+    """Extract a simple roster list from Yahoo team data."""
+    roster: List[dict] = []
+    team = data.get("fantasy_content", {}).get("team", [])
+
+    for item in team:
+        if isinstance(item, dict) and "roster" in item:
+            roster_data = item["roster"]
+            players = roster_data.get("0", {}).get("players") if isinstance(roster_data, dict) else None
+            if not players:
+                continue
+
+            for key, pdata in players.items():
+                if key == "count" or not isinstance(pdata, dict) or "player" not in pdata:
+                    continue
+
+                player_array = pdata["player"]
+                if not isinstance(player_array, list):
+                    continue
+
+                info: Dict[str, Any] = {}
+                for element in player_array:
+                    if isinstance(element, dict):
+                        if "name" in element:
+                            info["name"] = element["name"].get("full")
+                        if "selected_position" in element:
+                            pos = element["selected_position"][0].get("position")
+                            info["position"] = pos
+                        if "status" in element:
+                            info["status"] = element.get("status", "OK")
+
+                if info:
+                    roster.append(info)
+
+    return roster
+
+
 async def get_waiver_wire_players(league_key: str, position: str = "all", sort: str = "rank", count: int = 20) -> List[dict]:
     """Get available waiver wire players with detailed stats."""
     try:
@@ -631,7 +668,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')"
+                        "description": "League key (e.g., '461.l.900001')",
                     }
                 },
                 "required": ["league_key"]
@@ -645,7 +682,11 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')"
+                        "description": "League key (e.g., '461.l.900001')",
+                    },
+                    "team_key": {
+                        "type": "string",
+                        "description": "Optional team key if not the logged-in team",
                     }
                 },
                 "required": ["league_key"]
@@ -693,6 +734,28 @@ async def list_tools() -> list[Tool]:
             }
         ),
         Tool(
+            name="ff_compare_teams",
+            description="Compare two teams' rosters within a league",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "league_key": {
+                        "type": "string",
+                        "description": "League key (e.g., '461.l.900001')",
+                    },
+                    "team_key_a": {
+                        "type": "string",
+                        "description": "First team key to compare",
+                    },
+                    "team_key_b": {
+                        "type": "string",
+                        "description": "Second team key to compare",
+                    }
+                },
+                "required": ["league_key", "team_key_a", "team_key_b"]
+            }
+        ),
+        Tool(
             name="ff_get_optimal_lineup",
             description="Get AI-optimized lineup recommendations for a league",
             inputSchema={
@@ -731,7 +794,11 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')"
+                        "description": "League key (e.g., '461.l.900001')",
+                    },
+                    "team_key": {
+                        "type": "string",
+                        "description": "Optional team key if not the logged-in team",
                     }
                 },
                 "required": ["league_key"]
@@ -1004,56 +1071,35 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             }
             
         elif name == "ff_get_roster":
-            # Get user's roster
             league_key = arguments.get("league_key")
-            
-            # Get user's team info
-            team_info = await get_user_team_info(league_key)
-            
-            if team_info:
-                team_key = team_info["team_key"]
-                data = await yahoo_api_call(f"team/{team_key}/roster")
-                
-                roster = []
-                team = data.get("fantasy_content", {}).get("team", [])
-                
-                for item in team:
-                    if isinstance(item, dict) and "roster" in item:
-                        roster_data = item["roster"]
-                        if "0" in roster_data and "players" in roster_data["0"]:
-                            players = roster_data["0"]["players"]
-                            
-                            for key in players:
-                                if key != "count" and isinstance(players[key], dict):
-                                    if "player" in players[key]:
-                                        player_array = players[key]["player"]
-                                        if isinstance(player_array, list) and len(player_array) > 1:
-                                            player_info = {}
-                                            
-                                            for p in player_array:
-                                                if isinstance(p, dict):
-                                                    if "name" in p:
-                                                        player_info["name"] = p["name"]["full"]
-                                                    if "selected_position" in p:
-                                                        player_info["position"] = p["selected_position"][0]["position"]
-                                                    if "status" in p:
-                                                        player_info["status"] = p.get("status", "OK")
-                                            
-                                            if player_info:
-                                                roster.append(player_info)
-                
-                result = {
-                    "league_key": league_key,
-                    "team_key": team_key,
-                    "team_name": team_info.get("team_name", "Unknown"),
-                    "draft_position": team_info.get("draft_position"),
-                    "draft_grade": team_info.get("draft_grade"),
-                    "roster": roster
-                }
-            else:
-                result = {
-                    "error": f"Could not find your team in league {league_key}"
-                }
+            team_key = arguments.get("team_key")
+            team_info = None
+
+            if not team_key:
+                team_info = await get_user_team_info(league_key)
+                if team_info:
+                    team_key = team_info.get("team_key")
+                else:
+                    result = {
+                        "error": f"Could not find your team in league {league_key}",
+                        "suggestion": "Provide team_key explicitly if multiple teams exist",
+                    }
+                    return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+            data = await yahoo_api_call(f"team/{team_key}/roster")
+            roster = parse_team_roster(data)
+
+            if team_info is None or team_info.get("team_key") != team_key:
+                team_info = await get_user_team_info(league_key)
+
+            result = {
+                "league_key": league_key,
+                "team_key": team_key,
+                "team_name": team_info.get("team_name") if team_info else None,
+                "draft_position": team_info.get("draft_position") if team_info else None,
+                "draft_grade": team_info.get("draft_grade") if team_info else None,
+                "roster": roster,
+            }
             
         elif name == "ff_get_matchup":
             # Get matchup
@@ -1121,7 +1167,23 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "count": len(players),
                 "players": players[:count]
             }
-            
+        elif name == "ff_compare_teams":
+            league_key = arguments.get("league_key")
+            team_key_a = arguments.get("team_key_a")
+            team_key_b = arguments.get("team_key_b")
+
+            data_a = await yahoo_api_call(f"team/{team_key_a}/roster")
+            data_b = await yahoo_api_call(f"team/{team_key_b}/roster")
+
+            roster_a = parse_team_roster(data_a)
+            roster_b = parse_team_roster(data_b)
+
+            result = {
+                "league_key": league_key,
+                "team_a": {"team_key": team_key_a, "roster": roster_a},
+                "team_b": {"team_key": team_key_b, "roster": roster_b},
+            }
+
         elif name == "ff_get_optimal_lineup":
             # Get optimal lineup recommendations with Sleeper integration
             league_key = arguments.get("league_key")
