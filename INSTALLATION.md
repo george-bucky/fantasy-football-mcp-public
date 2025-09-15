@@ -169,19 +169,20 @@ python reauth_yahoo.py
 
 ## Available MCP Tools
 
-Once installed, you'll have access to 11 tools:
+Once installed, you'll have access to 12 tools:
 
 1. **ff_get_leagues** - List all your fantasy football leagues
 2. **ff_get_league_info** - Get detailed league information with your team name
 3. **ff_get_standings** - View current standings
-4. **ff_get_roster** - Get your team roster with team name
-5. **ff_get_matchup** - View matchup details
-6. **ff_get_players** - Browse available players
-7. **ff_get_optimal_lineup** - Get lineup recommendations
-8. **ff_refresh_token** - Refresh Yahoo access token
-9. **ff_get_draft_results** - View draft results and grades
-10. **ff_get_waiver_wire** - Find top waiver wire pickups
-11. **ff_get_draft_rankings** - Get pre-draft player rankings
+4. **ff_get_roster** - Get a team roster with team name (accepts optional `team_key`)
+5. **ff_compare_teams** - Compare two teams' rosters
+6. **ff_get_matchup** - View matchup details
+7. **ff_get_players** - Browse available players
+8. **ff_get_optimal_lineup** - Get lineup recommendations
+9. **ff_refresh_token** - Refresh Yahoo access token
+10. **ff_get_draft_results** - View draft results and grades
+11. **ff_get_waiver_wire** - Find top waiver wire pickups
+12. **ff_get_draft_rankings** - Get pre-draft player rankings
 
 ## Troubleshooting
 

@@ -10,15 +10,16 @@ A Model Context Protocol (MCP) server for Yahoo Fantasy Football integration wit
 - **AI-Ready**: Designed for intelligent lineup recommendations and analysis
 - **Production Ready**: Comprehensive error handling and robust authentication
 
-## Available MCP Tools (11 Total)
+## Available MCP Tools (12 Total)
 
 ### League Management
 - `ff_get_leagues` - List all your fantasy football leagues
 - `ff_get_league_info` - Get detailed information about a specific league (includes your team name)
 - `ff_get_standings` - View current standings for any league
 
-### Team Management  
-- `ff_get_roster` - Get your team roster with team name and draft info
+### Team Management
+- `ff_get_roster` - Get a team roster with team name and draft info (accepts optional `team_key`)
+- `ff_compare_teams` - Compare two teams' rosters within a league
 - `ff_get_matchup` - View matchup details for any week
 - `ff_get_optimal_lineup` - Get AI lineup recommendations (with strategy options)
 
