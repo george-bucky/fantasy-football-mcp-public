@@ -6,6 +6,7 @@ Fantasy Football MCP Server - Multi-League Support
 import asyncio
 import json
 import os
+import socket
 from typing import Any, Optional
 
 import aiohttp
@@ -66,7 +67,8 @@ async def yahoo_api_call(
     url = f"{YAHOO_API_BASE}/{endpoint}?format=json"
     headers = {"Authorization": f"Bearer {YAHOO_ACCESS_TOKEN}", "Accept": "application/json"}
 
-    async with aiohttp.ClientSession() as session:
+    connector = aiohttp.TCPConnector(family=socket.AF_INET)
+    async with aiohttp.ClientSession(connector=connector, trust_env=True) as session:
         async with session.get(url, headers=headers) as response:
             if response.status == 200:
                 data = await response.json()
@@ -112,7 +114,8 @@ async def refresh_yahoo_token() -> dict:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
+        connector = aiohttp.TCPConnector(family=socket.AF_INET)
+        async with aiohttp.ClientSession(connector=connector, trust_env=True) as session:
             async with session.post(token_url, data=data) as response:
                 if response.status == 200:
                     token_data = await response.json()
@@ -1138,42 +1141,48 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             for item in league:
                 if isinstance(item, dict) and "standings" in item:
-                    standings_data = item["standings"]
-                    for key in standings_data:
-                        if key != "count" and isinstance(standings_data[key], dict):
-                            if "team" in standings_data[key]:
-                                team_array = standings_data[key]["team"]
-                                if isinstance(team_array, list) and len(team_array) > 1:
-                                    team_info = {}
-                                    team_standings = {}
+                    standings_list = item["standings"]
+                    teams = {}
+                    if isinstance(standings_list, list) and standings_list:
+                        teams = standings_list[0].get("teams", {})
+                    elif isinstance(standings_list, dict):
+                        teams = standings_list.get("teams", {})
 
-                                    for t in team_array:
-                                        if isinstance(t, dict):
-                                            if "name" in t:
-                                                team_info["name"] = t["name"]
-                                            if "team_standings" in t:
-                                                team_standings = t["team_standings"]
+                    for key, team_entry in teams.items():
+                        if key == "count" or not isinstance(team_entry, dict):
+                            continue
+                        if "team" in team_entry:
+                            team_array = team_entry["team"]
+                            team_info = {}
+                            team_standings = {}
+                            if isinstance(team_array, list) and team_array:
+                                core = team_array[0]
+                                if isinstance(core, list):
+                                    for elem in core:
+                                        if isinstance(elem, dict) and "name" in elem:
+                                            team_info["name"] = elem["name"]
+                                for part in team_array[1:]:
+                                    if isinstance(part, dict) and "team_standings" in part:
+                                        team_standings = part["team_standings"]
 
-                                    if team_info and team_standings:
-                                        standings.append(
-                                            {
-                                                "rank": team_standings.get("rank", 0),
-                                                "team": team_info.get("name", "Unknown"),
-                                                "wins": team_standings.get(
-                                                    "outcome_totals", {}
-                                                ).get("wins", 0),
-                                                "losses": team_standings.get(
-                                                    "outcome_totals", {}
-                                                ).get("losses", 0),
-                                                "ties": team_standings.get(
-                                                    "outcome_totals", {}
-                                                ).get("ties", 0),
-                                                "points_for": team_standings.get("points_for", 0),
-                                                "points_against": team_standings.get(
-                                                    "points_against", 0
-                                                ),
-                                            }
-                                        )
+                            if team_info and team_standings:
+                                standings.append(
+                                    {
+                                        "rank": team_standings.get("rank", 0),
+                                        "team": team_info.get("name", "Unknown"),
+                                        "wins": team_standings.get("outcome_totals", {}).get(
+                                            "wins", 0
+                                        ),
+                                        "losses": team_standings.get("outcome_totals", {}).get(
+                                            "losses", 0
+                                        ),
+                                        "ties": team_standings.get("outcome_totals", {}).get(
+                                            "ties", 0
+                                        ),
+                                        "points_for": team_standings.get("points_for", 0),
+                                        "points_against": team_standings.get("points_against", 0),
+                                    }
+                                )
 
             # Sort by rank
             standings.sort(key=lambda x: x["rank"])
