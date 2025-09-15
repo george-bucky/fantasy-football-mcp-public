@@ -333,24 +333,55 @@ def parse_team_roster(data: dict) -> list[dict]:
                     continue
 
                 info: dict[str, Any] = {}
+
+                # Helper to robustly extract selected position regardless of structure
+                def _extract_position(selected_position_obj: Any) -> Optional[str]:
+                    if not selected_position_obj:
+                        return None
+                    if isinstance(selected_position_obj, dict):
+                        # Direct form: {"position": "WR"}
+                        if "position" in selected_position_obj:
+                            return selected_position_obj.get("position")
+                        # Keyed form: {"0": {"position": "WR"}, "count": 1}
+                        for k, v in selected_position_obj.items():
+                            if k == "count":
+                                continue
+                            if isinstance(v, dict) and "position" in v:
+                                return v["position"]
+                    elif isinstance(selected_position_obj, list):
+                        for entry in selected_position_obj:
+                            if isinstance(entry, dict) and "position" in entry:
+                                return entry["position"]
+                    return None
+
+                def _scan_container(container: Any) -> None:
+                    if not isinstance(container, dict):
+                        return
+                    name_dict = container.get("name")
+                    if isinstance(name_dict, dict) and "full" in name_dict:
+                        info["name"] = name_dict.get("full")
+                    # Status, default will be set later if absent
+                    if "status" in container:
+                        info["status"] = container.get("status", "OK")
+                    # Prefer selected_position when available
+                    if "selected_position" in container:
+                        pos = _extract_position(container.get("selected_position"))
+                        if pos:
+                            info["position"] = pos
+                    # Fallback to display position if selected_position not found
+                    if "position" not in info and "display_position" in container:
+                        info["position"] = container.get("display_position")
+
                 for element in player_array:
-                    if isinstance(element, list):
+                    if isinstance(element, dict):
+                        _scan_container(element)
+                    elif isinstance(element, list):
                         for sub in element:
-                            if isinstance(sub, dict):
-                                if "name" in sub:
-                                    info["name"] = sub["name"].get("full")
-                                if "status" in sub:
-                                    info["status"] = sub.get("status", "OK")
-                    elif isinstance(element, dict):
-                        if "selected_position" in element:
-                            for pos_entry in element["selected_position"]:
-                                if isinstance(pos_entry, dict) and "position" in pos_entry:
-                                    info["position"] = pos_entry["position"]
-                                    break
-                        if "status" in element:
-                            info["status"] = element.get("status", "OK")
+                            _scan_container(sub)
 
                 if info:
+                    if "status" not in info:
+                        info["status"] = "OK"
                     roster.append(info)
 
     return roster
