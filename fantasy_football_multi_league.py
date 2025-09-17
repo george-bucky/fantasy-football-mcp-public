@@ -621,14 +621,132 @@ async def analyze_reddit_sentiment(
     players: list[str], time_window_hours: int = 48
 ) -> dict[str, Any]:
     """
-    Analyze Reddit sentiment for fantasy football players.
+    Analyze Reddit sentiment for fantasy football players using enhanced analyzer.
     Used for Start/Sit decisions based on community consensus.
     """
+    try:
+        # Import enhanced Reddit analyzer
+        from src.agents.reddit_analyzer import RedditSentimentAgent
+        
+        # Create mock settings for the analyzer
+        class MockSettings:
+            mcp_server_version = "1.0.0"
+        
+        # Initialize enhanced analyzer
+        analyzer = RedditSentimentAgent(MockSettings())
+        
+        # Analyze sentiment with enhanced error handling
+        if len(players) == 1:
+            # Single player analysis
+            result = await analyzer.analyze_player_sentiment(players[0], time_window_hours)
+            
+            # Convert to legacy format for compatibility
+            return {
+                "players": players,
+                "analysis_type": "single",
+                "time_window_hours": time_window_hours,
+                "player_data": {
+                    players[0]: {
+                        "sentiment_score": result.overall_sentiment or 0.0,
+                        "consensus": result.consensus or "MIXED",
+                        "posts_analyzed": result.posts_analyzed,
+                        "comments_analyzed": result.comments_analyzed,
+                        "injury_mentions": result.injury_mentions,
+                        "hype_score": result.hype_score,
+                        "top_comments": result.top_comments[:3],
+                        "status": result.status,
+                        "confidence": result.confidence,
+                        "fallback_used": result.fallback_used
+                    }
+                },
+                "enhanced_analyzer": True  # Flag to indicate enhanced version
+            }
+        else:
+            # Multiple player comparison
+            comparison = await analyzer.compare_players(players, time_window_hours)
+            
+            # Convert results to legacy format
+            player_data = {}
+            for player_name, result in comparison.get('results', {}).items():
+                player_data[player_name] = {
+                    "sentiment_score": result.overall_sentiment or 0.0,
+                    "consensus": result.consensus or "MIXED",
+                    "posts_analyzed": result.posts_analyzed,
+                        "comments_analyzed": result.comments_analyzed,
+                        "injury_mentions": result.injury_mentions,
+                        "hype_score": result.hype_score,
+                        "top_comments": result.top_comments[:3],
+                        "status": result.status,
+                        "confidence": result.confidence,
+                        "fallback_used": result.fallback_used
+                    }
+                },
+                "errors": result.errors if result.errors else []
+            }
+        else:
+            # Multi-player comparison
+            comparison = await analyzer.compare_players_sentiment(players, time_window_hours)
+            
+            # Convert to legacy format
+            player_data = {}
+            for player in players:
+                if player in comparison['analysis']:
+                    result = comparison['analysis'][player]
+                    player_data[player] = {
+                        "sentiment_score": result.overall_sentiment or 0.0,
+                        "consensus": result.consensus or "MIXED",
+                        "posts_analyzed": result.posts_analyzed,
+                        "comments_analyzed": result.comments_analyzed,
+                        "injury_mentions": result.injury_mentions,
+                        "hype_score": result.hype_score,
+                        "top_comments": result.top_comments[:3],
+                        "status": result.status,
+                        "confidence": result.confidence,
+                        "fallback_used": result.fallback_used
+                    }
+            
+            return {
+                "players": players,
+                "analysis_type": "comparison",
+                "time_window_hours": time_window_hours,
+                "player_data": player_data,
+                "recommendation": comparison.get('recommendation', {}),
+                "confidence": comparison.get('confidence', 0),
+                "successful_analyses": comparison.get('successful_analyses', 0),
+                "total_players": comparison.get('total_players', len(players)),
+                "timestamp": comparison.get('timestamp', ''),
+                "enhanced_analyzer": True  # Flag to indicate enhanced version
+            }
+        
+        # Clean up
+        await analyzer.cleanup()
+        
+    except ImportError as e:
+        # Fallback to basic implementation if enhanced analyzer not available
+        return await _analyze_reddit_sentiment_fallback(players, time_window_hours, f"Enhanced analyzer unavailable: {e}")
+    except Exception as e:
+        # Fallback to basic implementation on any error
+        return await _analyze_reddit_sentiment_fallback(players, time_window_hours, f"Enhanced analyzer failed: {e}")
+
+
+async def _analyze_reddit_sentiment_fallback(
+    players: list[str], time_window_hours: int = 48, error_reason: str = ""
+) -> dict[str, Any]:
+    """
+    Fallback Reddit sentiment analysis using basic implementation.
+    Used when enhanced analyzer is unavailable.
+    """
     if not REDDIT_AVAILABLE:
-        return {"error": "Reddit analysis not available. Install 'praw' and 'textblob' packages."}
+        return {
+            "error": "Reddit analysis not available. Install 'praw' and 'textblob' packages.",
+            "fallback_reason": error_reason
+        }
 
     if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET:
-        return {"error": "Reddit API credentials not configured"}
+        return {
+            "error": "Reddit API credentials not configured",
+            "fallback_reason": error_reason
+        }
 
     try:
         # Initialize Reddit client
@@ -643,6 +761,8 @@ async def analyze_reddit_sentiment(
             "analysis_type": "comparison" if len(players) > 1 else "single",
             "time_window_hours": time_window_hours,
             "player_data": {},
+            "fallback_used": True,
+            "fallback_reason": error_reason
         }
 
         subreddits = ["fantasyfootball", "DynastyFF", "Fantasy_Football", "nfl"]
@@ -1315,77 +1435,124 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             team_key = await get_user_team_key(league_key)
 
             if team_key:
-                # Get roster data from Yahoo
-                roster_data = await yahoo_api_call(f"team/{team_key}/roster")
+                try:
+                    # Get roster data from Yahoo
+                    roster_data = await yahoo_api_call(f"team/{team_key}/roster")
 
-                # Import and use lineup optimizer
-                from lineup_optimizer import lineup_optimizer
-
-                # Parse roster
-                players = await lineup_optimizer.parse_yahoo_roster(roster_data)
-
-                # Enhance with external data (Sleeper, matchups, trending)
-                players = await lineup_optimizer.enhance_with_external_data(players)
-
-                # Optimize lineup
-                optimization = lineup_optimizer.optimize_lineup(players, strategy)
-
-                # Format starters for response
-                starters_formatted = {}
-                for pos, player in optimization["starters"].items():
-                    starters_formatted[pos] = {
-                        "name": player.name,
-                        "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
-                        "team": player.team,
-                        "opponent": player.opponent,
-                        "matchup_score": player.matchup_score,
-                        "matchup": player.matchup_description,
-                        "composite_score": round(player.composite_score, 1),
-                        "yahoo_proj": (
-                            round(player.yahoo_projection, 1) if player.yahoo_projection else None
-                        ),
-                        "sleeper_proj": (
-                            round(player.sleeper_projection, 1)
-                            if player.sleeper_projection
-                            else None
-                        ),
-                        "trending": (
-                            f"{player.trending_score:,} adds" if player.trending_score > 0 else None
-                        ),
-                    }
-
-                # Format bench for response
-                bench_formatted = []
-                for player in optimization["bench"][:5]:  # Top 5 bench players
-                    bench_formatted.append(
-                        {
-                            "name": player.name,
-                            "position": player.position,
-                            "opponent": player.opponent,
-                            "composite_score": round(player.composite_score, 1),
-                            "matchup_score": player.matchup_score,
+                    # Import and use lineup optimizer with error handling
+                    try:
+                        from lineup_optimizer import lineup_optimizer
+                    except ImportError as e:
+                        result = {
+                            "error": f"Lineup optimizer unavailable: {e}",
+                            "suggestion": "Please check lineup_optimizer.py dependencies"
                         }
-                    )
+                        return result
 
-                result = {
-                    "league_key": league_key,
-                    "team_key": team_key,
-                    "week": week or "current",
-                    "strategy": strategy,
-                    "optimal_lineup": starters_formatted,
-                    "bench": bench_formatted,
-                    "recommendations": optimization["recommendations"],
-                    "analysis": {
-                        "total_players": len(players),
-                        "strategy_used": optimization["strategy_used"],
-                        "data_sources": [
-                            "Yahoo projections",
-                            "Sleeper rankings",
-                            "Matchup analysis",
-                            "Trending data",
-                        ],
-                    },
-                }
+                    # Parse roster with enhanced error handling
+                    players = await lineup_optimizer.parse_yahoo_roster(roster_data)
+                    
+                    if not players:
+                        result = {
+                            "error": "Failed to parse Yahoo roster data",
+                            "league_key": league_key,
+                            "team_key": team_key,
+                            "suggestion": "Check roster data format or try refreshing"
+                        }
+                        return result
+
+                    # Enhance with external data (Sleeper, matchups, trending)
+                    players = await lineup_optimizer.enhance_with_external_data(players)
+
+                    # Optimize lineup with enhanced error handling
+                    optimization = lineup_optimizer.optimize_lineup(players, strategy, week)
+                    
+                    # Check optimization status
+                    if optimization["status"] == "error":
+                        result = {
+                            "error": "Lineup optimization failed",
+                            "league_key": league_key,
+                            "team_key": team_key,
+                            "details": optimization["errors"],
+                            "data_quality": optimization.get("data_quality", {})
+                        }
+                        return result
+
+                    # Format starters for response
+                    starters_formatted = {}
+                    for pos, player in optimization["starters"].items():
+                        starters_formatted[pos] = {
+                            "name": player.name,
+                            "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+                            "team": player.team,
+                            "opponent": player.opponent,
+                            "matchup_score": player.matchup_score,
+                            "matchup": player.matchup_description,
+                            "composite_score": round(player.composite_score, 1),
+                            "yahoo_proj": (
+                                round(player.yahoo_projection, 1) if player.yahoo_projection else None
+                            ),
+                            "sleeper_proj": (
+                                round(player.sleeper_projection, 1)
+                                if player.sleeper_projection
+                                else None
+                            ),
+                            "trending": (
+                                f"{player.trending_score:,} adds" if player.trending_score > 0 else None
+                            ),
+                            "floor": round(player.floor_projection, 1) if player.floor_projection else None,
+                            "ceiling": round(player.ceiling_projection, 1) if player.ceiling_projection else None,
+                        }
+
+                    # Format bench for response
+                    bench_formatted = []
+                    for player in optimization["bench"][:5]:  # Top 5 bench players
+                        bench_formatted.append(
+                            {
+                                "name": player.name,
+                                "position": player.position,
+                                "opponent": player.opponent,
+                                "composite_score": round(player.composite_score, 1),
+                                "matchup_score": player.matchup_score,
+                                "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+                            }
+                        )
+
+                    result = {
+                        "status": optimization["status"],
+                        "league_key": league_key,
+                        "team_key": team_key,
+                        "week": week or "current",
+                        "strategy": strategy,
+                        "optimal_lineup": starters_formatted,
+                        "bench": bench_formatted,
+                        "recommendations": optimization["recommendations"],
+                        "analysis": {
+                            "total_players": optimization["data_quality"]["total_players"],
+                            "valid_players": optimization["data_quality"]["valid_players"],
+                            "players_with_projections": optimization["data_quality"]["players_with_projections"],
+                            "players_with_matchup_data": optimization["data_quality"]["players_with_matchup_data"],
+                            "strategy_used": optimization["strategy_used"],
+                            "data_sources": [
+                                "Yahoo projections",
+                                "Sleeper rankings",
+                                "Matchup analysis",
+                                "Trending data",
+                            ],
+                        },
+                    }
+                    
+                    # Add warnings if there were issues
+                    if optimization.get("errors"):
+                        result["warnings"] = optimization["errors"]
+                    
+                except Exception as e:
+                    result = {
+                        "error": f"Unexpected error during lineup optimization: {str(e)}",
+                        "league_key": league_key,
+                        "team_key": team_key,
+                        "suggestion": "Try again or check system logs for details"
+                    }
             else:
                 result = {"error": f"Could not find your team in league {league_key}"}
 

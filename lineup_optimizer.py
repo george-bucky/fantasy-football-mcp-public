@@ -4,12 +4,34 @@ Lineup Optimizer for Fantasy Football
 Combines Yahoo data, Sleeper rankings, and matchup analysis
 """
 
+import logging
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 import numpy as np
-from matchup_analyzer import matchup_analyzer
-from sleeper_api import sleeper_client, get_trending_adds
-from position_normalizer import position_normalizer
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import external modules with error handling
+try:
+    from matchup_analyzer import matchup_analyzer
+except ImportError as e:
+    logger.error(f"Failed to import matchup_analyzer: {e}")
+    matchup_analyzer = None
+
+try:
+    from sleeper_api import sleeper_client, get_trending_adds
+except ImportError as e:
+    logger.error(f"Failed to import sleeper_api: {e}")
+    sleeper_client = None
+    get_trending_adds = None
+
+try:
+    from position_normalizer import position_normalizer
+except ImportError as e:
+    logger.error(f"Failed to import position_normalizer: {e}")
+    position_normalizer = None
 
 
 @dataclass
@@ -18,17 +40,17 @@ class Player:
     name: str
     position: str
     team: str
-    opponent: str
+    opponent: str = ""
     yahoo_projection: float = 0.0
     sleeper_projection: float = 0.0
     matchup_score: int = 50
-    matchup_description: str = ""
+    matchup_description: str = "Unknown matchup"
     trending_score: int = 0  # Based on adds/drops
     composite_score: float = 0.0
     recommendation: str = ""
     is_starter: bool = False
     roster_position: str = ""  # QB, RB1, RB2, WR1, etc.
-    player_tier: str = ""  # "elite", "stud", "solid", "flex", "bench"
+    player_tier: str = "unknown"  # "elite", "stud", "solid", "flex", "bench"
     base_rank: int = 999  # Overall positional rank (1 = best)
     momentum_score: float = 50.0  # Recent performance trend (0-100)
     recent_scores: List[float] = field(default_factory=list)  # Last 3-5 games
@@ -36,6 +58,19 @@ class Player:
     ceiling_projection: float = 0.0  # High-end projection
     consistency_score: float = 50.0  # 0-100, higher = more consistent
     flex_score: float = 0.0  # Position-normalized FLEX value
+    
+    def is_valid(self) -> bool:
+        """Validate player has minimum required data."""
+        return all([
+            self.name.strip(),
+            self.position in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'],
+            self.team.strip()
+        ])
+    
+    def get_best_projection(self) -> float:
+        """Get the higher of Yahoo or Sleeper projection."""
+        projections = [p for p in [self.yahoo_projection, self.sleeper_projection] if p > 0]
+        return max(projections) if projections else 0.0
 
 
 class LineupOptimizer:
@@ -66,10 +101,19 @@ class LineupOptimizer:
         }
         
     async def load_trending_data(self):
-        """Load trending player data."""
+        """Load trending player data with error handling."""
         if not self.trending_players:
-            adds = await get_trending_adds(limit=100)
-            self.trending_players = {p['name']: p['count'] for p in adds}
+            try:
+                if get_trending_adds is not None:
+                    adds = await get_trending_adds(limit=100)
+                    self.trending_players = {p['name']: p['count'] for p in adds if 'name' in p and 'count' in p}
+                    logger.info(f"Loaded trending data for {len(self.trending_players)} players")
+                else:
+                    logger.warning("get_trending_adds not available, using empty trending data")
+                    self.trending_players = {}
+            except Exception as e:
+                logger.error(f"Failed to load trending data: {e}")
+                self.trending_players = {}  # Use empty dict as fallback
     
     def determine_player_tier(self, player: Player) -> str:
         """
@@ -77,7 +121,7 @@ class LineupOptimizer:
         Adapts to weekly scoring environment changes.
         """
         # Use the higher of Yahoo or Sleeper projection
-        proj = max(player.yahoo_projection, player.sleeper_projection)
+        proj = player.get_best_projection()
         
         if not proj or player.position not in self.tier_thresholds:
             return "unknown"
@@ -235,7 +279,51 @@ class LineupOptimizer:
         return min(150, final_score)
     
     async def parse_yahoo_roster(self, roster_data: dict) -> List[Player]:
-        """Parse Yahoo roster data into Player objects."""
+        """Parse Yahoo roster data into Player objects with robust error handling."""
+        players = []
+        
+        try:
+            logger.info("Starting Yahoo roster parsing...")
+            
+            # Multiple parsing strategies to handle different Yahoo API response formats
+            parsing_strategies = [
+                self._parse_yahoo_strategy_1,
+                self._parse_yahoo_strategy_2,
+                self._parse_yahoo_strategy_fallback
+            ]
+            
+            for i, strategy in enumerate(parsing_strategies):
+                try:
+                    logger.info(f"Trying parsing strategy {i+1}...")
+                    players = strategy(roster_data)
+                    if players:
+                        logger.info(f"Successfully parsed {len(players)} players using strategy {i+1}")
+                        break
+                except Exception as e:
+                    logger.warning(f"Parsing strategy {i+1} failed: {e}")
+                    continue
+            
+            if not players:
+                logger.error("All parsing strategies failed")
+                return []
+            
+            # Validate and filter players
+            valid_players = []
+            for player in players:
+                if player.is_valid():
+                    valid_players.append(player)
+                else:
+                    logger.warning(f"Invalid player data: {player.name} - {player.position} - {player.team}")
+            
+            logger.info(f"Parsed {len(valid_players)} valid players from Yahoo roster")
+            return valid_players
+            
+        except Exception as e:
+            logger.error(f"Critical error in parse_yahoo_roster: {e}")
+            return []
+    
+    def _parse_yahoo_strategy_1(self, roster_data: dict) -> List[Player]:
+        """Primary parsing strategy for Yahoo roster data."""
         players = []
         
         team = roster_data.get("fantasy_content", {}).get("team", [])
@@ -251,33 +339,141 @@ class LineupOptimizer:
                             if "player" in player_list[key]:
                                 player_array = player_list[key]["player"]
                                 if isinstance(player_array, list) and len(player_array) > 1:
-                                    player_obj = Player(
-                                        name="Unknown",
-                                        position="",
-                                        team="",
-                                        opponent=""
-                                    )
-                                    
-                                    # Parse player data
-                                    for p in player_array:
-                                        if isinstance(p, dict):
-                                            if "name" in p:
-                                                player_obj.name = p["name"]["full"]
-                                            if "selected_position" in p:
-                                                pos_data = p["selected_position"][0]
-                                                player_obj.roster_position = pos_data.get("position", "")
-                                                player_obj.is_starter = pos_data.get("position") != "BN"
-                                            if "display_position" in p:
-                                                player_obj.position = p["display_position"]
-                                            if "editorial_team_abbr" in p:
-                                                player_obj.team = p["editorial_team_abbr"]
-                                            # Get opponent from matchup data if available
-                                            if "matchup" in p:
-                                                player_obj.opponent = p.get("matchup", "")
-                                    
-                                    players.append(player_obj)
+                                    player_obj = self._parse_single_player(player_array)
+                                    if player_obj:
+                                        players.append(player_obj)
         
         return players
+    
+    def _parse_yahoo_strategy_2(self, roster_data: dict) -> List[Player]:
+        """Alternative parsing strategy for different Yahoo API format."""
+        players = []
+        
+        try:
+            # Try direct access to team roster
+            if "team" in roster_data:
+                team_data = roster_data["team"]
+                if isinstance(team_data, list):
+                    for team_item in team_data:
+                        if "roster" in team_item:
+                            players.extend(self._extract_players_from_roster(team_item["roster"]))
+                elif isinstance(team_data, dict) and "roster" in team_data:
+                    players.extend(self._extract_players_from_roster(team_data["roster"]))
+        except Exception as e:
+            logger.warning(f"Strategy 2 parsing failed: {e}")
+        
+        return players
+    
+    def _parse_yahoo_strategy_fallback(self, roster_data: dict) -> List[Player]:
+        """Fallback parsing strategy that recursively searches for player data."""
+        players = []
+        
+        def find_players_recursive(data, path=""):
+            if isinstance(data, dict):
+                # Look for player arrays
+                if "player" in data and isinstance(data["player"], list):
+                    player_obj = self._parse_single_player(data["player"])
+                    if player_obj:
+                        players.append(player_obj)
+                
+                # Recurse through dictionary
+                for key, value in data.items():
+                    find_players_recursive(value, f"{path}.{key}")
+            
+            elif isinstance(data, list):
+                for i, item in enumerate(data):
+                    find_players_recursive(item, f"{path}[{i}]")
+        
+        find_players_recursive(roster_data)
+        return players
+    
+    def _extract_players_from_roster(self, roster_data: dict) -> List[Player]:
+        """Extract players from roster data structure."""
+        players = []
+        
+        if "players" in roster_data:
+            players_data = roster_data["players"]
+            if isinstance(players_data, dict):
+                for key, player_data in players_data.items():
+                    if key != "count" and "player" in player_data:
+                        player_obj = self._parse_single_player(player_data["player"])
+                        if player_obj:
+                            players.append(player_obj)
+        
+        return players
+    
+    def _parse_single_player(self, player_array: list) -> Optional[Player]:
+        """Parse a single player from Yahoo API array format."""
+        try:
+            player_obj = Player(
+                name="Unknown",
+                position="",
+                team="",
+                opponent=""
+            )
+            
+            # Parse player data with multiple fallback methods
+            for p in player_array:
+                if isinstance(p, dict):
+                    # Player name
+                    if "name" in p:
+                        if isinstance(p["name"], dict) and "full" in p["name"]:
+                            player_obj.name = p["name"]["full"]
+                        elif isinstance(p["name"], str):
+                            player_obj.name = p["name"]
+                    
+                    # Position and starter status
+                    if "selected_position" in p:
+                        pos_data = p["selected_position"]
+                        if isinstance(pos_data, list) and len(pos_data) > 0:
+                            pos_info = pos_data[0]
+                            player_obj.roster_position = pos_info.get("position", "")
+                            player_obj.is_starter = pos_info.get("position") != "BN"
+                        elif isinstance(pos_data, dict):
+                            player_obj.roster_position = pos_data.get("position", "")
+                            player_obj.is_starter = pos_data.get("position") != "BN"
+                    
+                    # Display position
+                    if "display_position" in p:
+                        player_obj.position = p["display_position"]
+                    elif "eligible_positions" in p and isinstance(p["eligible_positions"], list):
+                        if p["eligible_positions"]:
+                            player_obj.position = p["eligible_positions"][0].get("position", "")
+                    
+                    # Team
+                    if "editorial_team_abbr" in p:
+                        player_obj.team = p["editorial_team_abbr"]
+                    elif "editorial_team_key" in p:
+                        # Extract team from key if needed
+                        team_key = p["editorial_team_key"]
+                        if "." in team_key:
+                            player_obj.team = team_key.split(".")[-1].upper()
+                    
+                    # Opponent (if available)
+                    if "matchup" in p:
+                        player_obj.opponent = str(p["matchup"])
+                    
+                    # Yahoo projection (if available)
+                    if "player_points" in p:
+                        points_data = p["player_points"]
+                        if "total" in points_data:
+                            player_obj.yahoo_projection = float(points_data["total"])
+            
+            # Clean up data
+            player_obj.name = player_obj.name.strip()
+            player_obj.team = player_obj.team.strip().upper()
+            player_obj.position = player_obj.position.strip().upper()
+            
+            # Validate minimum requirements
+            if not player_obj.name or not player_obj.position:
+                logger.warning(f"Incomplete player data: name='{player_obj.name}', position='{player_obj.position}'")
+                return None
+            
+            return player_obj
+            
+        except Exception as e:
+            logger.warning(f"Failed to parse single player: {e}")
+            return None
     
     def calculate_momentum(self, recent_scores: List[float], alpha: float = 0.3) -> float:
         """
@@ -406,46 +602,126 @@ class LineupOptimizer:
         return consistency
     
     async def enhance_with_external_data(self, players: List[Player]) -> List[Player]:
-        """Add Sleeper projections, matchup scores, trending data, momentum, and tier."""
-        await self.load_trending_data()
-        await matchup_analyzer.load_defensive_rankings()
+        """Add Sleeper projections, matchup scores, trending data, momentum, and tier with robust error handling."""
+        logger.info(f"Enhancing {len(players)} players with external data...")
         
-        for player in players:
-            # Get matchup score
-            if player.opponent and player.position:
-                score, desc = matchup_analyzer.get_matchup_score(
-                    player.opponent.replace("@", "").strip(),
-                    player.position
-                )
-                player.matchup_score = score
-                player.matchup_description = desc
-            
-            # Get Sleeper projection
-            from sleeper_api import get_player_projection
-            proj = await get_player_projection(player.name)
-            if proj:
-                player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
-            
-            # Get trending score
-            if self.trending_players and player.name in self.trending_players:
-                player.trending_score = self.trending_players[player.name]
-            
-            # Calculate momentum if recent scores available
-            if player.recent_scores:
-                player.momentum_score = self.calculate_momentum(player.recent_scores)
-            
-            # Calculate floor/ceiling projections with volatility
-            floor, ceiling = self.calculate_floor_ceiling(
-                player.yahoo_projection,
-                player.sleeper_projection,
-                player.matchup_score,
-                player.recent_scores
-            )
-            player.floor_projection = floor
-            player.ceiling_projection = ceiling
-            
-            # Determine player tier (elite, stud, solid, flex, bench)
-            player.player_tier = self.determine_player_tier(player)
+        # Track data enhancement success rates
+        enhancement_stats = {
+            "trending_loaded": False,
+            "matchup_loaded": False,
+            "sleeper_projections": 0,
+            "matchup_scores": 0,
+            "trending_data": 0,
+            "errors": []
+        }
+        
+        # Load trending data with error handling
+        try:
+            if get_trending_adds is not None:
+                await self.load_trending_data()
+                enhancement_stats["trending_loaded"] = True
+                logger.info("Successfully loaded trending data")
+            else:
+                logger.warning("Trending data unavailable - get_trending_adds not imported")
+        except Exception as e:
+            error_msg = f"Failed to load trending data: {e}"
+            logger.error(error_msg)
+            enhancement_stats["errors"].append(error_msg)
+        
+        # Load matchup data with error handling
+        try:
+            if matchup_analyzer is not None:
+                await matchup_analyzer.load_defensive_rankings()
+                enhancement_stats["matchup_loaded"] = True
+                logger.info("Successfully loaded defensive rankings")
+            else:
+                logger.warning("Matchup analyzer unavailable - matchup_analyzer not imported")
+        except Exception as e:
+            error_msg = f"Failed to load defensive rankings: {e}"
+            logger.error(error_msg)
+            enhancement_stats["errors"].append(error_msg)
+        
+        # Enhance each player with available data
+        for i, player in enumerate(players):
+            try:
+                logger.debug(f"Enhancing player {i+1}/{len(players)}: {player.name}")
+                
+                # Get matchup score with fallback
+                if matchup_analyzer is not None and player.opponent and player.position:
+                    try:
+                        opponent_clean = player.opponent.replace("@", "").strip()
+                        score, desc = matchup_analyzer.get_matchup_score(opponent_clean, player.position)
+                        player.matchup_score = score
+                        player.matchup_description = desc
+                        enhancement_stats["matchup_scores"] += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to get matchup score for {player.name}: {e}")
+                        player.matchup_score = 50  # Neutral default
+                        player.matchup_description = "Matchup data unavailable"
+                
+                # Get Sleeper projection with fallback
+                if sleeper_client is not None:
+                    try:
+                        from sleeper_api import get_player_projection
+                        proj = await get_player_projection(player.name)
+                        if proj:
+                            player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
+                            enhancement_stats["sleeper_projections"] += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to get Sleeper projection for {player.name}: {e}")
+                        player.sleeper_projection = 0.0
+                
+                # Get trending score with fallback
+                if self.trending_players and player.name in self.trending_players:
+                    try:
+                        player.trending_score = self.trending_players[player.name]
+                        enhancement_stats["trending_data"] += 1
+                    except Exception as e:
+                        logger.warning(f"Failed to get trending score for {player.name}: {e}")
+                        player.trending_score = 0
+                
+                # Calculate momentum if recent scores available
+                if player.recent_scores:
+                    try:
+                        player.momentum_score = self.calculate_momentum(player.recent_scores)
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate momentum for {player.name}: {e}")
+                        player.momentum_score = 50.0
+                
+                # Calculate floor/ceiling projections with volatility
+                try:
+                    floor, ceiling = self.calculate_floor_ceiling(
+                        player.yahoo_projection,
+                        player.sleeper_projection,
+                        player.matchup_score,
+                        player.recent_scores
+                    )
+                    player.floor_projection = floor
+                    player.ceiling_projection = ceiling
+                except Exception as e:
+                    logger.warning(f"Failed to calculate floor/ceiling for {player.name}: {e}")
+                    player.floor_projection = 0.0
+                    player.ceiling_projection = 0.0
+                
+                # Determine player tier
+                try:
+                    player.player_tier = self.determine_player_tier(player)
+                except Exception as e:
+                    logger.warning(f"Failed to determine tier for {player.name}: {e}")
+                    player.player_tier = "unknown"
+                    
+            except Exception as e:
+                error_msg = f"Critical error enhancing {player.name}: {e}"
+                logger.error(error_msg)
+                enhancement_stats["errors"].append(error_msg)
+        
+        # Log enhancement statistics
+        logger.info(f"Enhancement complete - Sleeper projections: {enhancement_stats['sleeper_projections']}/{len(players)}, "
+                   f"Matchup scores: {enhancement_stats['matchup_scores']}/{len(players)}, "
+                   f"Trending data: {enhancement_stats['trending_data']}/{len(players)}")
+        
+        if enhancement_stats["errors"]:
+            logger.warning(f"Enhancement errors: {len(enhancement_stats['errors'])}")
         
         return players
     
@@ -456,142 +732,244 @@ class LineupOptimizer:
         week: int = None
     ) -> Dict[str, any]:
         """
-        Optimize the lineup based on composite scores.
+        Optimize the lineup based on composite scores with comprehensive error handling.
         
         Returns dict with:
+        - status: success/partial/error
         - starters: Optimal starting lineup
         - bench: Bench players
         - recommendations: Specific advice
+        - errors: Any issues encountered
+        - data_quality: Data completeness metrics
         """
-        # Calculate composite scores
-        for player in players:
-            player.composite_score = self.calculate_composite_score(player, strategy)
-            
-            # Week 17 adjustment - reduce projections for potential rest
-            if week == 17:
-                # Players on playoff teams might rest
-                # This is a simplified approach - ideally check team playoff status
-                if player.player_tier == "elite":
-                    player.composite_score *= 0.85  # 15% reduction for rest risk
-                    player.yahoo_projection *= 0.85
-                    player.sleeper_projection *= 0.85
-            
-            # OVERRIDE: Elite and Stud players get massive boost to ensure they start
-            if player.player_tier == "elite":
-                player.composite_score = max(player.composite_score, 120)  # Minimum score of 120
-            elif player.player_tier == "stud":
-                player.composite_score = max(player.composite_score, 100)  # Minimum score of 100
-            
-            # FLEX POSITION ADJUSTMENT: Use position-normalized scoring
-            base_projection = max(player.yahoo_projection, player.sleeper_projection)
-            
-            # Calculate consistency if we have recent scores
-            consistency = self.calculate_consistency_score(
-                getattr(player, 'recent_scores', [])
-            )
-            player.consistency_score = consistency
-            
-            # Get position-normalized FLEX value
-            flex_value = position_normalizer.get_flex_value(base_projection, player.position)
-            
-            # Scale up for differentiation and add small composite influence
-            flex_base = (flex_value * 10) + (player.composite_score * 0.01)
-            
-            # Adjust for game script and volatility preferences
-            # In balanced/default strategy, slight preference for consistency
-            if strategy == "floor_focused":
-                # Prefer consistent players for cash games
-                consistency_bonus = (consistency - 50) * 0.02  # +/-1 point max
-                player.flex_score = flex_base + consistency_bonus
-            elif strategy == "ceiling_focused":
-                # Prefer volatile players for tournaments
-                volatility_bonus = (50 - consistency) * 0.02  # Inverse of consistency
-                player.flex_score = flex_base + volatility_bonus
-            else:
-                # Balanced - slight consistency preference
-                consistency_bonus = (consistency - 50) * 0.01  # +/-0.5 point max
-                player.flex_score = flex_base + consistency_bonus
+        logger.info(f"Starting lineup optimization with {len(players)} players, strategy: {strategy}")
         
-        # Sort by position and score
-        qbs = sorted([p for p in players if p.position == "QB"], 
-                    key=lambda x: x.composite_score, reverse=True)
-        rbs = sorted([p for p in players if p.position == "RB"],
-                    key=lambda x: x.composite_score, reverse=True)
-        wrs = sorted([p for p in players if p.position == "WR"],
-                    key=lambda x: x.composite_score, reverse=True)
-        tes = sorted([p for p in players if p.position == "TE"],
-                    key=lambda x: x.composite_score, reverse=True)
-        ks = sorted([p for p in players if p.position == "K"],
-                   key=lambda x: x.composite_score, reverse=True)
-        defs = sorted([p for p in players if p.position == "DEF"],
-                     key=lambda x: x.composite_score, reverse=True)
-        
-        # Build optimal lineup
-        starters = {}
-        bench = []
-        
-        # QB
-        if qbs:
-            starters["QB"] = qbs[0]
-            bench.extend(qbs[1:])
-        
-        # RB (2 starters)
-        if len(rbs) >= 2:
-            starters["RB1"] = rbs[0]
-            starters["RB2"] = rbs[1]
-            bench.extend(rbs[2:])
-        elif len(rbs) == 1:
-            starters["RB1"] = rbs[0]
-        
-        # WR (2 starters)
-        if len(wrs) >= 2:
-            starters["WR1"] = wrs[0]
-            starters["WR2"] = wrs[1]
-            bench.extend(wrs[2:])
-        elif len(wrs) == 1:
-            starters["WR1"] = wrs[0]
-        
-        # TE
-        if tes:
-            starters["TE"] = tes[0]
-            bench.extend(tes[1:])
-        
-        # FLEX (best remaining RB/WR/TE)
-        flex_eligible = []
-        if len(rbs) > 2:
-            flex_eligible.extend(rbs[2:])
-        if len(wrs) > 2:
-            flex_eligible.extend(wrs[2:])
-        if len(tes) > 1:
-            flex_eligible.extend(tes[1:])
-        
-        if flex_eligible:
-            # Use flex_score for FLEX comparison (position-adjusted)
-            flex_eligible.sort(key=lambda x: getattr(x, 'flex_score', x.composite_score), reverse=True)
-            starters["FLEX"] = flex_eligible[0]
-            # Remove FLEX from bench
-            if starters["FLEX"] in bench:
-                bench.remove(starters["FLEX"])
-        
-        # K
-        if ks:
-            starters["K"] = ks[0]
-            bench.extend(ks[1:])
-        
-        # DEF
-        if defs:
-            starters["DEF"] = defs[0]
-            bench.extend(defs[1:])
-        
-        # Generate recommendations
-        recommendations = self._generate_recommendations(starters, bench, players)
-        
-        return {
-            "starters": starters,
-            "bench": bench,
-            "recommendations": recommendations,
-            "strategy_used": strategy
+        # Initialize result structure
+        result = {
+            "status": "success",
+            "starters": {},
+            "bench": [],
+            "recommendations": [],
+            "strategy_used": strategy,
+            "errors": [],
+            "data_quality": {
+                "total_players": len(players),
+                "valid_players": 0,
+                "players_with_projections": 0,
+                "players_with_matchup_data": 0
+            }
         }
+        
+        try:
+            # Validate input
+            if not players:
+                result["status"] = "error"
+                result["errors"].append("No players provided for optimization")
+                return result
+            
+            # Filter and validate players
+            valid_players = [p for p in players if p.is_valid()]
+            result["data_quality"]["valid_players"] = len(valid_players)
+            
+            if len(valid_players) < 9:  # Minimum for a lineup
+                result["status"] = "error"
+                result["errors"].append(f"Insufficient valid players: {len(valid_players)}/9 minimum required")
+                return result
+            
+            # Calculate data quality metrics
+            players_with_proj = sum(1 for p in valid_players if p.get_best_projection() > 0)
+            players_with_matchup = sum(1 for p in valid_players if p.matchup_score != 50)
+            
+            result["data_quality"]["players_with_projections"] = players_with_proj
+            result["data_quality"]["players_with_matchup_data"] = players_with_matchup
+            
+            # Warn if data quality is poor
+            if players_with_proj < len(valid_players) * 0.5:
+                result["status"] = "partial"
+                result["errors"].append("Less than 50% of players have projection data")
+            
+            # Calculate composite scores with error handling
+            successful_scores = 0
+            for player in valid_players:
+                try:
+                    player.composite_score = self.calculate_composite_score(player, strategy)
+                    successful_scores += 1
+                    
+                    # Week 17 adjustment - reduce projections for potential rest
+                    if week == 17:
+                        if player.player_tier == "elite":
+                            player.composite_score *= 0.85
+                            player.yahoo_projection *= 0.85
+                            player.sleeper_projection *= 0.85
+                    
+                    # OVERRIDE: Elite and Stud players get massive boost to ensure they start
+                    if player.player_tier == "elite":
+                        player.composite_score = max(player.composite_score, 120)
+                    elif player.player_tier == "stud":
+                        player.composite_score = max(player.composite_score, 100)
+                    
+                    # Calculate FLEX scores with error handling
+                    try:
+                        base_projection = player.get_best_projection()
+                        consistency = self.calculate_consistency_score(
+                            getattr(player, 'recent_scores', [])
+                        )
+                        player.consistency_score = consistency
+                        
+                        # Get position-normalized FLEX value
+                        if position_normalizer is not None:
+                            flex_value = position_normalizer.get_flex_value(base_projection, player.position)
+                            flex_base = (flex_value * 10) + (player.composite_score * 0.01)
+                            
+                            # Adjust for strategy
+                            if strategy == "floor_focused":
+                                consistency_bonus = (consistency - 50) * 0.02
+                                player.flex_score = flex_base + consistency_bonus
+                            elif strategy == "ceiling_focused":
+                                volatility_bonus = (50 - consistency) * 0.02
+                                player.flex_score = flex_base + volatility_bonus
+                            else:
+                                consistency_bonus = (consistency - 50) * 0.01
+                                player.flex_score = flex_base + consistency_bonus
+                        else:
+                            # Fallback if position_normalizer unavailable
+                            player.flex_score = player.composite_score
+                            
+                    except Exception as e:
+                        logger.warning(f"Failed to calculate FLEX score for {player.name}: {e}")
+                        player.flex_score = player.composite_score
+                        
+                except Exception as e:
+                    error_msg = f"Failed to calculate composite score for {player.name}: {e}"
+                    logger.warning(error_msg)
+                    result["errors"].append(error_msg)
+                    player.composite_score = 0.0  # Set to 0 so they won't be started
+            
+            logger.info(f"Successfully calculated scores for {successful_scores}/{len(valid_players)} players")
+            
+            # Sort players by position and score
+            qbs = sorted([p for p in valid_players if p.position == "QB"], 
+                        key=lambda x: x.composite_score, reverse=True)
+            rbs = sorted([p for p in valid_players if p.position == "RB"],
+                        key=lambda x: x.composite_score, reverse=True)
+            wrs = sorted([p for p in valid_players if p.position == "WR"],
+                        key=lambda x: x.composite_score, reverse=True)
+            tes = sorted([p for p in valid_players if p.position == "TE"],
+                        key=lambda x: x.composite_score, reverse=True)
+            ks = sorted([p for p in valid_players if p.position == "K"],
+                       key=lambda x: x.composite_score, reverse=True)
+            defs = sorted([p for p in valid_players if p.position == "DEF"],
+                         key=lambda x: x.composite_score, reverse=True)
+            
+            # Build optimal lineup with error handling
+            starters = {}
+            bench = []
+            
+            try:
+                # QB
+                if qbs:
+                    starters["QB"] = qbs[0]
+                    bench.extend(qbs[1:])
+                else:
+                    result["errors"].append("No QB available")
+                
+                # RB (2 starters)
+                if len(rbs) >= 2:
+                    starters["RB1"] = rbs[0]
+                    starters["RB2"] = rbs[1]
+                    bench.extend(rbs[2:])
+                elif len(rbs) == 1:
+                    starters["RB1"] = rbs[0]
+                    result["errors"].append("Only 1 RB available, need 2")
+                else:
+                    result["errors"].append("No RBs available")
+                
+                # WR (2 starters)
+                if len(wrs) >= 2:
+                    starters["WR1"] = wrs[0]
+                    starters["WR2"] = wrs[1]
+                    bench.extend(wrs[2:])
+                elif len(wrs) == 1:
+                    starters["WR1"] = wrs[0]
+                    result["errors"].append("Only 1 WR available, need 2")
+                else:
+                    result["errors"].append("No WRs available")
+                
+                # TE
+                if tes:
+                    starters["TE"] = tes[0]
+                    bench.extend(tes[1:])
+                else:
+                    result["errors"].append("No TE available")
+                
+                # FLEX (best remaining RB/WR/TE)
+                flex_eligible = []
+                if len(rbs) > 2:
+                    flex_eligible.extend(rbs[2:])
+                if len(wrs) > 2:
+                    flex_eligible.extend(wrs[2:])
+                if len(tes) > 1:
+                    flex_eligible.extend(tes[1:])
+                
+                if flex_eligible:
+                    # Use flex_score for FLEX comparison
+                    flex_eligible.sort(key=lambda x: getattr(x, 'flex_score', x.composite_score), reverse=True)
+                    starters["FLEX"] = flex_eligible[0]
+                    # Remove FLEX from bench
+                    if starters["FLEX"] in bench:
+                        bench.remove(starters["FLEX"])
+                else:
+                    result["errors"].append("No FLEX eligible players available")
+                
+                # K
+                if ks:
+                    starters["K"] = ks[0]
+                    bench.extend(ks[1:])
+                else:
+                    result["errors"].append("No K available")
+                
+                # DEF
+                if defs:
+                    starters["DEF"] = defs[0]
+                    bench.extend(defs[1:])
+                else:
+                    result["errors"].append("No DEF available")
+                
+            except Exception as e:
+                error_msg = f"Error building lineup: {e}"
+                logger.error(error_msg)
+                result["errors"].append(error_msg)
+                result["status"] = "error"
+            
+            # Generate recommendations
+            try:
+                recommendations = self._generate_recommendations(starters, bench, valid_players)
+                result["recommendations"] = recommendations
+            except Exception as e:
+                error_msg = f"Error generating recommendations: {e}"
+                logger.warning(error_msg)
+                result["errors"].append(error_msg)
+                result["recommendations"] = ["Unable to generate recommendations due to error"]
+            
+            # Set final status
+            if result["errors"]:
+                if result["status"] == "success":
+                    result["status"] = "partial"
+            
+            result["starters"] = starters
+            result["bench"] = bench
+            
+            logger.info(f"Lineup optimization complete - Status: {result['status']}, "
+                       f"Starters: {len(starters)}/9, Errors: {len(result['errors'])}")
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Critical error in optimize_lineup: {e}"
+            logger.error(error_msg)
+            result["status"] = "error"
+            result["errors"].append(error_msg)
+            return result
     
     def _generate_recommendations(
         self,
