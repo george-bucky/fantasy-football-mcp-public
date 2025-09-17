@@ -672,38 +672,14 @@ async def analyze_reddit_sentiment(
                     "sentiment_score": result.overall_sentiment or 0.0,
                     "consensus": result.consensus or "MIXED",
                     "posts_analyzed": result.posts_analyzed,
-                        "comments_analyzed": result.comments_analyzed,
-                        "injury_mentions": result.injury_mentions,
-                        "hype_score": result.hype_score,
-                        "top_comments": result.top_comments[:3],
-                        "status": result.status,
-                        "confidence": result.confidence,
-                        "fallback_used": result.fallback_used
-                    }
-                },
-                "errors": result.errors if result.errors else []
-            }
-        else:
-            # Multi-player comparison
-            comparison = await analyzer.compare_players_sentiment(players, time_window_hours)
-            
-            # Convert to legacy format
-            player_data = {}
-            for player in players:
-                if player in comparison['analysis']:
-                    result = comparison['analysis'][player]
-                    player_data[player] = {
-                        "sentiment_score": result.overall_sentiment or 0.0,
-                        "consensus": result.consensus or "MIXED",
-                        "posts_analyzed": result.posts_analyzed,
-                        "comments_analyzed": result.comments_analyzed,
-                        "injury_mentions": result.injury_mentions,
-                        "hype_score": result.hype_score,
-                        "top_comments": result.top_comments[:3],
-                        "status": result.status,
-                        "confidence": result.confidence,
-                        "fallback_used": result.fallback_used
-                    }
+                    "comments_analyzed": result.comments_analyzed,
+                    "injury_mentions": result.injury_mentions,
+                    "hype_score": result.hype_score,
+                    "top_comments": result.top_comments[:3],
+                    "status": result.status,
+                    "confidence": result.confidence,
+                    "fallback_used": result.fallback_used
+                }
             
             return {
                 "players": players,
