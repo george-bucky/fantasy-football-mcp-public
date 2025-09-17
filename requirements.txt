@@ -1,51 +1,34 @@
-# Core dependencies
-mcp==1.2.0
-yfpy==16.0.3
-pydantic==2.10.4
-pydantic-settings==2.7.0
-python-dotenv==1.0.1
+# Core MCP server dependencies
+fastmcp==2.12.3
+mcp==1.14.0
+yfpy==17.0.0
+python-dotenv==1.1.1
+pydantic==2.11.9
+pydantic-settings==2.10.1
 
-# Async and parallel processing
+# Async and caching utilities
 asyncio-pool==0.6.0
 aiohttp==3.11.11
 aiocache==0.12.3
 
-# Data processing (optional - for analytics features)
-pandas>=2.2.3
-numpy>=1.26.4
-# scipy>=1.11.4
-# scikit-learn>=1.3.2
-# statsmodels>=0.14.1
+# Data processing
+pandas==2.3.2
+numpy==2.3.3
 
-# Utilities
+# Logging and CLI helpers
 loguru==0.7.3
-click==8.1.8
-rich==13.9.4
+click==8.2.1
+rich==14.1.0
 
-# Testing (optional - removed for production)
-# pytest>=8.3.3
-# pytest-asyncio>=0.25.2
-# pytest-mock>=3.14.0
-# pytest-cov>=6.0.0
-# aioresponses>=0.7.6
-
-# Development (optional - removed for production)
-# black>=24.10.0
-# mypy>=1.14.1
-# ruff>=0.9.1
-
-# Validation & Historical Analysis (optional)
-# nfl-data-py==0.3.3
-# matplotlib>=3.7.1
-# seaborn>=0.12.2
-
-# Reddit API and Sentiment Analysis
+# Yahoo and Reddit integrations
 praw==7.8.1
 prawcore==2.4.0
-textblob==0.18.0
+textblob==0.19.0
+requests==2.32.5
+yahoo-oauth==2.1.1
+stringcase==1.2.0
 
-# Cloud Run deployment dependencies
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
-httpx==0.28.1
-python-multipart==0.0.12
+# Testing
+pytest==8.4.2
+pytest-asyncio==1.2.0
+pytest-mock==3.15.1
