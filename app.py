@@ -1,19 +1,9 @@
-#!/usr/bin/env python3
-"""
-Main entry point for Render deployment
-This file is automatically detected by Render
-"""
+"""Render entry point retained for backwards compatibility."""
 
-# Import and run the Render-optimized server
-from render_server import app
-import uvicorn
-import os
+from __future__ import annotations
+
+from fastmcp_server import main
+
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=port,
-        log_level="info"
-    )
+    main()
