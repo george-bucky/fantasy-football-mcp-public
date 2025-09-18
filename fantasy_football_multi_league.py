@@ -1446,11 +1446,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     # Check optimization status
                     if optimization["status"] == "error":
                         result = {
+                            "status": "error",
                             "error": "Lineup optimization failed",
                             "league_key": league_key,
                             "team_key": team_key,
-                            "details": optimization["errors"],
-                            "data_quality": optimization.get("data_quality", {})
+                            "errors": optimization.get("errors", []),
+                            "details": optimization.get("errors", []),
+                            "data_quality": optimization.get("data_quality", {}),
                         }
                         return result
 
@@ -1503,6 +1505,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                         "optimal_lineup": starters_formatted,
                         "bench": bench_formatted,
                         "recommendations": optimization["recommendations"],
+                        "errors": optimization.get("errors", []),
                         "analysis": {
                             "total_players": optimization["data_quality"]["total_players"],
                             "valid_players": optimization["data_quality"]["valid_players"],
