@@ -821,6 +821,7 @@ __all__ = [
     "get_position_info",
     "get_draft_strategies",
     "get_injury_status_info",
+    "get_tool_selection_guide",
 ]
 
 # Optional resource: expose deployed commit SHA for diagnostics
@@ -829,6 +830,100 @@ try:
         _COMMIT_SHA = _f.read().strip()
 except Exception:  # pragma: no cover - best effort
     _COMMIT_SHA = "unknown"
+
+@server.resource("guide://tool-selection")
+def get_tool_selection_guide() -> str:
+    """Comprehensive guide for LLMs on when and how to use fantasy football tools."""
+    return json.dumps({
+        "title": "Fantasy Football Tool Selection Guide for LLMs",
+        "description": "Strategic guidance for AI assistants on optimal tool usage patterns",
+        "workflow_priority": [
+            "1. START: ff_get_leagues - Always begin here if you don't have a league_key",
+            "2. CONTEXT: ff_get_league_info - Understand league settings and scoring",
+            "3. BASELINE: ff_get_roster - Know current lineup before making recommendations",
+            "4. COMPETITION: ff_get_matchup - Analyze weekly opponent for strategic adjustments",
+            "5. OPPORTUNITIES: ff_get_waiver_wire - Identify available upgrades",
+            "6. OPTIMIZATION: ff_get_optimal_lineup - AI-powered lineup recommendations"
+        ],
+        "tool_categories": {
+            "CORE_LEAGUE_DATA": {
+                "description": "Essential league information and setup",
+                "tools": {
+                    "ff_get_leagues": "Discovery: Find available leagues and extract league_key identifiers",
+                    "ff_get_league_info": "Configuration: League settings, scoring rules, roster requirements",
+                    "ff_get_teams": "Overview: All teams in league for competitive context",
+                    "ff_get_standings": "Rankings: Current standings, records, points for strategy context"
+                }
+            },
+            "PLAYER_ROSTER_ANALYSIS": {
+                "description": "Player and roster management tools",
+                "tools": {
+                    "ff_get_roster": "Current Lineup: Your roster for lineup decisions and constraints",
+                    "ff_get_players": "Player Search: Find specific players by name or position",
+                    "ff_get_waiver_wire": "Free Agents: Available players with advanced metrics"
+                }
+            },
+            "MATCHUP_COMPETITION": {
+                "description": "Head-to-head analysis and competitive intelligence",
+                "tools": {
+                    "ff_get_matchup": "Opponent Analysis: Weekly head-to-head strategic insights",
+                    "ff_compare_teams": "Team Comparison: Direct roster and performance comparisons"
+                }
+            },
+            "OPTIMIZATION_STRATEGY": {
+                "description": "AI-powered decision making and strategy tools",
+                "tools": {
+                    "ff_get_optimal_lineup": "AI Optimization: Championship-level lineup recommendations (use use_llm=true)",
+                    "ff_get_draft_rankings": "Player Tiers: Value assessment and tier-based rankings",
+                    "ff_analyze_reddit_sentiment": "Market Intelligence: Public opinion and trending players"
+                }
+            },
+            "ADVANCED_ANALYSIS": {
+                "description": "Deep analytics and historical insights",
+                "tools": {
+                    "ff_get_draft_results": "Draft History: Historical patterns and team building analysis",
+                    "ff_analyze_draft_state": "Live Draft: Real-time draft strategy and recommendations"
+                }
+            },
+            "UTILITY_MAINTENANCE": {
+                "description": "System maintenance and troubleshooting",
+                "tools": {
+                    "ff_refresh_token": "Authentication: Fix Yahoo API authentication issues",
+                    "ff_get_api_status": "Health Check: Verify system status and connectivity",
+                    "ff_clear_cache": "Reset: Clear cached data for fresh analysis"
+                }
+            }
+        },
+        "strategic_usage_patterns": {
+            "weekly_lineup_optimization": [
+                "ff_get_leagues → ff_get_roster → ff_get_matchup → ff_get_waiver_wire → ff_get_optimal_lineup"
+            ],
+            "draft_preparation": [
+                "ff_get_leagues → ff_get_league_info → ff_get_draft_rankings → ff_analyze_draft_state"
+            ],
+            "competitive_analysis": [
+                "ff_get_teams → ff_get_standings → ff_compare_teams → ff_get_matchup"
+            ],
+            "market_research": [
+                "ff_get_waiver_wire → ff_analyze_reddit_sentiment → ff_get_players"
+            ]
+        },
+        "decision_framework": {
+            "data_gathering": "Always start with league discovery and current roster state",
+            "context_building": "Understand league settings, scoring, and competitive landscape", 
+            "opportunity_identification": "Use waiver wire and sentiment analysis for edge cases",
+            "optimization": "Apply AI-powered tools for championship-level recommendations",
+            "validation": "Cross-reference multiple data sources for confident decisions"
+        },
+        "best_practices": [
+            "NEVER guess league_key - always use ff_get_leagues first",
+            "ALWAYS check current roster before making lineup recommendations", 
+            "USE ff_get_matchup for opponent-specific weekly strategy",
+            "LEVERAGE ff_analyze_reddit_sentiment for contrarian plays",
+            "APPLY use_llm=true in ff_get_optimal_lineup for AI analysis",
+            "COMBINE multiple tools for comprehensive decision making"
+        ]
+    })
 
 @server.resource("meta://version")
 def get_version() -> str:  # pragma: no cover - simple accessor
