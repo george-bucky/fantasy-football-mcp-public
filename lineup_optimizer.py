@@ -283,7 +283,76 @@ class LineupOptimizer:
         try:
             logger.info("Starting Yahoo roster parsing...")
             
-            # Multiple parsing strategies to handle different Yahoo API response formats
+            # Strategy 1: Handle the actual Yahoo API format: fantasy_content.team[1].roster['0'].players['0'].player
+            try:
+                logger.info("Trying new parsing strategy for actual Yahoo format...")
+                fantasy_content = roster_data.get('fantasy_content', {})
+                team_data = fantasy_content.get('team', [])
+                
+                # Find the roster in the team array
+                roster = None
+                for item in team_data:
+                    if isinstance(item, dict) and 'roster' in item:
+                        roster = item['roster']
+                        break
+                
+                if roster and '0' in roster:
+                    players_container = roster['0']
+                    if 'players' in players_container:
+                        players_dict = players_container['players']
+                        
+                        # Players are in numbered keys like '0', '1', '2', etc.
+                        for player_key in players_dict:
+                            if player_key.isdigit():  # Only process numbered player entries
+                                player_data = players_dict[player_key]
+                                if 'player' in player_data:
+                                    player_info_list = player_data['player']
+                                    
+                                    # Player info is an array of dictionaries
+                                    if isinstance(player_info_list, list) and len(player_info_list) > 0:
+                                        player_info_array = player_info_list[0]  # First element contains the info
+                                        
+                                        # Extract name and position from the array of dicts
+                                        name = "Unknown"
+                                        position = ""
+                                        player_id = ""
+                                        
+                                        for info_dict in player_info_array:
+                                            if 'name' in info_dict:
+                                                name = info_dict['name'].get('full', 'Unknown')
+                                            elif 'display_position' in info_dict:
+                                                position = info_dict['display_position']
+                                            elif 'player_id' in info_dict:
+                                                player_id = str(info_dict['player_id'])
+                                        
+                                        if name != "Unknown" and position:
+                                            player = Player(
+                                                name=name,
+                                                position=position,
+                                                team="",  # Will be filled later
+                                                opponent="",
+                                                yahoo_projection=0.0,
+                                                sleeper_projection=0.0
+                                            )
+                                            players.append(player)
+                                            logger.debug(f"Parsed player: {name} ({position})")
+                                        else:
+                                            logger.warning(f"Incomplete player data: name='{name}', position='{position}'")
+                
+                if players:
+                    logger.info(f"Successfully parsed {len(players)} players using new Yahoo format strategy")
+                    return players  # Return immediately on success
+                else:
+                    logger.error("New Yahoo format strategy found no valid players")
+                    
+            except Exception as e:
+                logger.error(f"New Yahoo format strategy failed: {e}")
+            
+            # Fallback to original strategies if new one fails
+            if not players:
+                logger.info("Falling back to original parsing strategies...")
+                
+                # Multiple parsing strategies to handle different Yahoo API response formats
             parsing_strategies = [
                 self._parse_yahoo_strategy_1,
                 self._parse_yahoo_strategy_2,
