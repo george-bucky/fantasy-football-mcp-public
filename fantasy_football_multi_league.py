@@ -883,6 +883,20 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="ff_get_teams",
+            description="Get all teams in a specific league with basic information",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "league_key": {
+                        "type": "string",
+                        "description": "League key (e.g., '461.l.900001')",
+                    }
+                },
+                "required": ["league_key"],
+            },
+        ),
+        Tool(
             name="ff_get_roster",
             description="Get your team roster in a specific league",
             inputSchema={
@@ -1292,6 +1306,17 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
             standings.sort(key=lambda x: x["rank"])
 
             result = {"league_key": league_key, "standings": standings}
+
+        elif name == "ff_get_teams":
+            # Get all teams in the league
+            league_key = arguments.get("league_key")
+            teams_info = await get_all_teams_info(league_key)
+            
+            result = {
+                "league_key": league_key,
+                "teams": teams_info,
+                "total_teams": len(teams_info)
+            }
 
         elif name == "ff_get_roster":
             league_key = arguments.get("league_key")
