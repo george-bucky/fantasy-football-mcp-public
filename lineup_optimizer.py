@@ -986,29 +986,29 @@ class LineupOptimizer:
         for player in bench:
             if player.player_tier in ["elite", "stud"]:
                 recommendations.append(
-                    f"🚨 {player.name} ({player.player_tier.upper()}) on bench! Must start regardless of matchup"
+                    f"[AUTO-START] {player.name} ({player.player_tier.upper()}) on bench! Must start regardless of matchup"
                 )
             elif player.matchup_score >= 85 and player.composite_score > 70:
                 recommendations.append(
-                    f"⚠️ {player.name} on bench has ELITE matchup vs {player.opponent} - consider starting"
+                    f"[WARNING] {player.name} on bench has ELITE matchup vs {player.opponent} - consider starting"
                 )
         
         # Check for studs with tough matchups (start anyway)
         for pos, player in starters.items():
             if player.player_tier in ["elite", "stud"] and player.matchup_score <= 30:
                 recommendations.append(
-                    f"💪 {player.name} is {player.player_tier.upper()} - starting despite tough matchup vs {player.opponent}"
+                    f"[KEEP STARTING] {player.name} is {player.player_tier.upper()} - starting despite tough matchup vs {player.opponent}"
                 )
             elif player.player_tier not in ["elite", "stud"] and player.matchup_score <= 20:
                 recommendations.append(
-                    f"⚠️ {player.name} faces tough matchup vs {player.opponent} (score: {player.matchup_score}/100) - consider alternatives"
+                    f"[WARNING] {player.name} faces tough matchup vs {player.opponent} (score: {player.matchup_score}/100) - consider alternatives"
                 )
         
         # Check for trending players
         for player in all_players:
             if player.trending_score > 10000 and player not in starters.values():
                 recommendations.append(
-                    f"📈 {player.name} is trending ({player.trending_score:,} adds) - monitor for breakout"
+                    f"[TRENDING] {player.name} is trending ({player.trending_score:,} adds) - monitor for breakout"
                 )
         
         # Highlight best matchups
@@ -1016,11 +1016,11 @@ class LineupOptimizer:
         if best_matchup.matchup_score >= 80:
             if best_matchup.player_tier in ["elite", "stud"]:
                 recommendations.append(
-                    f"🎯 SMASH PLAY: {best_matchup.name} ({best_matchup.player_tier}) vs {best_matchup.opponent} - elite player + elite matchup!"
+                    f"[MATCHUP] SMASH PLAY: {best_matchup.name} ({best_matchup.player_tier}) vs {best_matchup.opponent} - elite player + elite matchup!"
                 )
             else:
                 recommendations.append(
-                    f"🎯 Great matchup: {best_matchup.name} vs {best_matchup.opponent} (matchup score: {best_matchup.matchup_score}/100)"
+                    f"[MATCHUP] Great matchup: {best_matchup.name} vs {best_matchup.opponent} (matchup score: {best_matchup.matchup_score}/100)"
                 )
         
         return recommendations
