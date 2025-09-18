@@ -469,6 +469,290 @@ async def ff_analyze_reddit_sentiment(
     )
 
 
+# ============================================================================
+# PROMPTS - Reusable message templates for better LLM interactions
+# ============================================================================
+
+@server.prompt
+def analyze_roster_strengths(league_key: str, team_key: str) -> str:
+    """Generate a prompt for analyzing roster strengths and weaknesses."""
+    return f"""Please analyze the fantasy football roster for team {team_key} in league {league_key}. 
+    
+Focus on:
+1. Positional depth and strength
+2. Starting lineup quality vs bench depth
+3. Injury concerns and bye week coverage
+4. Trade opportunities and waiver wire needs
+5. Overall team competitiveness
+
+Provide specific recommendations for improvement."""
+
+
+@server.prompt
+def draft_strategy_advice(strategy: str, league_size: int, pick_position: int) -> str:
+    """Generate a prompt for draft strategy recommendations."""
+    return f"""Provide fantasy football draft strategy advice for:
+- Strategy: {strategy}
+- League size: {league_size} teams
+- Draft position: {pick_position}
+
+Include:
+1. First 3 rounds strategy
+2. Position priority order
+3. Sleepers and value picks
+4. Players to avoid
+5. Late-round targets
+6. PPR-specific considerations (pass-catching RBs, high-volume WRs)
+
+Tailor the advice to the {strategy} approach and consider how PPR scoring affects player values."""
+
+
+@server.prompt
+def matchup_analysis(team_a: str, team_b: str, week: int) -> str:
+    """Generate a prompt for head-to-head matchup analysis."""
+    return f"""Analyze the fantasy football matchup between {team_a} and {team_b} for Week {week}.
+
+Compare:
+1. Starting lineup projections
+2. Key positional advantages
+3. Weather/venue factors
+4. Recent performance trends
+5. Injury reports and player status
+6. Predicted outcome and confidence level
+
+Provide a detailed breakdown with specific player recommendations."""
+
+
+@server.prompt
+def waiver_wire_priority(league_key: str, position: str, budget: int) -> str:
+    """Generate a prompt for waiver wire priority recommendations."""
+    return f"""Analyze waiver wire options for {position} in league {league_key} with a budget of ${budget}.
+
+Evaluate:
+1. Top 5 available players at {position}
+2. FAAB bid recommendations
+3. Long-term vs short-term value
+4. Injury replacements vs upgrades
+5. Schedule analysis for upcoming weeks
+
+Prioritize based on immediate need and future potential."""
+
+
+@server.prompt
+def trade_evaluation(team_a: str, team_b: str, proposed_trade: str) -> str:
+    """Generate a prompt for trade evaluation."""
+    return f"""Evaluate this fantasy football trade proposal between {team_a} and {team_b}:
+
+Proposed Trade: {proposed_trade}
+
+Analyze:
+1. Fairness and value balance
+2. Team needs and fit
+3. Positional scarcity impact
+4. Playoff schedule implications
+5. Risk vs reward assessment
+6. Alternative trade suggestions
+
+Provide a clear recommendation with reasoning."""
+
+
+# ============================================================================
+# RESOURCES - Static and dynamic data for LLM context
+# ============================================================================
+
+@server.resource("config://scoring")
+def get_scoring_rules() -> str:
+    """Provide standard fantasy football scoring rules for context."""
+    return """Fantasy Football Scoring Rules:
+
+PASSING:
+- Passing TD: 4 points
+- Passing Yards: 1 point per 25 yards
+- Interception: -2 points
+- 2-Point Conversion: 2 points
+
+RUSHING:
+- Rushing TD: 6 points
+- Rushing Yards: 1 point per 10 yards
+- 2-Point Conversion: 2 points
+
+RECEIVING:
+- Receiving TD: 6 points
+- Receiving Yards: 1 point per 10 yards
+- Reception: 1 point (PPR - Points Per Reception)
+- 2-Point Conversion: 2 points
+
+KICKING:
+- Field Goal 0-39 yards: 3 points
+- Field Goal 40-49 yards: 4 points
+- Field Goal 50+ yards: 5 points
+- Extra Point: 1 point
+
+DEFENSE/SPECIAL TEAMS:
+- Touchdown: 6 points
+- Safety: 2 points
+- Interception: 2 points
+- Fumble Recovery: 2 points
+- Sack: 1 point
+- Blocked Kick: 2 points
+- Points Allowed 0: 10 points
+- Points Allowed 1-6: 7 points
+- Points Allowed 7-13: 4 points
+- Points Allowed 14-20: 1 point
+- Points Allowed 21-27: 0 points
+- Points Allowed 28-34: -1 point
+- Points Allowed 35+: -4 points
+
+SCORING VARIATIONS:
+- Standard (Non-PPR): 0 points per reception
+- Half-PPR: 0.5 points per reception
+- Full-PPR: 1 point per reception (most common)
+- Super-PPR: 1.5+ points per reception
+
+PPR IMPACT:
+- Increases value of pass-catching RBs and slot WRs
+- Makes WRs more valuable relative to RBs
+- Favors high-volume receivers over big-play specialists
+- Changes draft strategy and player rankings"""
+
+
+@server.resource("config://positions")
+def get_position_info() -> str:
+    """Provide fantasy football position information and requirements."""
+    return """Fantasy Football Position Requirements:
+
+STANDARD LEAGUE (10-12 teams):
+- QB: 1 starter
+- RB: 2 starters
+- WR: 2 starters  
+- TE: 1 starter
+- FLEX: 1 (RB/WR/TE)
+- K: 1 starter
+- DEF/ST: 1 starter
+- Bench: 6-7 players
+
+SUPERFLEX LEAGUE:
+- QB: 1 starter
+- RB: 2 starters
+- WR: 2 starters
+- TE: 1 starter
+- FLEX: 1 (RB/WR/TE)
+- SUPERFLEX: 1 (QB/RB/WR/TE)
+- K: 1 starter
+- DEF/ST: 1 starter
+- Bench: 6-7 players
+
+POSITION ABBREVIATIONS:
+- QB: Quarterback
+- RB: Running Back
+- WR: Wide Receiver
+- TE: Tight End
+- K: Kicker
+- DEF/ST: Defense/Special Teams
+- FLEX: Flexible position (RB/WR/TE)
+- SUPERFLEX: Super flexible position (QB/RB/WR/TE)"""
+
+
+@server.resource("config://strategies")
+def get_draft_strategies() -> str:
+    """Provide information about different fantasy football draft strategies."""
+    return """Fantasy Football Draft Strategies:
+
+CONSERVATIVE STRATEGY:
+- Focus on safe, high-floor players
+- Prioritize proven veterans
+- Avoid injury-prone players
+- Build depth over upside
+- Target consistent performers
+- Good for beginners
+
+BALANCED STRATEGY:
+- Mix of safe picks and upside plays
+- Balance risk and reward
+- Target value at each pick
+- Consider positional scarcity
+- Adapt to draft flow
+- Most popular approach
+
+AGGRESSIVE STRATEGY:
+- Target high-upside players
+- Take calculated risks
+- Focus on ceiling over floor
+- Target breakout candidates
+- Embrace volatility
+- High risk, high reward
+
+POSITIONAL STRATEGIES:
+- Zero RB: Wait on running backs (more viable in PPR)
+- Hero RB: Draft one elite RB early
+- Robust RB: Load up on running backs
+- Late Round QB: Wait on quarterback
+- Streaming: Target favorable matchups
+
+PPR-SPECIFIC STRATEGIES:
+- Target pass-catching RBs (higher floor in PPR)
+- Prioritize high-volume WRs over big-play specialists
+- Consider slot receivers and possession WRs
+- Elite TEs become more valuable (reception floor)
+- RB handcuffs less critical (more WR depth)
+
+KEY PRINCIPLES:
+- Value-based drafting
+- Positional scarcity awareness
+- Handcuff important players
+- Monitor bye weeks
+- Stay flexible and adapt
+- PPR changes player values significantly"""
+
+
+@server.resource("data://injury-status")
+def get_injury_status_info() -> str:
+    """Provide information about fantasy football injury statuses."""
+    return """Fantasy Football Injury Status Guide:
+
+QUESTIONABLE (Q):
+- 50% chance to play
+- Monitor closely
+- Have backup ready
+- Check game-time decisions
+
+DOUBTFUL (D):
+- 25% chance to play
+- Likely to sit out
+- Start backup if available
+- High risk to start
+
+OUT (O):
+- Will not play
+- Do not start
+- Use backup or waiver pickup
+- Check IR eligibility
+
+PROBABLE (P):
+- 75% chance to play
+- Likely to start
+- Monitor for changes
+- Generally safe to start
+
+INJURED RESERVE (IR):
+- Out for extended time
+- Can be stashed in IR slot
+- Check league rules
+- Monitor return timeline
+
+COVID-19:
+- Follow league protocols
+- Check testing status
+- Monitor updates
+- Have backup plans
+
+INACTIVE:
+- Will not play
+- Game-day decision
+- Use alternative options
+- Check pre-game reports"""
+
+
 def run_http_server(host: Optional[str] = None, port: Optional[int] = None, *, show_banner: bool = True) -> None:
     """Start the FastMCP server using the HTTP transport."""
 
@@ -510,6 +794,17 @@ __all__ = [
     "ff_get_draft_recommendation",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
+    # Prompts
+    "analyze_roster_strengths",
+    "draft_strategy_advice",
+    "matchup_analysis",
+    "waiver_wire_priority",
+    "trade_evaluation",
+    # Resources
+    "get_scoring_rules",
+    "get_position_info",
+    "get_draft_strategies",
+    "get_injury_status_info",
 ]
 
 
