@@ -39,6 +39,11 @@ except ImportError as e:
     logger.error(f"Failed to import nfl_schedule: {e}")
     get_opponent = None
 
+try:
+    import difflib
+except ImportError:
+    difflib = None
+
 
 @dataclass
 class Player:
@@ -93,6 +98,44 @@ class LineupOptimizer:
         "DEF": 1
     }
     
+    # Team name normalization mapping (Yahoo -> Standard uppercase format for defensive rankings)
+    TEAM_MAPPINGS = {
+        # Handle common variations - output uppercase for defensive rankings consistency
+        "LV": "LV", "LAS": "LV", "VEGAS": "LV", "RAIDERS": "LV",
+        "LAC": "LAC", "SD": "LAC", "CHARGERS": "LAC",
+        "LAR": "LAR", "LA": "LAR", "RAMS": "LAR",
+        "WAS": "WAS", "WSH": "WAS", "WASHINGTON": "WAS",
+        "JAX": "JAX", "JAC": "JAX", "JACKSONVILLE": "JAX",
+        "TB": "TB", "TAM": "TB", "TAMPA": "TB", "BUCS": "TB",
+        "NO": "NO", "NOR": "NO", "SAINTS": "NO",
+        "GB": "GB", "GNB": "GB", "PACKERS": "GB",
+        "NE": "NE", "NEP": "NE", "PATRIOTS": "NE",
+        "KC": "KC", "KAN": "KC", "CHIEFS": "KC",
+        "SF": "SF", "SFO": "SF", "49ERS": "SF",
+        "NYG": "NYG", "GIANTS": "NYG",
+        "NYJ": "NYJ", "JETS": "NYJ",
+        # Add more direct mappings
+        "ARI": "ARI", "ARIZONA": "ARI", "CARDINALS": "ARI",
+        "ATL": "ATL", "ATLANTA": "ATL", "FALCONS": "ATL",
+        "BAL": "BAL", "BALTIMORE": "BAL", "RAVENS": "BAL",
+        "BUF": "BUF", "BUFFALO": "BUF", "BILLS": "BUF",
+        "CAR": "CAR", "CAROLINA": "CAR", "PANTHERS": "CAR",
+        "CHI": "CHI", "CHICAGO": "CHI", "BEARS": "CHI",
+        "CIN": "CIN", "CINCINNATI": "CIN", "BENGALS": "CIN",
+        "CLE": "CLE", "CLEVELAND": "CLE", "BROWNS": "CLE",
+        "DAL": "DAL", "DALLAS": "DAL", "COWBOYS": "DAL",
+        "DEN": "DEN", "DENVER": "DEN", "BRONCOS": "DEN",
+        "DET": "DET", "DETROIT": "DET", "LIONS": "DET",
+        "HOU": "HOU", "HOUSTON": "HOU", "TEXANS": "HOU",
+        "IND": "IND", "INDIANAPOLIS": "IND", "COLTS": "IND",
+        "MIA": "MIA", "MIAMI": "MIA", "DOLPHINS": "MIA",
+        "MIN": "MIN", "MINNESOTA": "MIN", "VIKINGS": "MIN",
+        "PHI": "PHI", "PHILADELPHIA": "PHI", "EAGLES": "PHI",
+        "PIT": "PIT", "PITTSBURGH": "PIT", "STEELERS": "PIT",
+        "SEA": "SEA", "SEATTLE": "SEA", "SEAHAWKS": "SEA",
+        "TEN": "TEN", "TENNESSEE": "TEN", "TITANS": "TEN",
+    }
+    
     def __init__(self):
         self.trending_players = None
         
@@ -105,6 +148,28 @@ class LineupOptimizer:
             "K": {"elite": 10, "stud": 8, "solid": 6, "flex": 5},
             "DEF": {"elite": 10, "stud": 8, "solid": 6, "flex": 4}
         }
+        
+    def normalize_team_name(self, team: str) -> str:
+        """Normalize team abbreviation to standard format."""
+        if not team:
+            return ""
+        
+        # Convert to uppercase and strip
+        team_upper = team.upper().strip()
+        
+        # Direct mapping lookup
+        if team_upper in self.TEAM_MAPPINGS:
+            return self.TEAM_MAPPINGS[team_upper]
+        
+        # Try fuzzy matching if difflib available
+        if difflib and len(team_upper) >= 2:
+            all_keys = list(self.TEAM_MAPPINGS.keys())
+            matches = difflib.get_close_matches(team_upper, all_keys, n=1, cutoff=0.7)
+            if matches:
+                return self.TEAM_MAPPINGS[matches[0]]
+        
+        # Return as-is if no match (assume it's already correct)
+        return team_upper[:3]  # Limit to 3 chars max
         
     async def load_trending_data(self):
         """Load trending player data with error handling."""
@@ -289,10 +354,13 @@ class LineupOptimizer:
             if get_opponent:
                 for player in players:
                     if not player.opponent and player.team:
-                        opponent_team = get_opponent(player.team)
+                        # Normalize team name before lookup for better matching
+                        normalized_team = self.normalize_team_name(player.team)
+                        opponent_team = get_opponent(normalized_team)
                         if opponent_team:
-                            player.opponent = opponent_team
-                            logger.debug(f"Set opponent for {player.name}: {player.team} vs {opponent_team}")
+                            # Also normalize the opponent team name for consistency
+                            player.opponent = self.normalize_team_name(opponent_team)
+                            logger.debug(f"Set opponent for {player.name}: {normalized_team} vs {player.opponent}")
             else:
                 logger.warning("NFL schedule module not available - opponents will remain empty")
                         
@@ -358,16 +426,20 @@ class LineupOptimizer:
                                                 player_id = str(info_dict['player_id'])
                                         
                                         if name != "Unknown" and position and team:
+                                            # Normalize team name for consistency across data sources
+                                            normalized_team = self.normalize_team_name(team)
+                                            normalized_opponent = self.normalize_team_name(opponent) if opponent else ""
+                                            
                                             player = Player(
                                                 name=name,
                                                 position=position,
-                                                team=team,
-                                                opponent=opponent,
+                                                team=normalized_team,
+                                                opponent=normalized_opponent,
                                                 yahoo_projection=0.0,
                                                 sleeper_projection=0.0
                                             )
                                             players.append(player)
-                                            logger.debug(f"Parsed player: {name} ({position}) - {team} vs {opponent if opponent else 'TBD'}")
+                                            logger.debug(f"Parsed player: {name} ({position}) - {normalized_team} vs {normalized_opponent if normalized_opponent else 'TBD'}")
                                         else:
                                             logger.warning(f"Incomplete player data: name='{name}', position='{position}', team='{team}'")
                 
@@ -756,13 +828,15 @@ class LineupOptimizer:
                 # Get matchup score with fallback
                 if matchup_analyzer is not None and player.opponent and player.position:
                     try:
-                        opponent_clean = player.opponent.replace("@", "").replace("vs", "").strip()
+                        # Improved opponent cleaning and normalization
+                        opponent_raw = player.opponent.replace("@", "").replace("vs", "").replace("v", "").strip()
+                        opponent_clean = self.normalize_team_name(opponent_raw)
                         score, desc = matchup_analyzer.get_matchup_score(opponent_clean, player.position)
                         player.matchup_score = score
                         player.matchup_description = desc
                         enhancement_stats["matchup_scores"] += 1
                     except Exception as e:
-                        logger.warning(f"Failed to get matchup score for {player.name}: {e}")
+                        logger.warning(f"Failed to get matchup score for {player.name} vs {player.opponent}: {e}")
                         player.matchup_score = 50  # Neutral default
                         player.matchup_description = "Matchup data unavailable"
                 
