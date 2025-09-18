@@ -62,9 +62,9 @@ class Player:
     def is_valid(self) -> bool:
         """Validate player has minimum required data."""
         return all([
-            self.name.strip(),
+            self.name and self.name.strip(),
             self.position in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'],
-            self.team.strip()
+            self.team and self.team.strip()
         ])
     
     def get_best_projection(self) -> float:
@@ -664,7 +664,7 @@ class LineupOptimizer:
                     try:
                         from sleeper_api import get_player_projection
                         proj = await get_player_projection(player.name)
-                        if proj:
+                        if proj and isinstance(proj, dict):
                             player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
                             enhancement_stats["sleeper_projections"] += 1
                     except Exception as e:
@@ -674,8 +674,10 @@ class LineupOptimizer:
                 # Get trending score with fallback
                 if self.trending_players and player.name in self.trending_players:
                     try:
-                        player.trending_score = self.trending_players[player.name]
-                        enhancement_stats["trending_data"] += 1
+                        trending_value = self.trending_players[player.name]
+                        if isinstance(trending_value, (int, float)) and trending_value >= 0:
+                            player.trending_score = int(trending_value)
+                            enhancement_stats["trending_data"] += 1
                     except Exception as e:
                         logger.warning(f"Failed to get trending score for {player.name}: {e}")
                         player.trending_score = 0
