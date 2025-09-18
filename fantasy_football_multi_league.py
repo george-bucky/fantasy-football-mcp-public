@@ -982,6 +982,10 @@ async def list_tools() -> list[Tool]:
                         "description": "Strategy: 'conservative', 'aggressive', or 'balanced' (default: balanced)",
                         "enum": ["conservative", "aggressive", "balanced"],
                     },
+                    "use_llm": {
+                        "type": "boolean",
+                        "description": "Use LLM-based optimization instead of mathematical formulas (default: false)",
+                    },
                 },
                 "required": ["league_key"],
             },
@@ -1437,7 +1441,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                             }
                         else:
                             players = await lineup_optimizer.enhance_with_external_data(players)
-                            optimization = lineup_optimizer.optimize_lineup(players, strategy, week)
+                            # Check for LLM optimization flag (default to False for now to test)
+                            use_llm = arguments.get('use_llm', False)
+                            optimization = await lineup_optimizer.optimize_lineup_smart(players, strategy, week, use_llm)
                             if optimization["status"] == "error":
                                 result = {
                                     "status": "error",

@@ -4,10 +4,16 @@ Lineup Optimizer for Fantasy Football
 Combines Yahoo data, Sleeper rankings, and matchup analysis
 """
 
+import json
 import logging
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 import numpy as np
+
+try:
+    import aiohttp
+except ImportError:
+    aiohttp = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -394,6 +400,370 @@ class LineupOptimizer:
         
         # Cap at 150 to allow for elite players with great matchups
         return min(150, final_score)
+    
+    async def llm_optimize_lineup(
+        self,
+        players: List[Player],
+        strategy: str = "balanced",
+        week: Optional[int] = None
+    ) -> Dict[str, any]:
+        """
+        Use LLM to optimize lineup based on holistic analysis of player data.
+        Falls back to traditional optimization if LLM fails.
+        """
+        logger.info(f"Starting LLM-based lineup optimization with {len(players)} players, strategy: {strategy}")
+        
+        try:
+            # Prepare structured data for LLM
+            player_data = []
+            for player in players:
+                if not player.is_valid():
+                    continue
+                    
+                player_info = {
+                    "name": player.name,
+                    "position": player.position,
+                    "team": player.team,
+                    "opponent": player.opponent or "Unknown",
+                    "yahoo_projection": round(player.yahoo_projection, 1) if player.yahoo_projection > 0 else None,
+                    "sleeper_projection": round(player.sleeper_projection, 1) if player.sleeper_projection > 0 else None,
+                    "consensus_projection": round((player.yahoo_projection + player.sleeper_projection) / 2, 1) if player.yahoo_projection > 0 and player.sleeper_projection > 0 else None,
+                    "matchup_score": round(player.matchup_score, 1),
+                    "matchup_description": player.matchup_description or "Unknown matchup",
+                    "trending_score": player.trending_score if player.trending_score > 0 else 0,
+                    "trending_description": f"{player.trending_score:,} adds" if player.trending_score > 0 else "No trending data",
+                    "player_tier": player.player_tier if player.player_tier != "unknown" else "UNRANKED",
+                    "total_score": round(player.calculate_total_score(), 1) if hasattr(player, 'calculate_total_score') else None,
+                    "injury_status": getattr(player, 'injury_status', 'Unknown'),
+                    "injury_probability": getattr(player, 'injury_probability', 0),
+                    "ownership_pct": getattr(player, 'ownership_pct', 0),
+                    "salary": getattr(player, 'salary', 0),
+                    "value_score": getattr(player, 'value', 0),
+                    "recent_games": getattr(player, 'recent_performance', []),
+                    "season_avg": getattr(player, 'season_avg', 0),
+                    "target_share": getattr(player, 'target_share', 0),
+                    "red_zone_usage": getattr(player, 'red_zone_targets', 0),
+                    "snap_count_pct": getattr(player, 'snap_count_pct', 0),
+                    "weather_impact": getattr(player, 'weather_impact', 'Unknown'),
+                    "vegas_total": getattr(player, 'vegas_total', 0),
+                    "team_implied_total": getattr(player, 'implied_team_total', 0),
+                    "spread": getattr(player, 'spread', 0),
+                    "def_rank_vs_pos": getattr(player, 'defense_rank_allowed', 'Unknown')
+                }
+                player_data.append(player_info)
+            
+            if len(player_data) < 9:
+                logger.warning("Insufficient players for LLM optimization, falling back to traditional method")
+                return self.optimize_lineup(players, strategy, week)
+            
+            # Create LLM prompt
+            prompt = self._create_optimization_prompt(player_data, strategy)
+            
+            # Call LLM for optimization
+            llm_result = await self._call_llm_for_optimization(prompt)
+            
+            if llm_result and self._validate_llm_lineup(llm_result, player_data):
+                # Convert LLM result to our format
+                result = self._convert_llm_result_to_standard_format(llm_result, players)
+                result["optimization_method"] = "llm"
+                logger.info("Successfully optimized lineup using LLM")
+                return result
+            else:
+                logger.warning("LLM optimization failed or invalid, falling back to traditional method")
+                return self.optimize_lineup(players, strategy, week)
+                
+        except Exception as e:
+            logger.error(f"LLM optimization error: {e}, falling back to traditional method")
+            return self.optimize_lineup(players, strategy, week)
+    
+    def _create_optimization_prompt(self, player_data: List[Dict], strategy: str) -> str:
+        """
+        Create a detailed prompt for LLM-based lineup optimization.
+        """
+        strategy_descriptions = {
+            "balanced": "balanced approach considering all factors equally",
+            "matchup_heavy": "prioritize favorable matchups over player rankings",
+            "expert_consensus": "trust expert projections (Yahoo/Sleeper) most heavily",
+            "trending": "favor players with high waiver wire activity and momentum",
+            "floor_focused": "minimize risk with consistent, reliable players",
+            "ceiling_focused": "maximize upside potential for tournaments"
+        }
+        
+        strategy_desc = strategy_descriptions.get(strategy, "balanced approach")
+        
+        return f"""
+You are a WORLD-CLASS fantasy football analyst with ELITE expertise in lineup optimization. You have WON multiple high-stakes tournaments and your analysis is TRUSTED by thousands of successful players. This analysis MUST be PRECISE, DATA-DRIVEN, and STRATEGICALLY SUPERIOR.
+
+CRITICAL MANDATE: {strategy.upper()} STRATEGY - {strategy_desc.upper()}
+You MUST optimize for this strategy RUTHLESSLY. Every decision must align with this approach.
+
+LINEUP REQUIREMENTS (NON-NEGOTIABLE):
+- 1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX (RB/WR/TE), 1 K, 1 DEF
+- EXACTLY these position counts - NO EXCEPTIONS
+
+COMPREHENSIVE PLAYER DATABASE:
+{json.dumps(player_data, indent=2)}
+
+MANDATORY ANALYSIS FRAMEWORK - ANALYZE EVERY DATA POINT:
+
+1. PROJECTION ANALYSIS (CRITICAL):
+   - Yahoo vs Sleeper projections - identify discrepancies and opportunities
+   - Consensus projection accuracy and confidence level
+   - Floor vs ceiling evaluation for risk assessment
+
+2. MATCHUP EVALUATION (ESSENTIAL):
+   - Matchup score interpretation and defensive vulnerability
+   - Game script implications and pace factors
+   - Historical performance vs similar opponents
+
+3. USAGE & OPPORTUNITY METRICS:
+   - Target share and snap count percentages for skill positions
+   - Red zone usage and goal line opportunities
+   - Recent performance trends and momentum indicators
+
+4. GAME ENVIRONMENT FACTORS:
+   - Vegas totals, spreads, and implied team scoring
+   - Weather conditions and outdoor game impacts
+   - Prime time vs day game considerations
+
+5. RISK ASSESSMENT (MANDATORY):
+   - Injury status and probability impact
+   - Ownership percentages for tournament leverage
+   - Player consistency vs volatility patterns
+
+6. VALUE IDENTIFICATION:
+   - Salary efficiency and cost-per-point optimization
+   - Position scarcity and replacement value analysis
+   - Leverage opportunities vs public perception
+
+STRATEGIC REQUIREMENTS:
+- JUSTIFY every selection with SPECIFIC data points
+- EXPLAIN why alternatives were rejected
+- IDENTIFY correlation opportunities and game stacks
+- ASSESS risk tolerance vs upside potential
+- CONSIDER tournament vs cash game implications
+
+You are ACCOUNTABLE for championship-level analysis. Every recommendation must be DEFENSIBLE with concrete data.
+
+RETURN RESPONSE AS JSON (MANDATORY FORMAT):
+{{
+  "starters": {{
+    "QB": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "RB1": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "RB2": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "WR1": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "WR2": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "TE": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "FLEX": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "K": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }},
+    "DEF": {{
+      "name": "Player Name", 
+      "projected_points": X.X,
+      "reasoning": "DETAILED 3-sentence minimum justification with specific data points and why this player beats alternatives"
+    }}
+  }},
+  "lineup_analysis": {{
+    "total_projected_points": XX.X,
+    "risk_level": "HIGH/MEDIUM/LOW",
+    "ceiling_potential": "Description of upside scenarios",
+    "floor_assessment": "Description of worst-case scenarios",
+    "key_correlations": ["Game stacks and player correlations used"],
+    "leverage_opportunities": ["Low-owned players with high upside"],
+    "primary_concerns": ["Main risks and backup plans"]
+  }},
+  "strategic_insights": [
+    "MANDATORY: Explain your overall lineup construction philosophy",
+    "MANDATORY: Identify the key decision points and trade-offs made",
+    "MANDATORY: Describe how this lineup differs from public/chalk plays"
+  ],
+  "alternative_considerations": [
+    "Notable players NOT selected and specific reasons why",
+    "Close calls and tiebreaker decisions explained"
+  ]
+}}
+
+CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup scores, tiers, etc.). Generic explanations will be REJECTED.
+"""
+    
+    async def _call_llm_for_optimization(self, prompt: str) -> Dict:
+        """
+        Call LLM API for lineup optimization using OpenAI.
+        """
+        try:
+            import os
+            
+            # Check for OpenAI API key
+            api_key = os.getenv('OPENAI_API_KEY')
+            if not api_key:
+                logger.warning("OPENAI_API_KEY not found, skipping LLM optimization")
+                return None
+            
+            if not aiohttp:
+                logger.warning("aiohttp not available, skipping LLM optimization")
+                return None
+            
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "model": "gpt-4o-mini",  # Use faster, cheaper model for lineup optimization
+                "messages": [
+                    {
+                        "role": "system", 
+                        "content": "You are an expert fantasy football analyst. Always return valid JSON responses."
+                    },
+                    {
+                        "role": "user", 
+                        "content": prompt
+                    }
+                ],
+                "temperature": 0.1,  # Low temperature for consistent decisions
+                "max_tokens": 2000
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        content = result["choices"][0]["message"]["content"]
+                        
+                        # Try to parse JSON from the response
+                        try:
+                            # Look for JSON content between ``` markers or just parse directly
+                            if "```json" in content:
+                                json_start = content.find("```json") + 7
+                                json_end = content.find("```", json_start)
+                                json_content = content[json_start:json_end].strip()
+                            elif content.strip().startswith('{'):
+                                json_content = content.strip()
+                            else:
+                                logger.warning("LLM response doesn't contain recognizable JSON")
+                                return None
+                            
+                            parsed_result = json.loads(json_content)
+                            logger.info("Successfully parsed LLM optimization response")
+                            return parsed_result
+                            
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"Failed to parse LLM JSON response: {e}")
+                            logger.debug(f"LLM response content: {content}")
+                            return None
+                    else:
+                        logger.warning(f"LLM API request failed with status {response.status}")
+                        return None
+                        
+        except Exception as e:
+            logger.error(f"LLM API call failed: {e}")
+            return None
+    
+    def _validate_llm_lineup(self, llm_result: Dict, player_data: List[Dict]) -> bool:
+        """
+        Validate that LLM returned a properly formatted lineup.
+        """
+        if not llm_result or "starters" not in llm_result:
+            return False
+        
+        required_positions = ["QB", "RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "K", "DEF"]
+        starters = llm_result["starters"]
+        
+        # Check all positions are filled
+        for pos in required_positions:
+            if pos not in starters or "name" not in starters[pos]:
+                logger.warning(f"LLM result missing position: {pos}")
+                return False
+        
+        # Check all selected players exist in our data
+        player_names = {p["name"] for p in player_data}
+        for pos, selection in starters.items():
+            if selection["name"] not in player_names:
+                logger.warning(f"LLM selected unknown player: {selection['name']}")
+                return False
+        
+        return True
+    
+    def _convert_llm_result_to_standard_format(self, llm_result: Dict, players: List[Player]) -> Dict:
+        """
+        Convert LLM result to our standard optimization result format.
+        """
+        # Create player lookup
+        player_lookup = {p.name: p for p in players}
+        
+        result = {
+            "status": "success",
+            "starters": {},
+            "bench": [],
+            "recommendations": [],
+            "strategy_used": "llm_optimized",
+            "errors": [],
+            "llm_insights": llm_result.get("key_insights", []),
+            "llm_bench_notes": llm_result.get("bench_considerations", []),
+            "data_quality": {
+                "total_players": len(players),
+                "valid_players": len([p for p in players if p.is_valid()]),
+                "optimization_method": "llm"
+            }
+        }
+        
+        # Map LLM selections to our format
+        starters = llm_result["starters"]
+        selected_names = set()
+        
+        for position, selection in starters.items():
+            player_name = selection["name"]
+            if player_name in player_lookup:
+                player = player_lookup[player_name]
+                result["starters"][position] = player
+                selected_names.add(player_name)
+                
+                # Add LLM reasoning as recommendation
+                reasoning = selection.get("reasoning", "Selected by LLM")
+                result["recommendations"].append(f"[LLM] {position}: {reasoning}")
+        
+        # Add remaining players to bench
+        for player in players:
+            if player.is_valid() and player.name not in selected_names:
+                result["bench"].append(player)
+        
+        return result
     
     async def _fill_opponent_data(self, players: List[Player]):
         """Fill in opponent data for players using NFL schedule data."""
@@ -962,6 +1332,39 @@ class LineupOptimizer:
             logger.warning(f"Enhancement errors: {len(enhancement_stats['errors'])}")
         
         return players
+    
+    async def optimize_lineup_smart(
+        self,
+        players: List[Player],
+        strategy: str = "balanced",
+        week: Optional[int] = None,
+        use_llm: bool = True
+    ) -> Dict[str, any]:
+        """
+        Smart lineup optimization that uses LLM by default with traditional fallback.
+        
+        Args:
+            players: List of available players
+            strategy: Optimization strategy
+            week: NFL week number
+            use_llm: Whether to attempt LLM optimization first
+            
+        Returns:
+            Optimization result with lineup and analysis
+        """
+        if use_llm:
+            try:
+                result = await self.llm_optimize_lineup(players, strategy, week)
+                if result.get("optimization_method") == "llm":
+                    logger.info("Successfully used LLM optimization")
+                    return result
+            except Exception as e:
+                logger.warning(f"LLM optimization failed: {e}, falling back to traditional")
+        
+        logger.info("Using traditional mathematical optimization")
+        result = self.optimize_lineup(players, strategy, week)
+        result["optimization_method"] = "traditional"
+        return result
     
     def optimize_lineup(
         self,
