@@ -718,6 +718,7 @@ class LineupOptimizer:
             "sleeper_projections": 0,
             "matchup_scores": 0,
             "trending_data": 0,
+            "projection_match_methods": {},
             "errors": []
         }
         
@@ -772,6 +773,8 @@ class LineupOptimizer:
                         if proj and isinstance(proj, dict):
                             player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
                             enhancement_stats["sleeper_projections"] += 1
+                            mm = proj.get("match_method", "unknown")
+                            enhancement_stats["projection_match_methods"][mm] = enhancement_stats["projection_match_methods"].get(mm, 0) + 1
                     except Exception as e:
                         logger.warning(f"Failed to get Sleeper projection for {player.name}: {e}")
                         player.sleeper_projection = 0.0
@@ -823,9 +826,15 @@ class LineupOptimizer:
                 enhancement_stats["errors"].append(error_msg)
         
         # Log enhancement statistics
-        logger.info(f"Enhancement complete - Sleeper projections: {enhancement_stats['sleeper_projections']}/{len(players)}, "
-                   f"Matchup scores: {enhancement_stats['matchup_scores']}/{len(players)}, "
-                   f"Trending data: {enhancement_stats['trending_data']}/{len(players)}")
+        logger.info(
+            "Enhancement complete - Sleeper projections: %s/%s, Matchup scores: %s/%s, Trending data: %s/%s" % (
+                enhancement_stats['sleeper_projections'], len(players),
+                enhancement_stats['matchup_scores'], len(players),
+                enhancement_stats['trending_data'], len(players)
+            )
+        )
+        if enhancement_stats["projection_match_methods"]:
+            logger.info(f"Projection match methods breakdown: {enhancement_stats['projection_match_methods']}")
         
         if enhancement_stats["errors"]:
             logger.warning(f"Enhancement errors: {len(enhancement_stats['errors'])}")

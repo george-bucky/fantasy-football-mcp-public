@@ -10,6 +10,8 @@ import json
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import hashlib
+import difflib
+import re
 
 # Import caching from our yahoo utils
 from yahoo_api_utils import ResponseCache
@@ -76,7 +78,69 @@ class SleeperAPI:
         if players:
             self._players_cache = players
             self._players_cache_time = datetime.now()
+            # Build normalized index for improved matching
+            self._build_normalized_index(players)
         return players or {}
+
+    # ----------------------- Name Normalization Utilities ------------------
+    _normalized_index: Dict[str, str] = {}
+    _normalized_variants: Dict[str, List[str]] = {}
+
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalize player name for matching.
+
+        Steps:
+        - Lowercase
+        - Remove punctuation (periods, apostrophes, commas, hyphens)
+        - Remove suffix tokens (jr, sr, ii, iii, iv, v)
+        - Collapse whitespace
+        """
+        if not name:
+            return ""
+        n = name.lower()
+        # Remove punctuation
+        n = re.sub(r"[\.'`,-]", " ", n)
+        # Remove suffix tokens
+        suffixes = {"jr", "sr", "ii", "iii", "iv", "v"}
+        parts = [p for p in n.split() if p not in suffixes and len(p) > 0]
+        # Remove single-letter middle initials
+        parts = [p for p in parts if len(p) > 1 or parts.count(p) == 1]
+        return " ".join(parts).strip()
+
+    def _build_normalized_index(self, players: Dict[str, Dict]) -> None:
+        """Build a mapping of normalized full names -> player_id for fast lookup."""
+        idx: Dict[str, str] = {}
+        variants: Dict[str, List[str]] = {}
+        for pid, pdata in players.items():
+            first = pdata.get("first_name", "")
+            last = pdata.get("last_name", "")
+            full = f"{first} {last}".strip()
+            if not full:
+                continue
+            norm = self._normalize_name(full)
+            if norm and norm not in idx:
+                idx[norm] = pid
+                # Store variant forms (initial + last)
+                if first and last:
+                    initial_form = f"{first[0]} {last}".lower()
+                    variants.setdefault(norm, []).append(self._normalize_name(initial_form))
+        self._normalized_index = idx
+        self._normalized_variants = variants
+
+    def _fuzzy_lookup(self, norm_query: str, cutoff: float = 0.88) -> Optional[str]:
+        """Fuzzy match normalized query among normalized index keys."""
+        if not self._normalized_index:
+            return None
+        candidates = list(self._normalized_index.keys())
+        # Limit candidate set by first letter of last token to speed up
+        if " " in norm_query:
+            last_token = norm_query.split()[-1][:1]
+            candidates = [c for c in candidates if c.split()[-1].startswith(last_token)] or list(self._normalized_index.keys())
+        matches = difflib.get_close_matches(norm_query, candidates, n=1, cutoff=cutoff)
+        if matches:
+            return self._normalized_index.get(matches[0])
+        return None
     
     async def get_trending_players(self, sport: str = "nfl", add_drop: str = "add", hours: int = 24, limit: int = 25) -> List[Dict]:
         """
@@ -148,35 +212,61 @@ class SleeperAPI:
         return projections
     
     async def get_player_by_name(self, name: str) -> Optional[Dict]:
-        """
-        Find a player by name (case insensitive).
-        Returns player info with sleeper_id.
-        """
+        """Improved player lookup with normalization and fuzzy fallback."""
         all_players = await self.get_all_players()
-        
-        name_lower = name.lower().strip()
-        
-        # Try exact match first
-        for player_id, player in all_players.items():
-            full_name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip().lower()
-            if full_name == name_lower:
-                player["sleeper_id"] = player_id
-                return player
-        
-        # Try partial match
-        for player_id, player in all_players.items():
-            full_name = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip().lower()
-            if name_lower in full_name or full_name in name_lower:
-                player["sleeper_id"] = player_id
-                return player
-        
-        # Try last name only
-        for player_id, player in all_players.items():
-            last_name = player.get('last_name', '').lower()
-            if last_name and (last_name == name_lower or name_lower == last_name):
-                player["sleeper_id"] = player_id
-                return player
-        
+        if not all_players:
+            return None
+
+        raw = name.strip()
+        lower_raw = raw.lower()
+        norm = self._normalize_name(raw)
+
+        # Direct exact full-name match (raw)
+        for pid, pdata in all_players.items():
+            full = f"{pdata.get('first_name', '')} {pdata.get('last_name', '')}".strip().lower()
+            if full == lower_raw:
+                pdata["sleeper_id"] = pid
+                pdata["match_method"] = "exact"
+                return pdata
+
+        # Normalized index lookup
+        if norm in self._normalized_index:
+            pid = self._normalized_index[norm]
+            pdata = all_players.get(pid)
+            if pdata:
+                pdata["sleeper_id"] = pid
+                pdata["match_method"] = "normalized"
+                return pdata
+
+        # Variant forms (initial + last)
+        for base_norm, var_list in self._normalized_variants.items():
+            if norm in var_list:
+                pid = self._normalized_index.get(base_norm)
+                pdata = all_players.get(pid)
+                if pdata:
+                    pdata["sleeper_id"] = pid
+                    pdata["match_method"] = "variant"
+                    return pdata
+
+        # Partial token match (subset containment)
+        tokens = set(norm.split())
+        if tokens:
+            for pid, pdata in all_players.items():
+                full_norm = self._normalize_name(f"{pdata.get('first_name', '')} {pdata.get('last_name', '')}")
+                if tokens.issubset(set(full_norm.split())):
+                    pdata["sleeper_id"] = pid
+                    pdata["match_method"] = "token_subset"
+                    return pdata
+
+        # Fuzzy fallback
+        fuzzy_pid = self._fuzzy_lookup(norm)
+        if fuzzy_pid:
+            pdata = all_players.get(fuzzy_pid)
+            if pdata:
+                pdata["sleeper_id"] = fuzzy_pid
+                pdata["match_method"] = "fuzzy"
+                return pdata
+
         return None
     
     async def get_defensive_rankings(self, season: int = 2024) -> Dict[str, Dict]:
@@ -306,6 +396,8 @@ async def get_player_projection(player_name: str, week: Optional[int] = None) ->
         proj["player_name"] = player_name
         proj["position"] = player.get("position")
         proj["team"] = player.get("team")
+        if "match_method" in player:
+            proj["match_method"] = player["match_method"]
         return proj
     
     return None
