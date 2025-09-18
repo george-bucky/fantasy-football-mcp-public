@@ -1522,6 +1522,9 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                     if optimization.get("errors"):
                         result["warnings"] = optimization["errors"]
                     
+                    # Return the successful result
+                    return result
+                    
                 except Exception as e:
                     result = {
                         "error": f"Unexpected error during lineup optimization: {str(e)}",
