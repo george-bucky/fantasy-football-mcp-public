@@ -134,6 +134,20 @@ async def _call_legacy_tool(
     first = responses[0]
     payload = getattr(first, "text", "")
 
+    # Instrumentation: detect raw '0' / suspiciously tiny payloads that break higher layers
+    if payload.strip() == "0":
+        diag = {
+            "status": "error",
+            "message": "Legacy tool returned sentinel '0' string instead of JSON",
+            "tool": name,
+            "arguments": filtered_args,
+            "raw": payload,
+            "stage": "_call_legacy_tool:raw_payload_zero",
+        }
+        if ctx is not None:
+            await ctx.info(f"[diagnostic] Detected raw '0' payload from legacy tool: {name}")
+        return diag
+
     if not payload:
         return {
             "status": "error",
@@ -291,6 +305,7 @@ async def ff_get_optimal_lineup(
     league_key: str,
     week: Optional[int] = None,
     strategy: Literal["conservative", "aggressive", "balanced"] = "balanced",
+    debug: bool = False,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_get_optimal_lineup",
@@ -298,6 +313,7 @@ async def ff_get_optimal_lineup(
         league_key=league_key,
         week=week,
         strategy=strategy,
+        debug=debug,
     )
 
 

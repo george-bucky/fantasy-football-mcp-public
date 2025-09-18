@@ -1168,6 +1168,10 @@ async def list_tools() -> list[Tool]:
 async def call_tool(name: str, arguments: dict) -> list[TextContent]:
     """Execute a fantasy football tool."""
     try:
+        debug_flag = arguments.get("debug") is True
+        if debug_flag:
+            # Lightweight initial debug envelope we can append to
+            debug_msgs = [f"debug: call_tool entered for {name}"]
         if name == "ff_get_leagues":
             # Get all leagues
             leagues = await discover_leagues()
@@ -1666,6 +1670,22 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         else:
             result = {"error": f"Unknown tool: {name}"}
 
+        # Final defensive guard: never return raw '0' (observed upstream)
+        if isinstance(result, str) and result.strip() == "0":
+            result = {
+                "status": "error",
+                "message": "Internal legacy layer produced sentinel '0' string",
+                "tool": name,
+                "stage": "legacy.call_tool.guard",
+            }
+        if debug_flag:
+            # Attach debug messages & echo minimal arguments (excluding secrets)
+            safe_args = {k: v for k, v in arguments.items() if not k.lower().endswith("token")}
+            result["_debug"] = {
+                "messages": debug_msgs,
+                "tool": name,
+                "arguments": safe_args,
+            }
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     except Exception as e:
