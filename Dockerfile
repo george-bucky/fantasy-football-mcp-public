@@ -32,6 +32,5 @@ ENV PYTHONUNBUFFERED=1
 # Expose port (Cloud Run will set PORT env var)
 EXPOSE 8080
 
-# Run the no-auth MCP server for Claude.ai compatibility
-# Render sets PORT env variable dynamically
-CMD uvicorn no_auth_server:app --host 0.0.0.0 --port ${PORT:-8080}
+# Run FastMCP server directly (no_auth_server shim removed)
+CMD python fastmcp_server.py

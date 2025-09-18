@@ -823,6 +823,17 @@ __all__ = [
     "get_injury_status_info",
 ]
 
+# Optional resource: expose deployed commit SHA for diagnostics
+try:
+    with open(os.path.join(os.path.dirname(__file__), "COMMIT_SHA"), "r", encoding="utf-8") as _f:
+        _COMMIT_SHA = _f.read().strip()
+except Exception:  # pragma: no cover - best effort
+    _COMMIT_SHA = "unknown"
+
+@server.resource("meta://version")
+def get_version() -> str:  # pragma: no cover - simple accessor
+    return json.dumps({"commit": _COMMIT_SHA})
+
 
 if __name__ == "__main__":
     main()
