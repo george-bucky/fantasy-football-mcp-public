@@ -148,7 +148,6 @@ class LineupOptimizer:
         Calculate dynamic tier thresholds based on current week's projections.
         Uses percentiles to adapt to scoring environment.
         """
-        import numpy as np
         
         self.dynamic_thresholds = {}
         
@@ -185,7 +184,6 @@ class LineupOptimizer:
         - floor_focused: Minimize variance for cash games
         - ceiling_focused: Maximize upside for tournaments
         """
-        import numpy as np
         
         # Define strategy weights
         weights = {
@@ -486,7 +484,6 @@ class LineupOptimizer:
         Returns:
             Momentum score (0-100, 50 = neutral)
         """
-        import numpy as np
         
         if not recent_scores or len(recent_scores) < 2:
             return 50.0  # Neutral if insufficient data
@@ -529,7 +526,6 @@ class LineupOptimizer:
         Returns:
             (floor, ceiling) projections
         """
-        import numpy as np
         
         # Base projection is average of available projections
         projections = [p for p in [yahoo_proj, sleeper_proj] if p > 0]
@@ -582,7 +578,6 @@ class LineupOptimizer:
         50 = average consistency
         0 = extremely volatile (boom/bust)
         """
-        import numpy as np
         
         if not recent_scores or len(recent_scores) < 3:
             return 50.0  # Default to average
@@ -604,6 +599,12 @@ class LineupOptimizer:
     async def enhance_with_external_data(self, players: List[Player]) -> List[Player]:
         """Add Sleeper projections, matchup scores, trending data, momentum, and tier with robust error handling."""
         logger.info(f"Enhancing {len(players)} players with external data...")
+        
+        # Import sleeper function for projections
+        try:
+            from sleeper_api import get_player_projection
+        except ImportError:
+            get_player_projection = None
         
         # Track data enhancement success rates
         enhancement_stats = {
@@ -660,9 +661,8 @@ class LineupOptimizer:
                         player.matchup_description = "Matchup data unavailable"
                 
                 # Get Sleeper projection with fallback
-                if sleeper_client is not None:
+                if sleeper_client is not None and get_player_projection is not None:
                     try:
-                        from sleeper_api import get_player_projection
                         proj = await get_player_projection(player.name)
                         if proj and isinstance(proj, dict):
                             player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
@@ -731,7 +731,7 @@ class LineupOptimizer:
         self,
         players: List[Player],
         strategy: str = "balanced",
-        week: int = None
+        week: Optional[int] = None
     ) -> Dict[str, any]:
         """
         Optimize the lineup based on composite scores with comprehensive error handling.
