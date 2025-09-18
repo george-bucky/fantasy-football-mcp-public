@@ -1416,128 +1416,99 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
             if team_key:
                 try:
-                    # Get roster data from Yahoo
                     roster_data = await yahoo_api_call(f"team/{team_key}/roster")
-
-                    # Import and use lineup optimizer with error handling
                     try:
                         from lineup_optimizer import lineup_optimizer
                     except ImportError as e:
                         result = {
                             "error": f"Lineup optimizer unavailable: {e}",
-                            "suggestion": "Please check lineup_optimizer.py dependencies"
-                        }
-                        return result
-
-                    # Parse roster with enhanced error handling
-                    players = await lineup_optimizer.parse_yahoo_roster(roster_data)
-                    
-                    if not players:
-                        result = {
-                            "error": "Failed to parse Yahoo roster data",
+                            "suggestion": "Please check lineup_optimizer.py dependencies",
                             "league_key": league_key,
                             "team_key": team_key,
-                            "suggestion": "Check roster data format or try refreshing"
                         }
-                        return result
-
-                    # Enhance with external data (Sleeper, matchups, trending)
-                    players = await lineup_optimizer.enhance_with_external_data(players)
-
-                    # Optimize lineup with enhanced error handling
-                    optimization = lineup_optimizer.optimize_lineup(players, strategy, week)
-                    
-                    # Check optimization status
-                    if optimization["status"] == "error":
-                        result = {
-                            "status": "error",
-                            "error": "Lineup optimization failed",
-                            "league_key": league_key,
-                            "team_key": team_key,
-                            "errors": optimization.get("errors", []),
-                            "details": optimization.get("errors", []),
-                            "data_quality": optimization.get("data_quality", {}),
-                        }
-                        return result
-
-                    # Format starters for response
-                    starters_formatted = {}
-                    for pos, player in optimization["starters"].items():
-                        starters_formatted[pos] = {
-                            "name": player.name,
-                            "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
-                            "team": player.team,
-                            "opponent": player.opponent,
-                            "matchup_score": player.matchup_score,
-                            "matchup": player.matchup_description,
-                            "composite_score": round(player.composite_score, 1),
-                            "yahoo_proj": (
-                                round(player.yahoo_projection, 1) if player.yahoo_projection else None
-                            ),
-                            "sleeper_proj": (
-                                round(player.sleeper_projection, 1)
-                                if player.sleeper_projection
-                                else None
-                            ),
-                            "trending": (
-                                f"{player.trending_score:,} adds" if player.trending_score > 0 else None
-                            ),
-                            "floor": round(player.floor_projection, 1) if player.floor_projection else None,
-                            "ceiling": round(player.ceiling_projection, 1) if player.ceiling_projection else None,
-                        }
-
-                    # Format bench for response
-                    bench_formatted = []
-                    for player in optimization["bench"][:5]:  # Top 5 bench players
-                        bench_formatted.append(
-                            {
-                                "name": player.name,
-                                "position": player.position,
-                                "opponent": player.opponent,
-                                "composite_score": round(player.composite_score, 1),
-                                "matchup_score": player.matchup_score,
-                                "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+                    else:
+                        players = await lineup_optimizer.parse_yahoo_roster(roster_data)
+                        if not players:
+                            result = {
+                                "error": "Failed to parse Yahoo roster data",
+                                "league_key": league_key,
+                                "team_key": team_key,
+                                "suggestion": "Check roster data format or try refreshing",
                             }
-                        )
-
-                    result = {
-                        "status": optimization["status"],
-                        "league_key": league_key,
-                        "team_key": team_key,
-                        "week": week or "current",
-                        "strategy": strategy,
-                        "optimal_lineup": starters_formatted,
-                        "bench": bench_formatted,
-                        "recommendations": optimization["recommendations"],
-                        "errors": optimization.get("errors", []),
-                        "analysis": {
-                            "total_players": optimization["data_quality"]["total_players"],
-                            "valid_players": optimization["data_quality"]["valid_players"],
-                            "players_with_projections": optimization["data_quality"]["players_with_projections"],
-                            "players_with_matchup_data": optimization["data_quality"]["players_with_matchup_data"],
-                            "strategy_used": optimization["strategy_used"],
-                            "data_sources": [
-                                "Yahoo projections",
-                                "Sleeper rankings",
-                                "Matchup analysis",
-                                "Trending data",
-                            ],
-                        },
-                    }
-                    
-                    # Add warnings if there were issues
-                    if optimization.get("errors"):
-                        result["warnings"] = optimization["errors"]
-                    
-                    # Return the successful result
-                    return result
-                    
+                        else:
+                            players = await lineup_optimizer.enhance_with_external_data(players)
+                            optimization = lineup_optimizer.optimize_lineup(players, strategy, week)
+                            if optimization["status"] == "error":
+                                result = {
+                                    "status": "error",
+                                    "error": "Lineup optimization failed",
+                                    "league_key": league_key,
+                                    "team_key": team_key,
+                                    "errors": optimization.get("errors", []),
+                                    "details": optimization.get("errors", []),
+                                    "data_quality": optimization.get("data_quality", {}),
+                                }
+                            else:
+                                starters_formatted = {}
+                                for pos, player in optimization["starters"].items():
+                                    starters_formatted[pos] = {
+                                        "name": player.name,
+                                        "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+                                        "team": player.team,
+                                        "opponent": player.opponent,
+                                        "matchup_score": player.matchup_score,
+                                        "matchup": player.matchup_description,
+                                        "composite_score": round(player.composite_score, 1),
+                                        "yahoo_proj": (round(player.yahoo_projection, 1) if player.yahoo_projection else None),
+                                        "sleeper_proj": (round(player.sleeper_projection, 1) if player.sleeper_projection else None),
+                                        "trending": (f"{player.trending_score:,} adds" if player.trending_score > 0 else None),
+                                        "floor": round(player.floor_projection, 1) if player.floor_projection else None,
+                                        "ceiling": round(player.ceiling_projection, 1) if player.ceiling_projection else None,
+                                    }
+                                bench_formatted = []
+                                for player in optimization["bench"][:5]:
+                                    bench_formatted.append(
+                                        {
+                                            "name": player.name,
+                                            "position": player.position,
+                                            "opponent": player.opponent,
+                                            "composite_score": round(player.composite_score, 1),
+                                            "matchup_score": player.matchup_score,
+                                            "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+                                        }
+                                    )
+                                result = {
+                                    "status": optimization["status"],
+                                    "league_key": league_key,
+                                    "team_key": team_key,
+                                    "week": week or "current",
+                                    "strategy": strategy,
+                                    "optimal_lineup": starters_formatted,
+                                    "bench": bench_formatted,
+                                    "recommendations": optimization["recommendations"],
+                                    "errors": optimization.get("errors", []),
+                                    "analysis": {
+                                        "total_players": optimization["data_quality"]["total_players"],
+                                        "valid_players": optimization["data_quality"]["valid_players"],
+                                        "players_with_projections": optimization["data_quality"]["players_with_projections"],
+                                        "players_with_matchup_data": optimization["data_quality"]["players_with_matchup_data"],
+                                        "strategy_used": optimization["strategy_used"],
+                                        "data_sources": [
+                                            "Yahoo projections",
+                                            "Sleeper rankings",
+                                            "Matchup analysis",
+                                            "Trending data",
+                                        ],
+                                    },
+                                }
+                                if optimization.get("errors"):
+                                    result["warnings"] = optimization["errors"]
                 except Exception as e:
                     result = {
                         "error": f"Unexpected error during lineup optimization: {str(e)}",
                         "league_key": league_key,
                         "team_key": team_key,
-                        "suggestion": "Try again or check system logs for details"
+                        "suggestion": "Try again or check system logs for details",
                     }
             else:
                 result = {"error": f"Could not find your team in league {league_key}"}
