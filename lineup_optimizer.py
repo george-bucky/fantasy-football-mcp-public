@@ -194,7 +194,11 @@ class LineupOptimizer:
         # Use the higher of Yahoo or Sleeper projection
         proj = player.get_best_projection()
         
-        if not proj or player.position not in self.tier_thresholds:
+        # Fallback tier assignment when projections are missing
+        if not proj or proj <= 0:
+            return self._determine_fallback_tier(player)
+        
+        if player.position not in self.tier_thresholds:
             return "unknown"
         
         # Get dynamic thresholds if available, else use static
@@ -213,6 +217,26 @@ class LineupOptimizer:
             return "flex"
         else:
             return "bench"
+    
+    def _determine_fallback_tier(self, player: Player) -> str:
+        """
+        Determine tier using trending and matchup data when projections are missing.
+        """
+        # Use trending score as primary signal
+        if player.trending_score and player.trending_score > 20000:
+            return "stud"  # Highly trending players
+        elif player.trending_score and player.trending_score > 10000:
+            return "solid"
+        
+        # Use matchup score as secondary signal
+        if player.matchup_score >= 80:
+            return "solid"  # Great matchup suggests startable
+        elif player.matchup_score >= 60:
+            return "flex"
+        elif player.matchup_score <= 20:
+            return "bench"  # Terrible matchup
+        else:
+            return "flex"  # Default to flex for unknown players
     
     async def calculate_dynamic_thresholds(self, all_projections: Dict[str, List[float]]):
         """
@@ -266,11 +290,11 @@ class LineupOptimizer:
                 "momentum": 0.00
             },
             "balanced": {
-                "matchup": 0.10,  # Heavily reduced - matchups matter less than player quality
-                "yahoo": 0.40,    # Heavily increased - trust expert projections
-                "sleeper": 0.40,  # Heavily increased - trust expert projections
-                "trending": 0.05,
-                "momentum": 0.05
+                "matchup": 0.20,  # Moderate weight - important but not dominant
+                "yahoo": 0.30,    # High weight when available
+                "sleeper": 0.30,  # High weight when available
+                "trending": 0.10,  # Increased - more reliable signal
+                "momentum": 0.10   # Increased baseline
             },
             "expert_consensus": {
                 "matchup": 0.15,
@@ -311,21 +335,45 @@ class LineupOptimizer:
         }
         max_proj = position_max_proj.get(player.position, 20)
         
-        yahoo_norm = min(100, (player.yahoo_projection / max_proj) * 100) if player.yahoo_projection else 50
-        sleeper_norm = min(100, (player.sleeper_projection / max_proj) * 100) if player.sleeper_projection else 50
-        trending_norm = min(100, (player.trending_score / 10000) * 100) if player.trending_score else 0
+        # Handle missing projections more gracefully
+        yahoo_norm = min(100, (player.yahoo_projection / max_proj) * 100) if player.yahoo_projection > 0 else None
+        sleeper_norm = min(100, (player.sleeper_projection / max_proj) * 100) if player.sleeper_projection > 0 else None
+        trending_norm = min(100, (player.trending_score / 10000) * 100) if player.trending_score else 30  # Neutral baseline
         
         # Calculate momentum score (placeholder - will be enhanced)
         momentum_score = getattr(player, 'momentum_score', 50)
         
-        # Calculate base weighted score
-        base_score = (
-            strategy_weights["matchup"] * player.matchup_score +
-            strategy_weights["yahoo"] * yahoo_norm +
-            strategy_weights["sleeper"] * sleeper_norm +
-            strategy_weights["trending"] * trending_norm +
-            strategy_weights.get("momentum", 0) * momentum_score
-        )
+        # Dynamically adjust weights based on available data
+        available_components = []
+        adjusted_weights = {}
+        total_available_weight = 0
+        
+        # Check which components are available
+        if yahoo_norm is not None:
+            available_components.append(("yahoo", yahoo_norm))
+            total_available_weight += strategy_weights["yahoo"]
+        if sleeper_norm is not None:
+            available_components.append(("sleeper", sleeper_norm))
+            total_available_weight += strategy_weights["sleeper"]
+        
+        # Always include these components
+        available_components.extend([
+            ("matchup", player.matchup_score),
+            ("trending", trending_norm),
+            ("momentum", momentum_score)
+        ])
+        total_available_weight += strategy_weights["matchup"] + strategy_weights["trending"] + strategy_weights.get("momentum", 0)
+        
+        # Redistribute weights proportionally
+        for component, value in available_components:
+            if component in ["yahoo", "sleeper"] and total_available_weight > 0:
+                # Maintain proportion but normalize to 1.0
+                adjusted_weights[component] = strategy_weights[component] / total_available_weight
+            else:
+                adjusted_weights[component] = strategy_weights.get(component, strategy_weights.get("momentum", 0)) / total_available_weight
+        
+        # Calculate base weighted score with adjusted weights
+        base_score = sum(adjusted_weights[comp] * val for comp, val in available_components)
         
         # Apply MULTIPLICATIVE tier adjustments with diminishing returns
         # ULTRA-AGGRESSIVE multipliers to ensure elite players ALWAYS start
