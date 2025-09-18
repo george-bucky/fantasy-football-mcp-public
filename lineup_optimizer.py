@@ -33,6 +33,12 @@ except ImportError as e:
     logger.error(f"Failed to import position_normalizer: {e}")
     position_normalizer = None
 
+try:
+    from nfl_schedule import get_opponent
+except ImportError as e:
+    logger.error(f"Failed to import nfl_schedule: {e}")
+    get_opponent = None
+
 
 @dataclass
 class Player:
@@ -276,6 +282,23 @@ class LineupOptimizer:
         # Cap at 150 to allow for elite players with great matchups
         return min(150, final_score)
     
+    async def _fill_opponent_data(self, players: List[Player]):
+        """Fill in opponent data for players using NFL schedule data."""
+        try:
+            # Use the external schedule module for current week
+            if get_opponent:
+                for player in players:
+                    if not player.opponent and player.team:
+                        opponent_team = get_opponent(player.team)
+                        if opponent_team:
+                            player.opponent = opponent_team
+                            logger.debug(f"Set opponent for {player.name}: {player.team} vs {opponent_team}")
+            else:
+                logger.warning("NFL schedule module not available - opponents will remain empty")
+                        
+        except Exception as e:
+            logger.warning(f"Failed to load opponent data: {e}")
+    
     async def parse_yahoo_roster(self, roster_data: dict) -> List[Player]:
         """Parse Yahoo roster data into Player objects with robust error handling."""
         players = []
@@ -312,9 +335,11 @@ class LineupOptimizer:
                                     if isinstance(player_info_list, list) and len(player_info_list) > 0:
                                         player_info_array = player_info_list[0]  # First element contains the info
                                         
-                                        # Extract name and position from the array of dicts
+                                        # Extract name, position, team, and opponent from the array of dicts
                                         name = "Unknown"
                                         position = ""
+                                        team = ""
+                                        opponent = ""
                                         player_id = ""
                                         
                                         for info_dict in player_info_array:
@@ -322,25 +347,35 @@ class LineupOptimizer:
                                                 name = info_dict['name'].get('full', 'Unknown')
                                             elif 'display_position' in info_dict:
                                                 position = info_dict['display_position']
+                                            elif 'editorial_team_abbr' in info_dict:
+                                                team = info_dict['editorial_team_abbr']
+                                            elif 'opponent_team' in info_dict:
+                                                opponent = info_dict['opponent_team']
+                                            elif 'opponent' in info_dict:
+                                                opponent = info_dict['opponent']
                                             elif 'player_id' in info_dict:
                                                 player_id = str(info_dict['player_id'])
                                         
-                                        if name != "Unknown" and position:
+                                        if name != "Unknown" and position and team:
                                             player = Player(
                                                 name=name,
                                                 position=position,
-                                                team="",  # Will be filled later
-                                                opponent="",
+                                                team=team,
+                                                opponent=opponent,
                                                 yahoo_projection=0.0,
                                                 sleeper_projection=0.0
                                             )
                                             players.append(player)
-                                            logger.debug(f"Parsed player: {name} ({position})")
+                                            logger.debug(f"Parsed player: {name} ({position}) - {team} vs {opponent if opponent else 'TBD'}")
                                         else:
-                                            logger.warning(f"Incomplete player data: name='{name}', position='{position}'")
+                                            logger.warning(f"Incomplete player data: name='{name}', position='{position}', team='{team}'")
                 
                 if players:
                     logger.info(f"Successfully parsed {len(players)} players using new Yahoo format strategy")
+                    
+                    # Fill in opponent data if missing
+                    await self._fill_opponent_data(players)
+                    
                     return players  # Return immediately on success
                 else:
                     logger.error("New Yahoo format strategy found no valid players")
@@ -719,7 +754,7 @@ class LineupOptimizer:
                 # Get matchup score with fallback
                 if matchup_analyzer is not None and player.opponent and player.position:
                     try:
-                        opponent_clean = player.opponent.replace("@", "").strip()
+                        opponent_clean = player.opponent.replace("@", "").replace("vs", "").strip()
                         score, desc = matchup_analyzer.get_matchup_score(opponent_clean, player.position)
                         player.matchup_score = score
                         player.matchup_description = desc
