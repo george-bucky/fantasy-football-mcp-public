@@ -307,6 +307,7 @@ class LineupOptimizer:
             logger.info("Starting Yahoo roster parsing...")
             
             # Strategy 1: Handle the actual Yahoo API format: fantasy_content.team[1].roster['0'].players['0'].player
+            # FIXED: Updated for Yahoo API response structure - September 18, 2025
             try:
                 logger.info("Trying new parsing strategy for actual Yahoo format...")
                 fantasy_content = roster_data.get('fantasy_content', {})
