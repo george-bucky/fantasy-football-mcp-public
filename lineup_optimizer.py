@@ -89,7 +89,7 @@ class Player:
         """Validate player has minimum required data."""
         return all([
             self.name and self.name.strip(),
-            self.position in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF'],
+            self.position in ['QB', 'RB', 'WR', 'TE', 'K', 'DEF', 'BENCH', 'FLEX'],
             self.team and self.team.strip()
         ])
     
@@ -848,10 +848,19 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
                         if not isinstance(entry, dict):
                             continue
                         name = (entry.get("name") or "").strip()
-                        position = (entry.get("position") or "").strip().upper()
+                        position_raw = (entry.get("position") or "").strip().upper()
                         team_raw = (entry.get("team") or "").strip()
-                        if not name or not position or not team_raw:
+                        if not name or not position_raw or not team_raw:
                             continue
+                        
+                        # Normalize position for bench/flex positions
+                        position_map = {
+                            'BN': 'BENCH',     # Bench position
+                            'W/R': 'FLEX',     # Flex position 
+                            'D': 'DEF',        # Individual defensive player -> DEF
+                        }
+                        position = position_map.get(position_raw, position_raw)
+                        
                         team = self.normalize_team_name(team_raw)
                         player = Player(
                             name=name,

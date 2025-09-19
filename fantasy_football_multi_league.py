@@ -1349,6 +1349,56 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         elif name == "ff_get_roster":
             league_key = arguments.get("league_key")
             team_key = arguments.get("team_key")
+            data_level = arguments.get("data_level", "basic")
+            include_projections = arguments.get("include_projections", True)
+            include_external_data = arguments.get("include_external_data", True)
+            include_analysis = arguments.get("include_analysis", True)
+            week = arguments.get("week")
+            
+            # If using enhanced features, route to consolidated tool
+            if (data_level in ["standard", "full"] or 
+                include_projections or include_external_data or include_analysis):
+                
+                try:
+                    from enhanced_mcp_tools import ff_get_roster_with_projections
+                    
+                    class MockContext:
+                        async def info(self, message: str):
+                            print(f"[CONSOLIDATED] {message}")
+                    
+                    ctx = MockContext()
+                    
+                    # Use enhanced tool for standard/full modes
+                    enhanced_result = await ff_get_roster_with_projections(
+                        ctx=ctx,
+                        league_key=league_key,
+                        team_key=team_key,
+                        week=week
+                    )
+                    
+                    # Apply data_level filtering if needed
+                    if data_level == "standard":
+                        # Remove some enhanced fields for standard mode
+                        if "players_by_position" in enhanced_result:
+                            for pos_players in enhanced_result["players_by_position"].values():
+                                for player in pos_players:
+                                    # Remove analysis-specific fields
+                                    fields_to_remove = [
+                                        "trending_score", "trending_description",
+                                        "matchup_score", "matchup_description",
+                                        "player_tier", "risk_level"
+                                    ]
+                                    for field in fields_to_remove:
+                                        player.pop(field, None)
+                    
+                    return [TextContent(type="text", text=json.dumps(enhanced_result, indent=2))]
+                    
+                except Exception as e:
+                    print(f"Enhanced roster tool failed: {e}")
+                    # Fall back to basic roster
+                    pass
+            
+            # Basic roster implementation (legacy)
             team_info = None
 
             if not team_key:

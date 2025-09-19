@@ -51,8 +51,9 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "in a league to answer questions about standings."
     ),
     "ff_get_roster": (
-        "Inspect the players, positions, and statuses for either the "
-        "authenticated roster or another team within a league."
+        "Get roster data with configurable detail levels. Use data_level='basic' for "
+        "quick roster info, 'standard' for roster + projections, or 'full' for "
+        "comprehensive analysis with external data sources and enhanced insights."
     ),
     "ff_get_matchup": (
         "Look up the opponent, projected points, and matchup details for a "
@@ -214,8 +215,9 @@ async def ff_get_standings(ctx: Context, league_key: str) -> Dict[str, Any]:
 @server.tool(
     name="ff_get_roster",
     description=(
-        "List the players on a roster for the authenticated manager or a "
-        "specified team in the league, including status and position info."
+        "Get roster data with configurable detail levels. Supports basic roster info, "
+        "Yahoo projections, and comprehensive multi-source analysis including Sleeper, "
+        "matchup data, and trending information for intelligent lineup decisions."
     ),
     meta=_tool_meta("ff_get_roster"),
 )
@@ -223,13 +225,136 @@ async def ff_get_roster(
     ctx: Context,
     league_key: str,
     team_key: Optional[str] = None,
+    week: Optional[int] = None,
+    include_projections: bool = True,
+    include_external_data: bool = True,
+    include_analysis: bool = True,
+    data_level: Literal["basic", "standard", "full"] = "full",
 ) -> Dict[str, Any]:
-    return await _call_legacy_tool(
-        "ff_get_roster",
-        ctx=ctx,
-        league_key=league_key,
-        team_key=team_key,
-    )
+    """
+    Consolidated roster tool with configurable detail levels.
+    
+    Args:
+        league_key: League identifier
+        team_key: Team identifier (optional, defaults to authenticated user's team)
+        week: Week number for projections (optional, defaults to current week)
+        include_projections: Include Yahoo and/or Sleeper projections
+        include_external_data: Include Sleeper rankings, matchup analysis, trending data
+        include_analysis: Include enhanced player analysis and recommendations
+        data_level: "basic" (roster only), "standard" (+ projections), "full" (everything)
+    """
+    
+    # Determine effective settings based on data_level and explicit parameters
+    if data_level == "basic":
+        effective_projections = False
+        effective_external = False
+        effective_analysis = False
+    elif data_level == "standard":
+        effective_projections = True
+        effective_external = False
+        effective_analysis = False
+    else:  # "full"
+        effective_projections = True
+        effective_external = True
+        effective_analysis = True
+    
+    # Explicit parameters override data_level defaults
+    if not include_projections:
+        effective_projections = False
+    if not include_external_data:
+        effective_external = False
+    if not include_analysis:
+        effective_analysis = False
+    
+    # If only basic data requested, use legacy tool for performance
+    if not effective_projections and not effective_external and not effective_analysis:
+        if ctx:
+            await ctx.info("Using basic roster data (legacy mode)")
+        return await _call_legacy_tool(
+            "ff_get_roster",
+            ctx=ctx,
+            league_key=league_key,
+            team_key=team_key,
+        )
+    
+    # Use enhanced roster tool for projections/analysis
+    if ctx:
+        await ctx.info(f"Using enhanced roster data (projections: {effective_projections}, external: {effective_external}, analysis: {effective_analysis})")
+    
+    try:
+        result = await _ff_get_roster_with_projections(ctx, league_key, team_key, week)
+        
+        # Filter result based on effective settings
+        if not effective_external:
+            # Remove external data fields from player data
+            if "players_by_position" in result:
+                for pos_players in result["players_by_position"].values():
+                    for player in pos_players:
+                        # Remove Sleeper and trending specific fields
+                        fields_to_remove = [
+                            "sleeper_projection", "sleeper_projection_std", "sleeper_projection_ppr", 
+                            "sleeper_projection_half_ppr", "sleeper_id", "sleeper_status", 
+                            "sleeper_injury_status", "sleeper_match_method", "trending_score", 
+                            "trending_description", "matchup_score", "matchup_description"
+                        ]
+                        for field in fields_to_remove:
+                            player.pop(field, None)
+            
+            if "all_players" in result:
+                for player in result["all_players"]:
+                    fields_to_remove = [
+                        "sleeper_projection", "sleeper_projection_std", "sleeper_projection_ppr", 
+                        "sleeper_projection_half_ppr", "sleeper_id", "sleeper_status", 
+                        "sleeper_injury_status", "sleeper_match_method", "trending_score", 
+                        "trending_description", "matchup_score", "matchup_description"
+                    ]
+                    for field in fields_to_remove:
+                        player.pop(field, None)
+        
+        if not effective_analysis:
+            # Remove analysis-specific fields
+            if "players_by_position" in result:
+                for pos_players in result["players_by_position"].values():
+                    for player in pos_players:
+                        fields_to_remove = [
+                            "player_tier", "risk_level", "recommendation_reasoning",
+                            "floor_projection", "ceiling_projection", "consistency_score",
+                            "value_score"
+                        ]
+                        for field in fields_to_remove:
+                            player.pop(field, None)
+            
+            if "all_players" in result:
+                for player in result["all_players"]:
+                    fields_to_remove = [
+                        "player_tier", "risk_level", "recommendation_reasoning",
+                        "floor_projection", "ceiling_projection", "consistency_score",
+                        "value_score"
+                    ]
+                    for field in fields_to_remove:
+                        player.pop(field, None)
+        
+        # Update analysis context to reflect actual data included
+        if "analysis_context" in result:
+            data_sources = ["Yahoo"]
+            if effective_external:
+                data_sources.extend(["Sleeper", "Matchup Analysis", "Trending Data"])
+            result["analysis_context"]["data_sources"] = data_sources
+            result["analysis_context"]["data_level"] = data_level
+            result["analysis_context"]["includes"] = {
+                "projections": effective_projections,
+                "external_data": effective_external,
+                "analysis": effective_analysis
+            }
+        
+        return result
+        
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Enhanced roster fetch failed: {str(e)}",
+            "fallback_suggestion": "Try using data_level='basic' for simple roster data"
+        }
 
 
 @server.tool(
@@ -499,15 +624,16 @@ async def ff_analyze_reddit_sentiment(
 @server.tool(
     name="ff_get_roster_with_projections",
     description=(
+        "⚠️ DEPRECATED: Use ff_get_roster with include_projections=True instead. "
         "Get roster data with comprehensive projections from multiple sources including "
         "Yahoo, Sleeper, matchup analysis, trending data, and player insights. "
         "This provides rich data for intelligent lineup decisions."
     ),
     meta={
         "prompt": (
-            "Use this tool when you need roster analysis with comprehensive projections "
-            "from multiple sources including Yahoo, Sleeper, matchup analysis, and "
-            "trending data for intelligent lineup optimization."
+            "⚠️ DEPRECATED: This tool is deprecated. Use ff_get_roster with "
+            "data_level='full' or include_projections=True instead for the same functionality. "
+            "The new ff_get_roster tool provides configurable detail levels for better performance."
         )
     }
 )
@@ -518,7 +644,17 @@ async def ff_get_roster_with_projections_wrapper(
     week: Optional[int] = None
 ) -> Dict[str, Any]:
     """Get roster data with comprehensive projections and external data."""
-    return await _ff_get_roster_with_projections(ctx, league_key, team_key, week)
+    if ctx:
+        await ctx.info("⚠️ ff_get_roster_with_projections is deprecated. Use ff_get_roster with data_level='full' instead.")
+    
+    # Delegate to the new consolidated tool
+    return await ff_get_roster(
+        ctx=ctx,
+        league_key=league_key,
+        team_key=team_key,
+        week=week,
+        data_level="full"
+    )
 
 
 @server.tool(
@@ -1004,7 +1140,7 @@ def get_tool_selection_guide() -> str:
             "PLAYER_ROSTER_ANALYSIS": {
                 "description": "Player and roster management tools",
                 "tools": {
-                    "ff_get_roster": "Current Lineup: Your roster for lineup decisions and constraints",
+                    "ff_get_roster": "Current Lineup: Configurable roster data (basic/standard/full detail levels) for lineup decisions",
                     "ff_get_players": "Player Search: Find specific players by name or position",
                     "ff_get_waiver_wire": "Free Agents: Available players with advanced metrics"
                 }
