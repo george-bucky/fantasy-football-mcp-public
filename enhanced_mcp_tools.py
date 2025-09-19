@@ -47,6 +47,13 @@ class EnhancedPlayerData:
     opponent: str
     yahoo_projection: float
     sleeper_projection: float
+    sleeper_projection_std: float
+    sleeper_projection_ppr: float
+    sleeper_projection_half_ppr: float
+    sleeper_id: str
+    sleeper_status: str
+    sleeper_injury_status: str
+    sleeper_match_method: str
     consensus_projection: float
     matchup_score: int
     matchup_description: str
@@ -129,6 +136,13 @@ def _enhance_player_data(player: Player) -> EnhancedPlayerData:
         opponent=player.opponent or "Unknown",
         yahoo_projection=player.yahoo_projection,
         sleeper_projection=player.sleeper_projection,
+        sleeper_projection_std=getattr(player, 'sleeper_projection_std', 0.0) or 0.0,
+        sleeper_projection_ppr=getattr(player, 'sleeper_projection_ppr', 0.0) or 0.0,
+        sleeper_projection_half_ppr=getattr(player, 'sleeper_projection_half_ppr', 0.0) or 0.0,
+        sleeper_id=getattr(player, 'sleeper_id', '') or '',
+        sleeper_status=getattr(player, 'sleeper_status', '') or '',
+        sleeper_injury_status=getattr(player, 'sleeper_injury_status', '') or '',
+        sleeper_match_method=getattr(player, 'sleeper_match_method', '') or '',
         consensus_projection=consensus_proj,
         matchup_score=player.matchup_score,
         matchup_description=player.matchup_description or "Unknown matchup",
@@ -156,13 +170,13 @@ def _enhance_player_data(player: Player) -> EnhancedPlayerData:
     )
 
 
-async def ff_get_enhanced_roster(
+async def ff_get_roster_with_projections(
     ctx: Context,
     league_key: str,
     team_key: Optional[str] = None,
     week: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Get enhanced roster data with comprehensive player information."""
+    """Get roster data with comprehensive projections and external data integration."""
     
     try:
         # Get basic roster data
@@ -219,31 +233,31 @@ async def ff_get_enhanced_roster(
             "analysis_context": {
                 "data_sources": ["Yahoo", "Sleeper", "Matchup Analysis", "Trending Data"],
                 "last_updated": datetime.now().isoformat(),
-                "enhancement_level": "comprehensive"
+                "projection_sources": "multi-source"
             }
         }
         
     except Exception as e:
-        logger.error(f"Enhanced roster fetch failed: {e}")
-        return {"status": "error", "message": f"Enhanced roster fetch failed: {str(e)}"}
+        logger.error(f"Roster with projections fetch failed: {e}")
+        return {"status": "error", "message": f"Roster with projections fetch failed: {str(e)}"}
 
 
 @enhanced_server.tool(
-    name="ff_get_enhanced_roster",
+    name="ff_get_roster_with_projections",
     description=(
-        "Get comprehensive roster data with enhanced player information including "
-        "projections, matchups, trending data, injury status, and decision context. "
+        "Get roster data with comprehensive projections from multiple sources including "
+        "Yahoo, Sleeper, matchup analysis, trending data, and player insights. "
         "This provides rich data for intelligent lineup decisions."
     ),
 )
-async def ff_get_enhanced_roster_tool(
+async def ff_get_roster_with_projections_tool(
     ctx: Context,
     league_key: str,
     team_key: Optional[str] = None,
     week: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Tool wrapper for enhanced roster data."""
-    return await ff_get_enhanced_roster(ctx, league_key, team_key, week)
+    """Tool wrapper for roster data with projections."""
+    return await ff_get_roster_with_projections(ctx, league_key, team_key, week)
 
 
 async def ff_analyze_lineup_options(
@@ -260,7 +274,7 @@ async def ff_analyze_lineup_options(
             strategies = ["balanced", "aggressive", "conservative"]
         
         # Get enhanced roster data
-        roster_response = await ff_get_enhanced_roster(ctx, league_key, team_key, week)
+        roster_response = await ff_get_roster_with_projections(ctx, league_key, team_key, week)
         
         if roster_response.get("status") != "success":
             return roster_response
@@ -346,7 +360,7 @@ async def ff_compare_players(
             ]
         
         # Get enhanced roster data to find players
-        roster_response = await ff_get_enhanced_roster(ctx, league_key)
+        roster_response = await ff_get_roster_with_projections(ctx, league_key)
         
         if roster_response.get("status") != "success":
             return roster_response
@@ -828,5 +842,5 @@ def _generate_scenario_recommendation(scenario_analysis: Dict[str, Any]) -> str:
 
 
 # Export the enhanced server
-__all__ = ["enhanced_server", "ff_get_enhanced_roster", "ff_analyze_lineup_options", 
+__all__ = ["enhanced_server", "ff_get_roster_with_projections", "ff_analyze_lineup_options", 
            "ff_compare_players", "ff_what_if_analysis", "ff_get_decision_context"]

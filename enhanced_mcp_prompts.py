@@ -30,7 +30,7 @@ Provide intelligent lineup recommendations using the enhanced data from the MCP 
 
 1. **DATA GATHERING** (Use these tools in order):
    - ff_get_decision_context - Get league settings, opponent, standings context
-   - ff_get_enhanced_roster - Get comprehensive player data with projections, matchups, trends
+   - ff_get_roster_with_projections - Get roster data with comprehensive projections from multiple sources
    - ff_analyze_lineup_options - Get multiple strategy analyses (balanced, aggressive, conservative)
 
 2. **COMPREHENSIVE ANALYSIS:**
@@ -184,7 +184,7 @@ def weekly_strategy_planning(
    - Evaluate team's current position and needs
 
 2. **ROSTER ANALYSIS:**
-   - Use ff_get_enhanced_roster for comprehensive player evaluation
+   - Use ff_get_roster_with_projections for comprehensive player evaluation
    - Identify strengths, weaknesses, and opportunities
    - Assess injury risks and backup options
 
@@ -242,7 +242,7 @@ def trade_evaluation_analysis(
 **EVALUATION FRAMEWORK:**
 
 1. **CURRENT ROSTER ASSESSMENT:**
-   - Use ff_get_enhanced_roster to understand current team strengths/weaknesses
+   - Use ff_get_roster_with_projections to understand current team strengths/weaknesses
    - Identify positional needs and depth issues
    - Assess current lineup construction
 
@@ -319,7 +319,7 @@ def get_decision_framework() -> str:
 
 **TOOL USAGE PATTERNS:**
 1. **ff_get_decision_context**: Always start here for situational awareness
-2. **ff_get_enhanced_roster**: Get comprehensive player data
+2. **ff_get_roster_with_projections**: Get roster data with comprehensive projections
 3. **ff_analyze_lineup_options**: Compare different strategies
 4. **ff_compare_players**: Evaluate specific player decisions
 5. **ff_what_if_analysis**: Model scenario impacts
@@ -460,7 +460,7 @@ def get_enhanced_tool_usage_guide() -> str:
         "tool_hierarchy": {
             "foundation_tools": [
                 "ff_get_decision_context - Always start here for situational awareness",
-                "ff_get_enhanced_roster - Get comprehensive player data with context"
+                "ff_get_roster_with_projections - Get roster data with comprehensive projections"
             ],
             "analysis_tools": [
                 "ff_analyze_lineup_options - Compare different lineup strategies",
@@ -476,19 +476,19 @@ def get_enhanced_tool_usage_guide() -> str:
         "workflow_patterns": {
             "lineup_optimization": [
                 "1. ff_get_decision_context (situational awareness)",
-                "2. ff_get_enhanced_roster (comprehensive player data)",
+                "2. ff_get_roster_with_projections (roster data with projections)",
                 "3. ff_analyze_lineup_options (strategy comparison)",
                 "4. ff_compare_players (specific decisions)",
                 "5. ff_what_if_analysis (scenario modeling)"
             ],
             "player_evaluation": [
-                "1. ff_get_enhanced_roster (player data)",
+                "1. ff_get_roster_with_projections (player data)",
                 "2. ff_compare_players (direct comparison)",
                 "3. ff_get_decision_context (league context)",
                 "4. ff_what_if_analysis (impact assessment)"
             ],
             "trade_analysis": [
-                "1. ff_get_enhanced_roster (current roster)",
+                "1. ff_get_roster_with_projections (current roster)",
                 "2. ff_compare_players (trade evaluation)",
                 "3. ff_get_decision_context (team needs)",
                 "4. ff_what_if_analysis (trade impact)"
@@ -530,7 +530,7 @@ def get_enhanced_tool_usage_guide() -> str:
         },
         "best_practices": [
             "ALWAYS start with ff_get_decision_context for situational awareness",
-            "USE ff_get_enhanced_roster for comprehensive player data",
+            "USE ff_get_roster_with_projections for comprehensive player data",
             "COMPARE multiple strategies with ff_analyze_lineup_options",
             "EVALUATE specific decisions with ff_compare_players",
             "MODEL scenarios with ff_what_if_analysis",

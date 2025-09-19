@@ -60,6 +60,15 @@ class Player:
     opponent: str = ""
     yahoo_projection: float = 0.0
     sleeper_projection: float = 0.0
+    sleeper_projection_std: float = 0.0
+    sleeper_projection_ppr: float = 0.0
+    sleeper_projection_half_ppr: float = 0.0
+    sleeper_id: str = ""
+    sleeper_position: str = ""
+    sleeper_team: str = ""
+    sleeper_status: str = ""
+    sleeper_injury_status: str = ""
+    sleeper_match_method: str = ""
     matchup_score: int = 50
     matchup_description: str = "Unknown matchup"
     trending_score: int = 0  # Based on adds/drops
@@ -1297,18 +1306,62 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
                         player.matchup_score = 50  # Neutral default
                         player.matchup_description = "Matchup data unavailable"
                 
-                # Get Sleeper projection with fallback
+                # Get comprehensive Sleeper data with fallback
                 if sleeper_client is not None and get_player_projection is not None:
                     try:
+                        # Check if the method exists before calling it
+                        if not hasattr(sleeper_client, 'get_player_by_name'):
+                            logger.warning(f"Sleeper client missing get_player_by_name method for {player.name}")
+                            raise AttributeError("get_player_by_name method not available")
+                        
+                        # Get detailed player data from Sleeper
+                        sleeper_player = await sleeper_client.get_player_by_name(player.name)
+                        if sleeper_player:
+                            # Store additional Sleeper data on the player object with safe defaults
+                            player.sleeper_id = sleeper_player.get("sleeper_id") or ""
+                            player.sleeper_position = sleeper_player.get("position") or ""
+                            player.sleeper_team = sleeper_player.get("team") or ""
+                            player.sleeper_status = sleeper_player.get("status") or ""
+                            player.sleeper_injury_status = sleeper_player.get("injury_status") or ""
+                            player.sleeper_match_method = sleeper_player.get("match_method") or "unknown"
+                        
+                        # Get projection data
                         proj = await get_player_projection(player.name)
                         if proj and isinstance(proj, dict):
-                            player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
+                            player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0)) or 0.0
+                            # Store additional projection details with safe defaults
+                            player.sleeper_projection_std = proj.get('pts_std', 0) or 0.0
+                            player.sleeper_projection_ppr = proj.get('pts_ppr', 0) or 0.0
+                            player.sleeper_projection_half_ppr = proj.get('pts_half_ppr', 0) or 0.0
+                            
                             enhancement_stats["sleeper_projections"] += 1
                             mm = proj.get("match_method", "unknown")
                             enhancement_stats["projection_match_methods"][mm] = enhancement_stats["projection_match_methods"].get(mm, 0) + 1
                     except Exception as e:
-                        logger.warning(f"Failed to get Sleeper projection for {player.name}: {e}")
+                        logger.warning(f"Failed to get Sleeper data for {player.name}: {e}")
+                        # Reset ALL Sleeper fields to safe defaults to maintain consistency
                         player.sleeper_projection = 0.0
+                        player.sleeper_projection_std = 0.0
+                        player.sleeper_projection_ppr = 0.0
+                        player.sleeper_projection_half_ppr = 0.0
+                        player.sleeper_id = ""
+                        player.sleeper_position = ""
+                        player.sleeper_team = ""
+                        player.sleeper_status = ""
+                        player.sleeper_injury_status = ""
+                        player.sleeper_match_method = ""
+                else:
+                    # Initialize Sleeper fields to safe defaults when Sleeper is unavailable
+                    player.sleeper_projection = 0.0
+                    player.sleeper_projection_std = 0.0
+                    player.sleeper_projection_ppr = 0.0
+                    player.sleeper_projection_half_ppr = 0.0
+                    player.sleeper_id = ""
+                    player.sleeper_position = ""
+                    player.sleeper_team = ""
+                    player.sleeper_status = ""
+                    player.sleeper_injury_status = ""
+                    player.sleeper_match_method = ""
                 
                 # Get trending score with fallback
                 if self.trending_players and player.name in self.trending_players:
