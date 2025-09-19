@@ -156,14 +156,6 @@ def _enhance_player_data(player: Player) -> EnhancedPlayerData:
     )
 
 
-@enhanced_server.tool(
-    name="ff_get_enhanced_roster",
-    description=(
-        "Get comprehensive roster data with enhanced player information including "
-        "projections, matchups, trending data, injury status, and decision context. "
-        "This provides rich data for intelligent lineup decisions."
-    ),
-)
 async def ff_get_enhanced_roster(
     ctx: Context,
     league_key: str,
@@ -237,13 +229,23 @@ async def ff_get_enhanced_roster(
 
 
 @enhanced_server.tool(
-    name="ff_analyze_lineup_options",
+    name="ff_get_enhanced_roster",
     description=(
-        "Analyze different lineup construction options with comprehensive data "
-        "including risk assessment, upside potential, and strategic considerations. "
-        "Provides multiple lineup scenarios for the client LLM to evaluate."
+        "Get comprehensive roster data with enhanced player information including "
+        "projections, matchups, trending data, injury status, and decision context. "
+        "This provides rich data for intelligent lineup decisions."
     ),
 )
+async def ff_get_enhanced_roster_tool(
+    ctx: Context,
+    league_key: str,
+    team_key: Optional[str] = None,
+    week: Optional[int] = None
+) -> Dict[str, Any]:
+    """Tool wrapper for enhanced roster data."""
+    return await ff_get_enhanced_roster(ctx, league_key, team_key, week)
+
+
 async def ff_analyze_lineup_options(
     ctx: Context,
     league_key: str,
@@ -310,13 +312,24 @@ async def ff_analyze_lineup_options(
 
 
 @enhanced_server.tool(
-    name="ff_compare_players",
+    name="ff_analyze_lineup_options",
     description=(
-        "Compare multiple players with comprehensive analysis including projections, "
-        "matchups, trends, and decision factors. Perfect for evaluating trade-offs "
-        "and making informed decisions."
+        "Analyze different lineup construction options with comprehensive data "
+        "including risk assessment, upside potential, and strategic considerations. "
+        "Provides multiple lineup scenarios for the client LLM to evaluate."
     ),
 )
+async def ff_analyze_lineup_options_tool(
+    ctx: Context,
+    league_key: str,
+    team_key: Optional[str] = None,
+    week: Optional[int] = None,
+    strategies: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Tool wrapper for lineup options analysis."""
+    return await ff_analyze_lineup_options(ctx, league_key, team_key, week, strategies)
+
+
 async def ff_compare_players(
     ctx: Context,
     league_key: str,
@@ -372,13 +385,23 @@ async def ff_compare_players(
 
 
 @enhanced_server.tool(
-    name="ff_what_if_analysis",
+    name="ff_compare_players",
     description=(
-        "Perform 'what if' analysis for lineup changes. Compare current lineup "
-        "with alternative scenarios to help make informed decisions about "
-        "substitutions, strategy changes, or constraint modifications."
+        "Compare multiple players with comprehensive analysis including projections, "
+        "matchups, trends, and decision factors. Perfect for evaluating trade-offs "
+        "and making informed decisions."
     ),
 )
+async def ff_compare_players_tool(
+    ctx: Context,
+    league_key: str,
+    player_names: List[str],
+    comparison_factors: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Tool wrapper for player comparison."""
+    return await ff_compare_players(ctx, league_key, player_names, comparison_factors)
+
+
 async def ff_what_if_analysis(
     ctx: Context,
     league_key: str,
@@ -437,13 +460,25 @@ async def ff_what_if_analysis(
 
 
 @enhanced_server.tool(
-    name="ff_get_decision_context",
+    name="ff_what_if_analysis",
     description=(
-        "Get comprehensive decision context including league settings, "
-        "opponent analysis, market conditions, and strategic factors "
-        "to inform lineup decisions."
+        "Perform 'what if' analysis for lineup changes. Compare current lineup "
+        "with alternative scenarios to help make informed decisions about "
+        "substitutions, strategy changes, or constraint modifications."
     ),
 )
+async def ff_what_if_analysis_tool(
+    ctx: Context,
+    league_key: str,
+    team_key: Optional[str] = None,
+    week: Optional[int] = None,
+    scenario_type: str = "player_substitution",
+    scenario_data: Dict[str, Any] = None
+) -> Dict[str, Any]:
+    """Tool wrapper for what-if analysis."""
+    return await ff_what_if_analysis(ctx, league_key, team_key, week, scenario_type, scenario_data)
+
+
 async def ff_get_decision_context(
     ctx: Context,
     league_key: str,
@@ -537,6 +572,23 @@ async def ff_get_decision_context(
     except Exception as e:
         logger.error(f"Decision context fetch failed: {e}")
         return {"status": "error", "message": f"Decision context fetch failed: {str(e)}"}
+
+
+@enhanced_server.tool(
+    name="ff_get_decision_context",
+    description=(
+        "Get comprehensive decision context including league settings, "
+        "opponent analysis, market conditions, and strategic factors "
+        "to inform lineup decisions."
+    ),
+)
+async def ff_get_decision_context_tool(
+    ctx: Context,
+    league_key: str,
+    week: Optional[int] = None
+) -> Dict[str, Any]:
+    """Tool wrapper for decision context."""
+    return await ff_get_decision_context(ctx, league_key, week)
 
 
 # Helper functions for analysis
