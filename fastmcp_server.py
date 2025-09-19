@@ -15,13 +15,7 @@ from fastmcp import Context, FastMCP
 from mcp.types import TextContent
 
 import fantasy_football_multi_league
-from enhanced_mcp_tools import (
-    ff_get_roster_with_projections as _ff_get_roster_with_projections,
-    ff_analyze_lineup_options as _ff_analyze_lineup_options,
-    ff_compare_players as _ff_compare_players,
-    ff_what_if_analysis as _ff_what_if_analysis,
-    ff_get_decision_context as _ff_get_decision_context
-)
+# REMOVED: enhanced_mcp_tools imports - no longer using wrapper tools
 
 LegacyCallFn = Callable[[str, Dict[str, Any]], Awaitable[Sequence[TextContent]]]
 
@@ -277,12 +271,19 @@ async def ff_get_roster(
             team_key=team_key,
         )
     
-    # Use enhanced roster tool for projections/analysis
+    # Use enhanced roster functionality (via legacy tools since wrappers removed)
     if ctx:
         await ctx.info(f"Using enhanced roster data (projections: {effective_projections}, external: {effective_external}, analysis: {effective_analysis})")
     
+    # Fall back to basic roster with projections via legacy tool
     try:
-        result = await _ff_get_roster_with_projections(ctx, league_key, team_key, week)
+        result = await _call_legacy_tool(
+            "ff_get_roster_with_projections",
+            ctx=ctx,
+            league_key=league_key,
+            team_key=team_key,
+            week=week
+        )
         
         # Filter result based on effective settings
         if not effective_external:
@@ -621,144 +622,17 @@ async def ff_analyze_reddit_sentiment(
 # ENHANCED TOOLS - Advanced decision-making capabilities for client LLMs
 # ============================================================================
 
-@server.tool(
-    name="ff_get_roster_with_projections",
-    description=(
-        "⚠️ DEPRECATED: Use ff_get_roster with include_projections=True instead. "
-        "Get roster data with comprehensive projections from multiple sources including "
-        "Yahoo, Sleeper, matchup analysis, trending data, and player insights. "
-        "This provides rich data for intelligent lineup decisions."
-    ),
-    meta={
-        "prompt": (
-            "⚠️ DEPRECATED: This tool is deprecated. Use ff_get_roster with "
-            "data_level='full' or include_projections=True instead for the same functionality. "
-            "The new ff_get_roster tool provides configurable detail levels for better performance."
-        )
-    }
-)
-async def ff_get_roster_with_projections_wrapper(
-    ctx: Context,
-    league_key: str,
-    team_key: Optional[str] = None,
-    week: Optional[int] = None
-) -> Dict[str, Any]:
-    """Get roster data with comprehensive projections and external data."""
-    if ctx:
-        await ctx.info("⚠️ ff_get_roster_with_projections is deprecated. Use ff_get_roster with data_level='full' instead.")
-    
-    # Delegate to the new consolidated tool
-    return await ff_get_roster(
-        ctx=ctx,
-        league_key=league_key,
-        team_key=team_key,
-        week=week,
-        data_level="full"
-    )
+# REMOVED: ff_get_roster_with_projections_wrapper - replaced by ff_get_roster with data_level='full'
+# REMOVED: ff_analyze_lineup_options_wrapper - complex functionality can be achieved through ff_get_optimal_lineup
 
 
-@server.tool(
-    name="ff_analyze_lineup_options",
-    description=(
-        "Analyze different lineup construction options with comprehensive data "
-        "including risk assessment, upside potential, and strategic considerations. "
-        "Provides multiple lineup scenarios for the client LLM to evaluate."
-    ),
-    meta={
-        "prompt": (
-            "Use this tool to analyze different lineup construction strategies. "
-            "It provides comprehensive analysis including risk assessment, upside "
-            "potential, and strategic considerations for multiple lineup scenarios."
-        )
-    }
-)
-async def ff_analyze_lineup_options_wrapper(
-    ctx: Context,
-    league_key: str,
-    team_key: Optional[str] = None,
-    week: Optional[int] = None,
-    strategies: Optional[Sequence[str]] = None
-) -> Dict[str, Any]:
-    """Analyze different lineup construction strategies."""
-    strategies_list = list(strategies) if strategies else None
-    return await _ff_analyze_lineup_options(ctx, league_key, team_key, week, strategies_list)
+# REMOVED: ff_compare_players_wrapper - player comparison can be done through ff_get_players and ff_get_waiver_wire
 
 
-@server.tool(
-    name="ff_compare_players",
-    description=(
-        "Compare multiple players with comprehensive analysis including projections, "
-        "matchups, trends, and decision factors. Perfect for evaluating trade-offs "
-        "and making informed decisions."
-    ),
-    meta={
-        "prompt": (
-            "Use this tool to compare multiple players with detailed analysis. "
-            "It provides comprehensive comparison including projections, matchups, "
-            "trends, and decision factors for informed player selection."
-        )
-    }
-)
-async def ff_compare_players_wrapper(
-    ctx: Context,
-    league_key: str,
-    player_names: Sequence[str],
-    comparison_factors: Optional[Sequence[str]] = None
-) -> Dict[str, Any]:
-    """Compare multiple players with detailed analysis."""
-    factors_list = list(comparison_factors) if comparison_factors else None
-    return await _ff_compare_players(ctx, league_key, list(player_names), factors_list)
+# REMOVED: ff_what_if_analysis_wrapper - scenario analysis can be done using ff_get_optimal_lineup with different strategies
 
 
-@server.tool(
-    name="ff_what_if_analysis",
-    description=(
-        "Perform 'what if' analysis for lineup changes. Compare current lineup "
-        "with alternative scenarios to help make informed decisions about "
-        "substitutions, strategy changes, or constraint modifications."
-    ),
-    meta={
-        "prompt": (
-            "Use this tool for 'what if' analysis of lineup changes. It compares "
-            "current lineup with alternative scenarios to help make informed "
-            "decisions about substitutions, strategy changes, or modifications."
-        )
-    }
-)
-async def ff_what_if_analysis_wrapper(
-    ctx: Context,
-    league_key: str,
-    team_key: Optional[str] = None,
-    week: Optional[int] = None,
-    scenario_type: str = "player_substitution",
-    scenario_data: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
-    """Perform what-if analysis for lineup scenarios."""
-    return await _ff_what_if_analysis(ctx, league_key, team_key, week, scenario_type, scenario_data)
-
-
-@server.tool(
-    name="ff_get_decision_context",
-    description=(
-        "Get comprehensive decision context including league settings, "
-        "opponent analysis, market conditions, and strategic factors "
-        "to inform lineup decisions."
-    ),
-    meta={
-        "prompt": (
-            "Use this tool to get comprehensive decision context for lineup "
-            "optimization. It provides league settings, opponent analysis, "
-            "market conditions, and strategic factors for informed decisions."
-        )
-    }
-)
-async def ff_get_decision_context_wrapper(
-    ctx: Context,
-    league_key: str,
-    week: Optional[int] = None
-) -> Dict[str, Any]:
-    """Get comprehensive decision context for lineup optimization."""
-    return await _ff_get_decision_context(ctx, league_key, week)
+# REMOVED: ff_get_decision_context_wrapper - context can be gathered through ff_get_league_info, ff_get_matchup, ff_get_standings
 
 
 # ============================================================================
@@ -1086,12 +960,7 @@ __all__ = [
     "ff_get_draft_recommendation",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
-    # Enhanced Tools
-    "ff_get_roster_with_projections_wrapper",
-    "ff_analyze_lineup_options_wrapper",
-    "ff_compare_players_wrapper",
-    "ff_what_if_analysis_wrapper",
-    "ff_get_decision_context_wrapper",
+    # Enhanced Tools - Removed wrapper tools (use core tools instead)
     # Prompts
     "analyze_roster_strengths",
     "draft_strategy_advice",
