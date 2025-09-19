@@ -32,5 +32,5 @@ ENV PYTHONUNBUFFERED=1
 # Expose port (Cloud Run will set PORT env var)
 EXPOSE 8080
 
-# Run FastMCP server directly (no_auth_server shim removed)
-CMD python fastmcp_server.py
+# Run integrated FastMCP server with enhanced tools
+CMD python integrated_mcp_server.py

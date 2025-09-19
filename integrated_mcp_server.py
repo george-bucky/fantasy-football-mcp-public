@@ -55,7 +55,7 @@ for prompt_name in base_server._prompts:
 # Copy all resources from base server
 for resource_name in base_server._resources:
     resource = base_server._resources[resource_name]
-    integrated_server._resources[resource_name] = tool
+    integrated_server._resources[resource_name] = resource
 
 # Add enhanced tools
 integrated_server._tools.update(enhanced_server._tools)
@@ -602,5 +602,31 @@ def _identify_opportunities(roster_data: Dict[str, Any], decision_context: Dict[
 __all__ = [
     "integrated_server",
     "ff_get_comprehensive_analysis",
-    "ff_smart_lineup_optimizer"
+    "ff_smart_lineup_optimizer",
+    "run_http_server",
+    "main"
 ]
+
+
+def run_http_server(host: Optional[str] = None, port: Optional[int] = None, *, show_banner: bool = True) -> None:
+    """Start the integrated FastMCP server using the HTTP transport."""
+    import os
+    
+    resolved_host = host or os.getenv("HOST", "0.0.0.0")
+    resolved_port = port or int(os.getenv("PORT", "8000"))
+
+    integrated_server.run(
+        "http",
+        host=resolved_host,
+        port=resolved_port,
+        show_banner=show_banner,
+    )
+
+
+def main() -> None:
+    """Console script entry point for launching the integrated HTTP server."""
+    run_http_server()
+
+
+if __name__ == "__main__":
+    main()

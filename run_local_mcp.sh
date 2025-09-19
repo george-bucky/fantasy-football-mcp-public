@@ -33,5 +33,5 @@ export YAHOO_GUID
 echo -e "${GREEN}✅ MCP Server running in stdio mode${NC}"
 echo -e "${BLUE}Connect from Claude Code using the configuration below${NC}"
 
-# Run the main MCP server
-python fantasy_football_multi_league.py
+# Run the integrated MCP server with enhanced tools in stdio mode
+python integrated_mcp_stdio.py
