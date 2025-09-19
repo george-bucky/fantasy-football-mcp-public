@@ -271,17 +271,22 @@ async def ff_analyze_lineup_options(
         if strategies is None:
             strategies = ["balanced", "aggressive", "conservative"]
         
-        # Get enhanced roster data
+        # Get enhanced roster data for player pool
         roster_response = await ff_get_roster_with_projections(ctx, league_key, team_key, week)
-        
         if roster_response.get("status") != "success":
             return roster_response
-        
-        # Parse players for optimization
-        roster_data = {"fantasy_content": {"team": [{"roster": {"0": {"players": {}}}}]}}
-        # This is a simplified approach - in practice you'd reconstruct the proper format
-        
-        players = await lineup_optimizer.parse_yahoo_roster(roster_response)
+
+        # Prefer to parse fresh Yahoo roster JSON to avoid structural mismatches
+        yahoo_roster_raw = await fantasy_football_multi_league.call_tool(
+            "ff_get_roster",
+            {"league_key": league_key, "team_key": team_key}
+        )
+        if not yahoo_roster_raw:
+            return {"status": "error", "message": "Failed to get Yahoo roster for analysis"}
+        yahoo_roster = json.loads(yahoo_roster_raw[0].text)
+
+        # Parse players from Yahoo roster output (supports simplified and raw formats)
+        players = await lineup_optimizer.parse_yahoo_roster(yahoo_roster)
         enhanced_players = await lineup_optimizer.enhance_with_external_data(players)
         
         lineup_analyses = {}
