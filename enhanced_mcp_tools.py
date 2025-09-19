@@ -19,7 +19,7 @@ from mcp.types import TextContent
 import fantasy_football_multi_league
 from lineup_optimizer import LineupOptimizer, Player
 from matchup_analyzer import matchup_analyzer
-from sleeper_api import sleeper_client, get_trending_adds
+from sleeper_api import sleeper_client, get_trending_adds, get_current_week
 
 logger = logging.getLogger(__name__)
 
@@ -188,8 +188,9 @@ async def ff_get_roster_with_projections(
             return {"status": "error", "message": "Failed to get roster data"}
         roster_data = json.loads(roster_response[0].text)
         
-        if roster_data.get("status") != "success":
-            return roster_data
+        # Handle error payloads from legacy layer
+        if isinstance(roster_data, dict) and roster_data.get("error"):
+            return {"status": "error", "message": roster_data.get("error")}
         
         # Parse players using the lineup optimizer
         players = await lineup_optimizer.parse_yahoo_roster(roster_data)
@@ -221,10 +222,25 @@ async def ff_get_roster_with_projections(
                 reverse=True
             )
         
+        # Resolve week if not provided
+        resolved_week = week
+        if not resolved_week:
+            try:
+                resolved_week = await get_current_week()
+            except Exception:
+                resolved_week = 1
+
+        # Build team info dictionary from available fields
+        team_info = {}
+        if isinstance(roster_data, dict):
+            for key in ["team_key", "team_name", "draft_position", "draft_grade"]:
+                if key in roster_data:
+                    team_info[key] = roster_data[key]
+
         return {
             "status": "success",
-            "team_info": roster_data.get("team_info", {}),
-            "week": week or 1,
+            "team_info": team_info,
+            "week": resolved_week,
             "total_players": len(enhanced_data),
             "players_by_position": players_by_position,
             "all_players": [asdict(p) for p in enhanced_data],
