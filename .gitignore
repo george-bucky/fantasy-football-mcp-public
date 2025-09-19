@@ -53,6 +53,7 @@ mcp_server_test*.py
 exchange_code.py
 quick_validation.py
 !tests/test_fastmcp_server.py
+!tests/test_roster_live.py
 
 # JSON test data
 all_leagues_raw.json
