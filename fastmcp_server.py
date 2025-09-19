@@ -15,6 +15,13 @@ from fastmcp import Context, FastMCP
 from mcp.types import TextContent
 
 import fantasy_football_multi_league
+from enhanced_mcp_tools import (
+    ff_get_enhanced_roster,
+    ff_analyze_lineup_options,
+    ff_compare_players,
+    ff_what_if_analysis,
+    ff_get_decision_context
+)
 
 LegacyCallFn = Callable[[str, Dict[str, Any]], Awaitable[Sequence[TextContent]]]
 
@@ -486,6 +493,139 @@ async def ff_analyze_reddit_sentiment(
 
 
 # ============================================================================
+# ENHANCED TOOLS - Advanced decision-making capabilities for client LLMs
+# ============================================================================
+
+@server.tool(
+    name="ff_get_enhanced_roster",
+    description=(
+        "Get comprehensive roster data with enhanced player information including "
+        "projections, matchups, trending data, injury status, and decision context. "
+        "This provides rich data for intelligent lineup decisions."
+    ),
+    meta={
+        "prompt": (
+            "Use this tool when you need comprehensive roster analysis with enhanced "
+            "player data including projections, matchups, trending information, and "
+            "decision context for intelligent lineup optimization."
+        )
+    }
+)
+async def ff_get_enhanced_roster_wrapper(
+    ctx: Context,
+    league_key: str,
+    team_key: Optional[str] = None,
+    week: Optional[int] = None
+) -> Dict[str, Any]:
+    """Get enhanced roster data with comprehensive player information."""
+    return await ff_get_enhanced_roster(ctx, league_key, team_key, week)
+
+
+@server.tool(
+    name="ff_analyze_lineup_options",
+    description=(
+        "Analyze different lineup construction options with comprehensive data "
+        "including risk assessment, upside potential, and strategic considerations. "
+        "Provides multiple lineup scenarios for the client LLM to evaluate."
+    ),
+    meta={
+        "prompt": (
+            "Use this tool to analyze different lineup construction strategies. "
+            "It provides comprehensive analysis including risk assessment, upside "
+            "potential, and strategic considerations for multiple lineup scenarios."
+        )
+    }
+)
+async def ff_analyze_lineup_options_wrapper(
+    ctx: Context,
+    league_key: str,
+    team_key: Optional[str] = None,
+    week: Optional[int] = None,
+    strategies: Optional[Sequence[str]] = None
+) -> Dict[str, Any]:
+    """Analyze different lineup construction strategies."""
+    strategies_list = list(strategies) if strategies else None
+    return await ff_analyze_lineup_options(ctx, league_key, team_key, week, strategies_list)
+
+
+@server.tool(
+    name="ff_compare_players",
+    description=(
+        "Compare multiple players with comprehensive analysis including projections, "
+        "matchups, trends, and decision factors. Perfect for evaluating trade-offs "
+        "and making informed decisions."
+    ),
+    meta={
+        "prompt": (
+            "Use this tool to compare multiple players with detailed analysis. "
+            "It provides comprehensive comparison including projections, matchups, "
+            "trends, and decision factors for informed player selection."
+        )
+    }
+)
+async def ff_compare_players_wrapper(
+    ctx: Context,
+    league_key: str,
+    player_names: Sequence[str],
+    comparison_factors: Optional[Sequence[str]] = None
+) -> Dict[str, Any]:
+    """Compare multiple players with detailed analysis."""
+    factors_list = list(comparison_factors) if comparison_factors else None
+    return await ff_compare_players(ctx, league_key, list(player_names), factors_list)
+
+
+@server.tool(
+    name="ff_what_if_analysis",
+    description=(
+        "Perform 'what if' analysis for lineup changes. Compare current lineup "
+        "with alternative scenarios to help make informed decisions about "
+        "substitutions, strategy changes, or constraint modifications."
+    ),
+    meta={
+        "prompt": (
+            "Use this tool for 'what if' analysis of lineup changes. It compares "
+            "current lineup with alternative scenarios to help make informed "
+            "decisions about substitutions, strategy changes, or modifications."
+        )
+    }
+)
+async def ff_what_if_analysis_wrapper(
+    ctx: Context,
+    league_key: str,
+    team_key: Optional[str] = None,
+    week: Optional[int] = None,
+    scenario_type: str = "player_substitution",
+    scenario_data: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Perform what-if analysis for lineup scenarios."""
+    return await ff_what_if_analysis(ctx, league_key, team_key, week, scenario_type, scenario_data)
+
+
+@server.tool(
+    name="ff_get_decision_context",
+    description=(
+        "Get comprehensive decision context including league settings, "
+        "opponent analysis, market conditions, and strategic factors "
+        "to inform lineup decisions."
+    ),
+    meta={
+        "prompt": (
+            "Use this tool to get comprehensive decision context for lineup "
+            "optimization. It provides league settings, opponent analysis, "
+            "market conditions, and strategic factors for informed decisions."
+        )
+    }
+)
+async def ff_get_decision_context_wrapper(
+    ctx: Context,
+    league_key: str,
+    week: Optional[int] = None
+) -> Dict[str, Any]:
+    """Get comprehensive decision context for lineup optimization."""
+    return await ff_get_decision_context(ctx, league_key, week)
+
+
+# ============================================================================
 # PROMPTS - Reusable message templates for better LLM interactions
 # ============================================================================
 
@@ -810,6 +950,12 @@ __all__ = [
     "ff_get_draft_recommendation",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
+    # Enhanced Tools
+    "ff_get_enhanced_roster_wrapper",
+    "ff_analyze_lineup_options_wrapper",
+    "ff_compare_players_wrapper",
+    "ff_what_if_analysis_wrapper",
+    "ff_get_decision_context_wrapper",
     # Prompts
     "analyze_roster_strengths",
     "draft_strategy_advice",
