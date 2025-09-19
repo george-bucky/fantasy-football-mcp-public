@@ -38,7 +38,7 @@ class DummyResponse:
             "ff_get_optimal_lineup",
             {"league_key": "123"},
             "ff_get_optimal_lineup",
-            {"league_key": "123", "strategy": "balanced"},
+            {"league_key": "123", "strategy": "balanced", "debug": False},
         ),
         ("ff_get_api_status", {}, "ff_get_api_status", {}),
         ("ff_clear_cache", {}, "ff_clear_cache", {}),

@@ -375,6 +375,34 @@ def parse_team_roster(data: dict) -> list[dict]:
                     if "position" not in info and "display_position" in container:
                         info["position"] = container.get("display_position")
 
+                    if "team" not in info:
+                        team_value: Optional[str] = None
+
+                        # Direct keys commonly present in Yahoo responses
+                        for key in (
+                            "editorial_team_abbr",
+                            "team_abbr",
+                            "team_abbreviation",
+                            "editorial_team_full_name",
+                            "editorial_team_name",
+                        ):
+                            value = container.get(key)
+                            if isinstance(value, str) and value.strip():
+                                team_value = value
+                                break
+
+                        # Nested team objects occasionally hold the abbreviation/name
+                        if not team_value and isinstance(container.get("team"), dict):
+                            team_container = container["team"]
+                            for nested_key in ("abbr", "abbreviation", "name", "nickname"):
+                                nested_value = team_container.get(nested_key)
+                                if isinstance(nested_value, str) and nested_value.strip():
+                                    team_value = nested_value
+                                    break
+
+                        if team_value:
+                            info["team"] = team_value
+
                 for element in player_array:
                     if isinstance(element, dict):
                         _scan_container(element)
