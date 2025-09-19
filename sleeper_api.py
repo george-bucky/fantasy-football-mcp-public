@@ -187,29 +187,55 @@ class SleeperAPI:
         Get player projections for a specific week.
         
         Returns dict keyed by player_id with projection data.
+        Handles both list and dict response shapes from Sleeper API.
         """
-        # Get base projections
         endpoint = f"projections/nfl/{season}/{week}"
-        projections = await self._make_request(endpoint) or {}
+        raw = await self._make_request(endpoint) or []
         
-        # Filter by positions if specified
-        if positions and projections:
-            filtered = {}
-            all_players = await self.get_all_players()
-            
-            for player_id, proj_data in projections.items():
-                if player_id in all_players:
-                    player = all_players[player_id]
-                    if player.get("position") in positions:
-                        # Add player info to projection
-                        proj_data["player_name"] = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
-                        proj_data["position"] = player.get("position")
-                        proj_data["team"] = player.get("team")
-                        filtered[player_id] = proj_data
-            
+        # Normalize to dict keyed by player_id
+        normalized: Dict[str, Dict] = {}
+        if isinstance(raw, dict):
+            # Already keyed by player_id
+            normalized = {pid: pdata for pid, pdata in raw.items() if isinstance(pdata, dict)}
+        elif isinstance(raw, list):
+            for entry in raw:
+                if isinstance(entry, dict):
+                    pid = entry.get("player_id")
+                    if pid:
+                        normalized[str(pid)] = entry
+        else:
+            # Unknown shape
+            return {}
+
+        if not normalized:
+            return {}
+
+        # Optionally filter by positions and enrich with player info
+        all_players = await self.get_all_players()
+        if positions:
+            positions_set = set(positions)
+            filtered: Dict[str, Dict] = {}
+            for player_id, proj_data in normalized.items():
+                player = all_players.get(player_id)
+                if not player:
+                    continue
+                if player.get("position") in positions_set:
+                    proj_data = dict(proj_data)
+                    proj_data["player_name"] = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
+                    proj_data["position"] = player.get("position")
+                    proj_data["team"] = player.get("team")
+                    filtered[player_id] = proj_data
             return filtered
         
-        return projections
+        # Enrich without filtering for convenience
+        for player_id, proj_data in list(normalized.items()):
+            player = all_players.get(player_id)
+            if player:
+                proj_data["player_name"] = f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
+                proj_data["position"] = player.get("position")
+                proj_data["team"] = player.get("team")
+        
+        return normalized
     
     async def get_player_by_name(self, name: str) -> Optional[Dict]:
         """Improved player lookup with normalization and fuzzy fallback."""
@@ -376,20 +402,42 @@ async def get_current_week() -> int:
     return state.get("week", 1)
 
 
-async def get_player_projection(player_name: str, week: Optional[int] = None) -> Optional[Dict]:
-    """Get projection for a specific player by name."""
-    # Get current week if not specified
+async def get_current_season() -> int:
+    """Get current NFL season (fallback to current year)."""
+    try:
+        state = await sleeper_client.get_nfl_state()
+        season = state.get("season")
+        if isinstance(season, int):
+            return season
+        # Sleeper may return season as string
+        if isinstance(season, str) and season.isdigit():
+            return int(season)
+    except Exception:
+        pass
+    # Fallback: infer from calendar year
+    return datetime.now().year
+
+
+async def get_player_projection(
+    player_name: str,
+    week: Optional[int] = None,
+    season: Optional[int] = None,
+) -> Optional[Dict]:
+    """Get projection for a specific player by name using dynamic season/week."""
+    # Resolve week/season if not specified
     if not week:
         week = await get_current_week()
-    
+    if not season:
+        season = await get_current_season()
+
     # Find player
     player = await sleeper_client.get_player_by_name(player_name)
     if not player:
         return None
-    
-    # Get projections
-    projections = await sleeper_client.get_projections(2024, week)
-    
+
+    # Get projections for requested season/week
+    projections = await sleeper_client.get_projections(season, week)
+
     player_id = player.get("sleeper_id")
     if player_id and player_id in projections:
         proj = projections[player_id]
@@ -399,5 +447,5 @@ async def get_player_projection(player_name: str, week: Optional[int] = None) ->
         if "match_method" in player:
             proj["match_method"] = player["match_method"]
         return proj
-    
+
     return None

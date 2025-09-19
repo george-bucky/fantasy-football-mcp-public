@@ -179,15 +179,13 @@ async def ff_get_roster_with_projections(
     """Get roster data with comprehensive projections and external data integration."""
     
     try:
-        # Get basic roster data
+        # Get basic roster data (already parsed JSON via fast layer if available)
         roster_response = await fantasy_football_multi_league.call_tool(
             "ff_get_roster",
             {"league_key": league_key, "team_key": team_key}
         )
-        
         if not roster_response:
             return {"status": "error", "message": "Failed to get roster data"}
-        
         roster_data = json.loads(roster_response[0].text)
         
         if roster_data.get("status") != "success":
@@ -199,7 +197,7 @@ async def ff_get_roster_with_projections(
         if not players:
             return {"status": "error", "message": "Failed to parse player data"}
         
-        # Enhance with external data
+        # Enhance with external data (use provided week)
         enhanced_players = await lineup_optimizer.enhance_with_external_data(players)
         
         # Convert to enhanced data structure
