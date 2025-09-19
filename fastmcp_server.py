@@ -16,7 +16,7 @@ from mcp.types import TextContent
 
 import fantasy_football_multi_league
 from enhanced_mcp_tools import (
-    ff_get_enhanced_roster as _ff_get_enhanced_roster,
+    ff_get_roster_with_projections as _ff_get_roster_with_projections,
     ff_analyze_lineup_options as _ff_analyze_lineup_options,
     ff_compare_players as _ff_compare_players,
     ff_what_if_analysis as _ff_what_if_analysis,
@@ -497,28 +497,28 @@ async def ff_analyze_reddit_sentiment(
 # ============================================================================
 
 @server.tool(
-    name="ff_get_enhanced_roster",
+    name="ff_get_roster_with_projections",
     description=(
-        "Get comprehensive roster data with enhanced player information including "
-        "projections, matchups, trending data, injury status, and decision context. "
+        "Get roster data with comprehensive projections from multiple sources including "
+        "Yahoo, Sleeper, matchup analysis, trending data, and player insights. "
         "This provides rich data for intelligent lineup decisions."
     ),
     meta={
         "prompt": (
-            "Use this tool when you need comprehensive roster analysis with enhanced "
-            "player data including projections, matchups, trending information, and "
-            "decision context for intelligent lineup optimization."
+            "Use this tool when you need roster analysis with comprehensive projections "
+            "from multiple sources including Yahoo, Sleeper, matchup analysis, and "
+            "trending data for intelligent lineup optimization."
         )
     }
 )
-async def ff_get_enhanced_roster_wrapper(
+async def ff_get_roster_with_projections_wrapper(
     ctx: Context,
     league_key: str,
     team_key: Optional[str] = None,
     week: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Get enhanced roster data with comprehensive player information."""
-    return await _ff_get_enhanced_roster(ctx, league_key, team_key, week)
+    """Get roster data with comprehensive projections and external data."""
+    return await _ff_get_roster_with_projections(ctx, league_key, team_key, week)
 
 
 @server.tool(
@@ -951,7 +951,7 @@ __all__ = [
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
     # Enhanced Tools
-    "ff_get_enhanced_roster_wrapper",
+    "ff_get_roster_with_projections_wrapper",
     "ff_analyze_lineup_options_wrapper",
     "ff_compare_players_wrapper",
     "ff_what_if_analysis_wrapper",

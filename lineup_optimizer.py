@@ -60,6 +60,15 @@ class Player:
     opponent: str = ""
     yahoo_projection: float = 0.0
     sleeper_projection: float = 0.0
+    sleeper_projection_std: float = 0.0
+    sleeper_projection_ppr: float = 0.0
+    sleeper_projection_half_ppr: float = 0.0
+    sleeper_id: str = ""
+    sleeper_position: str = ""
+    sleeper_team: str = ""
+    sleeper_status: str = ""
+    sleeper_injury_status: str = ""
+    sleeper_match_method: str = ""
     matchup_score: int = 50
     matchup_description: str = "Unknown matchup"
     trending_score: int = 0  # Based on adds/drops
@@ -1297,17 +1306,34 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
                         player.matchup_score = 50  # Neutral default
                         player.matchup_description = "Matchup data unavailable"
                 
-                # Get Sleeper projection with fallback
+                # Get comprehensive Sleeper data with fallback
                 if sleeper_client is not None and get_player_projection is not None:
                     try:
+                        # Get detailed player data from Sleeper
+                        sleeper_player = await sleeper_client.get_player_by_name(player.name)
+                        if sleeper_player:
+                            # Store additional Sleeper data on the player object
+                            player.sleeper_id = sleeper_player.get("sleeper_id")
+                            player.sleeper_position = sleeper_player.get("position")
+                            player.sleeper_team = sleeper_player.get("team")
+                            player.sleeper_status = sleeper_player.get("status")
+                            player.sleeper_injury_status = sleeper_player.get("injury_status")
+                            player.sleeper_match_method = sleeper_player.get("match_method", "unknown")
+                        
+                        # Get projection data
                         proj = await get_player_projection(player.name)
                         if proj and isinstance(proj, dict):
                             player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
+                            # Store additional projection details
+                            player.sleeper_projection_std = proj.get('pts_std', 0)
+                            player.sleeper_projection_ppr = proj.get('pts_ppr', 0)
+                            player.sleeper_projection_half_ppr = proj.get('pts_half_ppr', 0)
+                            
                             enhancement_stats["sleeper_projections"] += 1
                             mm = proj.get("match_method", "unknown")
                             enhancement_stats["projection_match_methods"][mm] = enhancement_stats["projection_match_methods"].get(mm, 0) + 1
                     except Exception as e:
-                        logger.warning(f"Failed to get Sleeper projection for {player.name}: {e}")
+                        logger.warning(f"Failed to get Sleeper data for {player.name}: {e}")
                         player.sleeper_projection = 0.0
                 
                 # Get trending score with fallback
