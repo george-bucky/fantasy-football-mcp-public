@@ -20,7 +20,7 @@ class DummyResponse:
         ("ff_get_leagues", {}, "ff_get_leagues", {}),
         ("ff_get_league_info", {"league_key": "123"}, "ff_get_league_info", {"league_key": "123"}),
         ("ff_get_standings", {"league_key": "123"}, "ff_get_standings", {"league_key": "123"}),
-        ("ff_get_roster", {"league_key": "123"}, "ff_get_roster", {"league_key": "123"}),
+        ("ff_get_roster", {"league_key": "123"}, "ff_get_roster", {"league_key": "123", "include_projections": True, "include_external_data": True, "include_analysis": True, "data_level": "full"}),
         ("ff_get_matchup", {"league_key": "123"}, "ff_get_matchup", {"league_key": "123"}),
         (
             "ff_get_players",

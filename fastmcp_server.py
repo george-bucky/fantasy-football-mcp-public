@@ -251,7 +251,7 @@ async def ff_get_roster(
         effective_projections = True
         effective_external = True
         effective_analysis = True
-    
+
     # Explicit parameters override data_level defaults
     if not include_projections:
         effective_projections = False
@@ -259,102 +259,35 @@ async def ff_get_roster(
         effective_external = False
     if not include_analysis:
         effective_analysis = False
-    
-    # If only basic data requested, use legacy tool for performance
-    if not effective_projections and not effective_external and not effective_analysis:
-        if ctx:
+
+    # Informational logging for the selected mode
+    if ctx:
+        if not any([effective_projections, effective_external, effective_analysis]):
             await ctx.info("Using basic roster data (legacy mode)")
-        return await _call_legacy_tool(
+        else:
+            await ctx.info(
+                "Using enhanced roster data "
+                f"(projections: {effective_projections}, external: {effective_external}, analysis: {effective_analysis})"
+            )
+
+    try:
+        result = await _call_legacy_tool(
             "ff_get_roster",
             ctx=ctx,
             league_key=league_key,
             team_key=team_key,
+            week=week,
+            include_projections=effective_projections,
+            include_external_data=effective_external,
+            include_analysis=effective_analysis,
+            data_level=data_level,
         )
-    
-    # Use enhanced roster functionality (via legacy tools since wrappers removed)
-    if ctx:
-        await ctx.info(f"Using enhanced roster data (projections: {effective_projections}, external: {effective_external}, analysis: {effective_analysis})")
-    
-    # Fall back to basic roster with projections via legacy tool
-    try:
-        result = await _call_legacy_tool(
-            "ff_get_roster_with_projections",
-            ctx=ctx,
-            league_key=league_key,
-            team_key=team_key,
-            week=week
-        )
-        
-        # Filter result based on effective settings
-        if not effective_external:
-            # Remove external data fields from player data
-            if "players_by_position" in result:
-                for pos_players in result["players_by_position"].values():
-                    for player in pos_players:
-                        # Remove Sleeper and trending specific fields
-                        fields_to_remove = [
-                            "sleeper_projection", "sleeper_projection_std", "sleeper_projection_ppr", 
-                            "sleeper_projection_half_ppr", "sleeper_id", "sleeper_status", 
-                            "sleeper_injury_status", "sleeper_match_method", "trending_score", 
-                            "trending_description", "matchup_score", "matchup_description"
-                        ]
-                        for field in fields_to_remove:
-                            player.pop(field, None)
-            
-            if "all_players" in result:
-                for player in result["all_players"]:
-                    fields_to_remove = [
-                        "sleeper_projection", "sleeper_projection_std", "sleeper_projection_ppr", 
-                        "sleeper_projection_half_ppr", "sleeper_id", "sleeper_status", 
-                        "sleeper_injury_status", "sleeper_match_method", "trending_score", 
-                        "trending_description", "matchup_score", "matchup_description"
-                    ]
-                    for field in fields_to_remove:
-                        player.pop(field, None)
-        
-        if not effective_analysis:
-            # Remove analysis-specific fields
-            if "players_by_position" in result:
-                for pos_players in result["players_by_position"].values():
-                    for player in pos_players:
-                        fields_to_remove = [
-                            "player_tier", "risk_level", "recommendation_reasoning",
-                            "floor_projection", "ceiling_projection", "consistency_score",
-                            "value_score"
-                        ]
-                        for field in fields_to_remove:
-                            player.pop(field, None)
-            
-            if "all_players" in result:
-                for player in result["all_players"]:
-                    fields_to_remove = [
-                        "player_tier", "risk_level", "recommendation_reasoning",
-                        "floor_projection", "ceiling_projection", "consistency_score",
-                        "value_score"
-                    ]
-                    for field in fields_to_remove:
-                        player.pop(field, None)
-        
-        # Update analysis context to reflect actual data included
-        if "analysis_context" in result:
-            data_sources = ["Yahoo"]
-            if effective_external:
-                data_sources.extend(["Sleeper", "Matchup Analysis", "Trending Data"])
-            result["analysis_context"]["data_sources"] = data_sources
-            result["analysis_context"]["data_level"] = data_level
-            result["analysis_context"]["includes"] = {
-                "projections": effective_projections,
-                "external_data": effective_external,
-                "analysis": effective_analysis
-            }
-        
         return result
-        
-    except Exception as e:
+    except Exception as exc:
         return {
             "status": "error",
-            "message": f"Enhanced roster fetch failed: {str(e)}",
-            "fallback_suggestion": "Try using data_level='basic' for simple roster data"
+            "message": f"Enhanced roster fetch failed: {exc}",
+            "fallback_suggestion": "Try using data_level='basic' for simple roster data",
         }
 
 
@@ -1002,7 +935,6 @@ def get_tool_selection_guide() -> str:
                 "tools": {
                     "ff_get_leagues": "Discovery: Find available leagues and extract league_key identifiers",
                     "ff_get_league_info": "Configuration: League settings, scoring rules, roster requirements",
-                    "ff_get_teams": "Overview: All teams in league for competitive context",
                     "ff_get_standings": "Rankings: Current standings, records, points for strategy context"
                 }
             },
@@ -1047,16 +979,16 @@ def get_tool_selection_guide() -> str:
         },
         "strategic_usage_patterns": {
             "weekly_lineup_optimization": [
-                "ff_get_leagues → ff_get_roster → ff_get_matchup → ff_get_waiver_wire → ff_get_optimal_lineup"
+                "ff_get_leagues -> ff_get_roster -> ff_get_matchup -> ff_get_waiver_wire -> ff_get_optimal_lineup"
             ],
             "draft_preparation": [
-                "ff_get_leagues → ff_get_league_info → ff_get_draft_rankings → ff_analyze_draft_state"
+                "ff_get_leagues -> ff_get_league_info -> ff_get_draft_rankings -> ff_analyze_draft_state"
             ],
             "competitive_analysis": [
-                "ff_get_teams → ff_get_standings → ff_compare_teams → ff_get_matchup"
+                "ff_get_league_info -> ff_get_standings -> ff_compare_teams -> ff_get_matchup"
             ],
             "market_research": [
-                "ff_get_waiver_wire → ff_analyze_reddit_sentiment → ff_get_players"
+                "ff_get_waiver_wire -> ff_analyze_reddit_sentiment -> ff_get_players"
             ]
         },
         "decision_framework": {

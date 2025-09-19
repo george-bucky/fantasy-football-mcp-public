@@ -7,7 +7,7 @@ import asyncio
 import json
 import os
 import socket
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import aiohttp
 from dotenv import load_dotenv
@@ -1210,547 +1210,606 @@ async def list_tools() -> list[Tool]:
     return base_tools
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent]:
-    """Execute a fantasy football tool."""
-    try:
-        debug_flag = arguments.get("debug") is True
-        if debug_flag:
-            # Lightweight initial debug envelope we can append to
-            debug_msgs = [f"debug: call_tool entered for {name}"]
-        if name == "ff_get_leagues":
-            # Get all leagues
-            leagues = await discover_leagues()
 
-            if not leagues:
-                result = {
-                    "error": "No active NFL leagues found",
-                    "suggestion": "Make sure your Yahoo token is valid and you have active leagues",
-                }
-            else:
-                result = {
-                    "total_leagues": len(leagues),
-                    "leagues": [
-                        {
-                            "key": league["key"],
-                            "name": league["name"],
-                            "teams": league["num_teams"],
-                            "current_week": league["current_week"],
-                            "scoring": league["scoring_type"],
-                        }
-                        for league in leagues.values()
-                    ],
-                }
+async def _handle_ff_get_leagues(arguments: dict) -> dict:
+    leagues = await discover_leagues()
 
-        elif name == "ff_get_league_info":
-            # Get specific league info
-            league_key = arguments.get("league_key")
+    if not leagues:
+        return {
+            "error": "No active NFL leagues found",
+            "suggestion": "Make sure your Yahoo token is valid and you have active leagues",
+        }
 
-            # First check cache
-            leagues = await discover_leagues()
-            if league_key in leagues:
-                league = leagues[league_key]
+    return {
+        "total_leagues": len(leagues),
+        "leagues": [
+            {
+                "key": league["key"],
+                "name": league["name"],
+                "teams": league["num_teams"],
+                "current_week": league["current_week"],
+                "scoring": league["scoring_type"],
+            }
+            for league in leagues.values()
+        ],
+    }
 
-                # Get user's team info
-                team_info = await get_user_team_info(league_key)
 
-                # Get additional details
-                data = await yahoo_api_call(f"league/{league_key}")
-                result = {
-                    "league": league["name"],
-                    "key": league_key,
-                    "season": league["season"],
-                    "teams": league["num_teams"],
-                    "current_week": league["current_week"],
-                    "scoring_type": league["scoring_type"],
-                    "status": "active" if not league["is_finished"] else "finished",
-                    "your_team": {
-                        "name": team_info.get("team_name", "Unknown") if team_info else "Not found",
-                        "key": team_info.get("team_key") if team_info else None,
-                        "draft_position": team_info.get("draft_position") if team_info else None,
-                        "draft_grade": team_info.get("draft_grade") if team_info else None,
-                    },
-                }
-            else:
-                result = {
-                    "error": f"League {league_key} not found",
-                    "available_leagues": list(leagues.keys()),
-                }
+async def _handle_ff_get_league_info(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    if not league_key:
+        return {"error": "league_key is required"}
 
-        elif name == "ff_get_standings":
-            # Get standings
-            league_key = arguments.get("league_key")
-            data = await yahoo_api_call(f"league/{league_key}/standings")
+    leagues = await discover_leagues()
+    if league_key not in leagues:
+        return {
+            "error": f"League {league_key} not found",
+            "available_leagues": list(leagues.keys()),
+        }
 
-            standings = []
-            league = data.get("fantasy_content", {}).get("league", [])
+    league = leagues[league_key]
+    team_info = await get_user_team_info(league_key)
+    _ = await yahoo_api_call(f"league/{league_key}")
 
-            for item in league:
-                if isinstance(item, dict) and "standings" in item:
-                    standings_list = item["standings"]
-                    teams = {}
-                    if isinstance(standings_list, list) and standings_list:
-                        teams = standings_list[0].get("teams", {})
-                    elif isinstance(standings_list, dict):
-                        teams = standings_list.get("teams", {})
+    return {
+        "league": league["name"],
+        "key": league_key,
+        "season": league["season"],
+        "teams": league["num_teams"],
+        "current_week": league["current_week"],
+        "scoring_type": league["scoring_type"],
+        "status": "active" if not league["is_finished"] else "finished",
+        "your_team": {
+            "name": team_info.get("team_name", "Unknown") if team_info else "Not found",
+            "key": team_info.get("team_key") if team_info else None,
+            "draft_position": team_info.get("draft_position") if team_info else None,
+            "draft_grade": team_info.get("draft_grade") if team_info else None,
+        },
+    }
 
-                    for key, team_entry in teams.items():
-                        if key == "count" or not isinstance(team_entry, dict):
-                            continue
-                        if "team" in team_entry:
-                            team_array = team_entry["team"]
-                            team_info = {}
-                            team_standings = {}
-                            if isinstance(team_array, list) and team_array:
-                                core = team_array[0]
-                                if isinstance(core, list):
-                                    for elem in core:
-                                        if isinstance(elem, dict) and "name" in elem:
-                                            team_info["name"] = elem["name"]
-                                for part in team_array[1:]:
-                                    if isinstance(part, dict) and "team_standings" in part:
-                                        team_standings = part["team_standings"]
 
-                            if team_info and team_standings:
-                                standings.append(
-                                    {
-                                        "rank": team_standings.get("rank", 0),
-                                        "team": team_info.get("name", "Unknown"),
-                                        "wins": team_standings.get("outcome_totals", {}).get(
-                                            "wins", 0
-                                        ),
-                                        "losses": team_standings.get("outcome_totals", {}).get(
-                                            "losses", 0
-                                        ),
-                                        "ties": team_standings.get("outcome_totals", {}).get(
-                                            "ties", 0
-                                        ),
-                                        "points_for": team_standings.get("points_for", 0),
-                                        "points_against": team_standings.get("points_against", 0),
-                                    }
-                                )
+async def _handle_ff_get_standings(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    data = await yahoo_api_call(f"league/{league_key}/standings")
 
-            # Sort by rank
-            standings.sort(key=lambda x: x["rank"])
+    standings = []
+    league = data.get("fantasy_content", {}).get("league", [])
 
-            result = {"league_key": league_key, "standings": standings}
+    for item in league:
+        if isinstance(item, dict) and "standings" in item:
+            standings_list = item["standings"]
+            teams = {}
+            if isinstance(standings_list, list) and standings_list:
+                teams = standings_list[0].get("teams", {})
+            elif isinstance(standings_list, dict):
+                teams = standings_list.get("teams", {})
 
-        elif name == "ff_get_teams":
-            # Get all teams in the league
-            league_key = arguments.get("league_key")
-            teams_info = await get_all_teams_info(league_key)
-            
-            result = {
-                "league_key": league_key,
-                "teams": teams_info,
-                "total_teams": len(teams_info)
+            for key, team_entry in teams.items():
+                if key == "count" or not isinstance(team_entry, dict):
+                    continue
+                if "team" in team_entry:
+                    team_array = team_entry["team"]
+                    team_info = {}
+                    team_standings = {}
+                    if isinstance(team_array, list) and team_array:
+                        core = team_array[0]
+                        if isinstance(core, list):
+                            for elem in core:
+                                if isinstance(elem, dict) and "name" in elem:
+                                    team_info["name"] = elem["name"]
+                        for part in team_array[1:]:
+                            if isinstance(part, dict) and "team_standings" in part:
+                                team_standings = part["team_standings"]
+
+                    if team_info and team_standings:
+                        standings.append(
+                            {
+                                "rank": team_standings.get("rank", 0),
+                                "team": team_info.get("name", "Unknown"),
+                                "wins": team_standings.get("outcome_totals", {}).get("wins", 0),
+                                "losses": team_standings.get("outcome_totals", {}).get("losses", 0),
+                                "ties": team_standings.get("outcome_totals", {}).get("ties", 0),
+                                "points_for": team_standings.get("points_for", 0),
+                                "points_against": team_standings.get("points_against", 0),
+                            }
+                        )
+
+    standings.sort(key=lambda row: row["rank"])
+    return {"league_key": league_key, "standings": standings}
+
+
+async def _handle_ff_get_teams(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    teams_info = await get_all_teams_info(league_key)
+    return {
+        "league_key": league_key,
+        "teams": teams_info,
+        "total_teams": len(teams_info),
+    }
+
+
+async def _handle_ff_get_roster(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    team_key = arguments.get("team_key")
+    data_level = arguments.get("data_level", "basic")
+    include_projections = arguments.get("include_projections", True)
+    include_external_data = arguments.get("include_external_data", True)
+    include_analysis = arguments.get("include_analysis", True)
+    week = arguments.get("week")
+
+    if data_level == "basic":
+        effective_projections = False
+        effective_external = False
+        effective_analysis = False
+    elif data_level == "standard":
+        effective_projections = True
+        effective_external = False
+        effective_analysis = False
+    else:
+        effective_projections = True
+        effective_external = True
+        effective_analysis = True
+
+    if not include_projections:
+        effective_projections = False
+    if not include_external_data:
+        effective_external = False
+    if not include_analysis:
+        effective_analysis = False
+
+    needs_enhanced = (
+        effective_projections or effective_external or effective_analysis
+    )
+
+    team_info = None
+    if not team_key:
+        team_info = await get_user_team_info(league_key)
+        if team_info:
+            team_key = team_info.get("team_key")
+        else:
+            return {
+                "error": f"Could not find your team in league {league_key}",
+                "suggestion": "Provide team_key explicitly if multiple teams exist",
             }
 
-        elif name == "ff_get_roster":
-            league_key = arguments.get("league_key")
-            team_key = arguments.get("team_key")
-            data_level = arguments.get("data_level", "basic")
-            include_projections = arguments.get("include_projections", True)
-            include_external_data = arguments.get("include_external_data", True)
-            include_analysis = arguments.get("include_analysis", True)
-            week = arguments.get("week")
-            
-            # If using enhanced features, route to consolidated tool
-            if (data_level in ["standard", "full"] or 
-                include_projections or include_external_data or include_analysis):
-                
-                try:
-                    from enhanced_mcp_tools import ff_get_roster_with_projections
-                    
-                    class MockContext:
-                        async def info(self, message: str):
-                            print(f"[CONSOLIDATED] {message}")
-                    
-                    ctx = MockContext()
-                    
-                    # Use enhanced tool for standard/full modes
-                    enhanced_result = await ff_get_roster_with_projections(
-                        ctx=ctx,
-                        league_key=league_key,
-                        team_key=team_key,
-                        week=week
-                    )
-                    
-                    # Apply data_level filtering if needed
-                    if data_level == "standard":
-                        # Remove some enhanced fields for standard mode
-                        if "players_by_position" in enhanced_result:
-                            for pos_players in enhanced_result["players_by_position"].values():
-                                for player in pos_players:
-                                    # Remove analysis-specific fields
-                                    fields_to_remove = [
-                                        "trending_score", "trending_description",
-                                        "matchup_score", "matchup_description",
-                                        "player_tier", "risk_level"
-                                    ]
-                                    for field in fields_to_remove:
-                                        player.pop(field, None)
-                    
-                    return [TextContent(type="text", text=json.dumps(enhanced_result, indent=2))]
-                    
-                except Exception as e:
-                    print(f"Enhanced roster tool failed: {e}")
-                    # Fall back to basic roster
-                    pass
-            
-            # Basic roster implementation (legacy)
-            team_info = None
+    data = await yahoo_api_call(f"team/{team_key}/roster")
+    roster = parse_team_roster(data)
 
-            if not team_key:
-                team_info = await get_user_team_info(league_key)
-                if team_info:
-                    team_key = team_info.get("team_key")
-                else:
-                    result = {
-                        "error": f"Could not find your team in league {league_key}",
-                        "suggestion": "Provide team_key explicitly if multiple teams exist",
-                    }
-                    return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    if team_info is None or team_info.get("team_key") != team_key:
+        team_info = await get_user_team_info(league_key)
 
-            data = await yahoo_api_call(f"team/{team_key}/roster")
-            roster = parse_team_roster(data)
+    result: dict[str, Any] = {
+        "status": "success",
+        "league_key": league_key,
+        "team_key": team_key,
+        "team_name": team_info.get("team_name") if team_info else None,
+        "draft_position": team_info.get("draft_position") if team_info else None,
+        "draft_grade": team_info.get("draft_grade") if team_info else None,
+        "roster": roster,
+    }
 
-            if team_info is None or team_info.get("team_key") != team_key:
-                team_info = await get_user_team_info(league_key)
+    if not needs_enhanced:
+        return result
 
-            result = {
+    try:
+        from lineup_optimizer import lineup_optimizer, Player  # type: ignore
+    except ImportError as exc:
+        result["note"] = f"Enhanced view unavailable: {exc}"
+        return result
+
+    try:
+        optimizer_payload = {
+            "league_key": league_key,
+            "team_key": team_key,
+            "roster": roster,
+        }
+        players = await lineup_optimizer.parse_yahoo_roster(optimizer_payload)
+        if not players:
+            raise ValueError("No players parsed from roster payload")
+        players = await lineup_optimizer.enhance_with_external_data(players, week=week)
+    except Exception as exc:
+        result["note"] = f"Enhanced view unavailable: {exc}"
+        return result
+
+    def serialize_player(player: Player) -> Dict[str, Any]:
+        return {
+            "name": player.name,
+            "position": player.position,
+            "team": player.team,
+            "opponent": player.opponent,
+            "status": player.status,
+            "yahoo_projection": player.yahoo_projection,
+            "sleeper_projection": player.sleeper_projection,
+            "floor_projection": player.floor_projection,
+            "ceiling_projection": player.ceiling_projection,
+            "consistency_score": player.consistency_score,
+            "player_tier": player.player_tier,
+            "matchup_score": player.matchup_score,
+            "matchup_description": player.matchup_description,
+            "trending_score": player.trending_score,
+            "risk_level": player.risk_level,
+        }
+
+    players_by_position: Dict[str, List[Dict[str, Any]]] = {}
+    for player in players:
+        bucket = players_by_position.setdefault(player.position, [])
+        bucket.append(serialize_player(player))
+
+    for bucket in players_by_position.values():
+        bucket.sort(key=lambda entry: entry.get("yahoo_projection", 0), reverse=True)
+
+    result.update(
+        {
+            "total_players": len(players),
+            "players_by_position": players_by_position,
+            "all_players": [serialize_player(player) for player in players],
+            "analysis_context": {
+                "data_sources": ["Yahoo"],
+                "data_level": data_level,
+                "includes": {
+                    "projections": effective_projections,
+                    "external_data": effective_external,
+                    "analysis": effective_analysis,
+                },
+                "week": week or "current",
+            },
+        }
+    )
+
+    return result
+
+async def _handle_ff_get_matchup(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    week = arguments.get("week")
+    team_key = await get_user_team_key(league_key)
+
+    if not team_key:
+        return {"error": f"Could not find your team in league {league_key}"}
+
+    week_param = f";week={week}" if week else ""
+    data = await yahoo_api_call(f"team/{team_key}/matchups{week_param}")
+    return {
+        "league_key": league_key,
+        "team_key": team_key,
+        "week": week or "current",
+        "message": "Matchup data retrieved",
+        "raw_matchups": data,
+    }
+
+
+async def _handle_ff_get_players(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    position = arguments.get("position", "")
+    count = arguments.get("count", 10)
+
+    pos_filter = f";position={position}" if position else ""
+    data = await yahoo_api_call(
+        f"league/{league_key}/players;status=A{pos_filter};count={count}"
+    )
+
+    players = []
+    league = data.get("fantasy_content", {}).get("league", [])
+    for item in league:
+        if isinstance(item, dict) and "players" in item:
+            players_data = item["players"]
+            for key, player_entry in players_data.items():
+                if key == "count" or not isinstance(player_entry, dict):
+                    continue
+                player_array = player_entry.get("player")
+                if not isinstance(player_array, list):
+                    continue
+                player_info: dict[str, Any] = {}
+                for payload in player_array:
+                    if not isinstance(payload, dict):
+                        continue
+                    if "name" in payload:
+                        player_info["name"] = payload["name"].get("full")
+                    if "editorial_team_abbr" in payload:
+                        player_info["team"] = payload["editorial_team_abbr"]
+                    if "display_position" in payload:
+                        player_info["position"] = payload["display_position"]
+                    if "ownership" in payload:
+                        player_info["owned_pct"] = payload["ownership"].get(
+                            "ownership_percentage", 0
+                        )
+                if player_info:
+                    players.append(player_info)
+
+    return {
+        "league_key": league_key,
+        "position": position or "all",
+        "count": len(players),
+        "players": players[:count],
+    }
+
+
+async def _handle_ff_compare_teams(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    team_key_a = arguments.get("team_key_a")
+    team_key_b = arguments.get("team_key_b")
+
+    data_a = await yahoo_api_call(f"team/{team_key_a}/roster")
+    data_b = await yahoo_api_call(f"team/{team_key_b}/roster")
+
+    roster_a = parse_team_roster(data_a)
+    roster_b = parse_team_roster(data_b)
+
+    return {
+        "league_key": league_key,
+        "team_a": {"team_key": team_key_a, "roster": roster_a},
+        "team_b": {"team_key": team_key_b, "roster": roster_b},
+    }
+
+
+async def _handle_ff_get_optimal_lineup(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    week = arguments.get("week")
+    strategy = arguments.get("strategy", "balanced")
+    use_llm = arguments.get("use_llm", False)
+
+    team_key = await get_user_team_key(league_key)
+    if not team_key:
+        return {"error": f"Could not find your team in league {league_key}"}
+
+    try:
+        roster_data = await yahoo_api_call(f"team/{team_key}/roster")
+        try:
+            from lineup_optimizer import lineup_optimizer
+        except ImportError as exc:
+            return {
+                "error": f"Lineup optimizer unavailable: {exc}",
+                "suggestion": "Please check lineup_optimizer.py dependencies",
                 "league_key": league_key,
                 "team_key": team_key,
-                "team_name": team_info.get("team_name") if team_info else None,
-                "draft_position": team_info.get("draft_position") if team_info else None,
-                "draft_grade": team_info.get("draft_grade") if team_info else None,
-                "roster": roster,
             }
 
-        elif name == "ff_get_matchup":
-            # Get matchup
-            league_key = arguments.get("league_key")
-            week = arguments.get("week", None)
-
-            # Get user's team key
-            team_key = await get_user_team_key(league_key)
-
-            if team_key:
-                week_param = f";week={week}" if week else ""
-                data = await yahoo_api_call(f"team/{team_key}/matchups{week_param}")
-
-                result = {
-                    "league_key": league_key,
-                    "team_key": team_key,
-                    "week": week or "current",
-                    "message": "Matchup data retrieved",
-                }
-            else:
-                result = {"error": f"Could not find your team in league {league_key}"}
-
-        elif name == "ff_get_players":
-            # Get available players
-            league_key = arguments.get("league_key")
-            position = arguments.get("position", "")
-            count = arguments.get("count", 10)
-
-            pos_filter = f";position={position}" if position else ""
-            data = await yahoo_api_call(
-                f"league/{league_key}/players;status=A{pos_filter};count={count}"
-            )
-
-            players = []
-            league = data.get("fantasy_content", {}).get("league", [])
-
-            for item in league:
-                if isinstance(item, dict) and "players" in item:
-                    players_data = item["players"]
-
-                    for key in players_data:
-                        if key != "count" and isinstance(players_data[key], dict):
-                            if "player" in players_data[key]:
-                                player_array = players_data[key]["player"]
-                                if isinstance(player_array, list) and len(player_array) > 0:
-                                    player_info = {}
-
-                                    for p in player_array:
-                                        if isinstance(p, dict):
-                                            if "name" in p:
-                                                player_info["name"] = p["name"]["full"]
-                                            if "editorial_team_abbr" in p:
-                                                player_info["team"] = p["editorial_team_abbr"]
-                                            if "display_position" in p:
-                                                player_info["position"] = p["display_position"]
-                                            if "ownership" in p:
-                                                player_info["owned_pct"] = p["ownership"].get(
-                                                    "ownership_percentage", 0
-                                                )
-
-                                    if player_info:
-                                        players.append(player_info)
-
-            result = {
+        players = await lineup_optimizer.parse_yahoo_roster(roster_data)
+        if not players:
+            return {
+                "error": "Failed to parse Yahoo roster data",
                 "league_key": league_key,
-                "position": position or "all",
-                "count": len(players),
-                "players": players[:count],
+                "team_key": team_key,
+                "suggestion": "Check roster data format or try refreshing",
             }
-        elif name == "ff_compare_teams":
-            league_key = arguments.get("league_key")
-            team_key_a = arguments.get("team_key_a")
-            team_key_b = arguments.get("team_key_b")
 
-            data_a = await yahoo_api_call(f"team/{team_key_a}/roster")
-            data_b = await yahoo_api_call(f"team/{team_key_b}/roster")
-
-            roster_a = parse_team_roster(data_a)
-            roster_b = parse_team_roster(data_b)
-
-            result = {
+        players = await lineup_optimizer.enhance_with_external_data(players, week=week)
+        optimization = await lineup_optimizer.optimize_lineup_smart(
+            players,
+            strategy,
+            week,
+            use_llm,
+        )
+        if optimization["status"] == "error":
+            return {
+                "status": "error",
+                "error": "Lineup optimization failed",
                 "league_key": league_key,
-                "team_a": {"team_key": team_key_a, "roster": roster_a},
-                "team_b": {"team_key": team_key_b, "roster": roster_b},
+                "team_key": team_key,
+                "errors": optimization.get("errors", []),
+                "details": optimization.get("errors", []),
+                "data_quality": optimization.get("data_quality", {}),
             }
 
-        elif name == "ff_get_optimal_lineup":
-            # Get optimal lineup recommendations with Sleeper integration
-            league_key = arguments.get("league_key")
-            week = arguments.get("week", None)
-            strategy = arguments.get("strategy", "balanced")
-
-            # Get user's roster
-            team_key = await get_user_team_key(league_key)
-
-            if team_key:
-                try:
-                    roster_data = await yahoo_api_call(f"team/{team_key}/roster")
-                    try:
-                        from lineup_optimizer import lineup_optimizer
-                    except ImportError as e:
-                        result = {
-                            "error": f"Lineup optimizer unavailable: {e}",
-                            "suggestion": "Please check lineup_optimizer.py dependencies",
-                            "league_key": league_key,
-                            "team_key": team_key,
-                        }
-                    else:
-                        players = await lineup_optimizer.parse_yahoo_roster(roster_data)
-                        if not players:
-                            result = {
-                                "error": "Failed to parse Yahoo roster data",
-                                "league_key": league_key,
-                                "team_key": team_key,
-                                "suggestion": "Check roster data format or try refreshing",
-                            }
-                        else:
-                            players = await lineup_optimizer.enhance_with_external_data(players, week=week)
-                            # Check for LLM optimization flag (default to False for now to test)
-                            use_llm = arguments.get('use_llm', False)
-                            optimization = await lineup_optimizer.optimize_lineup_smart(players, strategy, week, use_llm)
-                            if optimization["status"] == "error":
-                                result = {
-                                    "status": "error",
-                                    "error": "Lineup optimization failed",
-                                    "league_key": league_key,
-                                    "team_key": team_key,
-                                    "errors": optimization.get("errors", []),
-                                    "details": optimization.get("errors", []),
-                                    "data_quality": optimization.get("data_quality", {}),
-                                }
-                            else:
-                                starters_formatted = {}
-                                for pos, player in optimization["starters"].items():
-                                    starters_formatted[pos] = {
-                                        "name": player.name,
-                                        "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
-                                        "team": player.team,
-                                        "opponent": player.opponent,
-                                        "matchup_score": player.matchup_score,
-                                        "matchup": player.matchup_description,
-                                        "composite_score": round(player.composite_score, 1),
-                                        "yahoo_proj": (round(player.yahoo_projection, 1) if player.yahoo_projection else None),
-                                        "sleeper_proj": (round(player.sleeper_projection, 1) if player.sleeper_projection else None),
-                                        "trending": (f"{player.trending_score:,} adds" if player.trending_score > 0 else None),
-                                        "floor": round(player.floor_projection, 1) if player.floor_projection else None,
-                                        "ceiling": round(player.ceiling_projection, 1) if player.ceiling_projection else None,
-                                    }
-                                bench_formatted = []
-                                for player in optimization["bench"][:5]:
-                                    bench_formatted.append(
-                                        {
-                                            "name": player.name,
-                                            "position": player.position,
-                                            "opponent": player.opponent,
-                                            "composite_score": round(player.composite_score, 1),
-                                            "matchup_score": player.matchup_score,
-                                            "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
-                                        }
-                                    )
-                                result = {
-                                    "status": optimization["status"],
-                                    "league_key": league_key,
-                                    "team_key": team_key,
-                                    "week": week or "current",
-                                    "strategy": strategy,
-                                    "optimal_lineup": starters_formatted,
-                                    "bench": bench_formatted,
-                                    "recommendations": optimization["recommendations"],
-                                    "errors": optimization.get("errors", []),
-                                    "analysis": {
-                                        "total_players": optimization["data_quality"]["total_players"],
-                                        "valid_players": optimization["data_quality"]["valid_players"],
-                                        "players_with_projections": optimization["data_quality"]["players_with_projections"],
-                                        "players_with_matchup_data": optimization["data_quality"]["players_with_matchup_data"],
-                                        "strategy_used": optimization["strategy_used"],
-                                        "data_sources": [
-                                            "Yahoo projections",
-                                            "Sleeper rankings",
-                                            "Matchup analysis",
-                                            "Trending data",
-                                        ],
-                                    },
-                                }
-                                if optimization.get("errors"):
-                                    result["warnings"] = optimization["errors"]
-                except Exception as e:
-                    result = {
-                        "error": f"Unexpected error during lineup optimization: {str(e)}",
-                        "league_key": league_key,
-                        "team_key": team_key,
-                        "suggestion": "Try again or check system logs for details",
-                    }
-            else:
-                result = {"error": f"Could not find your team in league {league_key}"}
-
-        elif name == "ff_refresh_token":
-            # Refresh the Yahoo access token
-            result = await refresh_yahoo_token()
-
-        elif name == "ff_get_api_status":
-            # Get API rate limit and cache status
-            rate_status = rate_limiter.get_status()
-            cache_stats = response_cache.get_stats()
-
-            result = {"rate_limit": rate_status, "cache": cache_stats}
-
-        elif name == "ff_clear_cache":
-            # Clear cache
-            pattern = arguments.get("pattern", None)
-            await response_cache.clear(pattern)
-
-            result = {
-                "status": "success",
-                "message": f"Cache cleared{f' for pattern: {pattern}' if pattern else ' completely'}",
+        starters_formatted = {}
+        for pos, player in optimization["starters"].items():
+            starters_formatted[pos] = {
+                "name": player.name,
+                "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+                "team": player.team,
+                "opponent": player.opponent,
+                "matchup_score": player.matchup_score,
+                "matchup": player.matchup_description,
+                "composite_score": round(player.composite_score, 1),
+                "yahoo_proj": round(player.yahoo_projection, 1) if player.yahoo_projection else None,
+                "sleeper_proj": round(player.sleeper_projection, 1) if player.sleeper_projection else None,
+                "trending": f"{player.trending_score:,} adds" if player.trending_score > 0 else None,
+                "floor": round(player.floor_projection, 1) if player.floor_projection else None,
+                "ceiling": round(player.ceiling_projection, 1) if player.ceiling_projection else None,
             }
 
-        elif name == "ff_get_draft_results":
-            # Get draft results for all teams
-            league_key = arguments.get("league_key")
+        bench_formatted = [
+            {
+                "name": player.name,
+                "position": player.position,
+                "opponent": player.opponent,
+                "composite_score": round(player.composite_score, 1),
+                "matchup_score": player.matchup_score,
+                "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+            }
+            for player in optimization["bench"][:5]
+        ]
 
-            # Get all teams with draft info
-            teams = await get_all_teams_info(league_key)
+        result: dict[str, Any] = {
+            "status": optimization["status"],
+            "league_key": league_key,
+            "team_key": team_key,
+            "week": week or "current",
+            "strategy": strategy,
+            "optimal_lineup": starters_formatted,
+            "bench": bench_formatted,
+            "recommendations": optimization["recommendations"],
+            "errors": optimization.get("errors", []),
+            "analysis": {
+                "total_players": optimization["data_quality"]["total_players"],
+                "valid_players": optimization["data_quality"]["valid_players"],
+                "players_with_projections": optimization["data_quality"]["players_with_projections"],
+                "players_with_matchup_data": optimization["data_quality"]["players_with_matchup_data"],
+                "strategy_used": optimization["strategy_used"],
+                "data_sources": [
+                    "Yahoo projections",
+                    "Sleeper rankings",
+                    "Matchup analysis",
+                    "Trending data",
+                ],
+            },
+        }
+        if optimization.get("errors"):
+            result["warnings"] = optimization["errors"]
+        return result
+    except Exception as exc:
+        return {
+            "error": f"Unexpected error during lineup optimization: {exc}",
+            "league_key": league_key,
+            "team_key": team_key,
+            "suggestion": "Try again or check system logs for details",
+        }
 
-            if teams:
-                result = {
-                    "league_key": league_key,
-                    "total_teams": len(teams),
-                    "draft_results": teams,
-                }
-            else:
-                result = {"error": f"Could not retrieve draft results for league {league_key}"}
 
-        elif name == "ff_get_waiver_wire":
-            # Get waiver wire players
-            league_key = arguments.get("league_key")
-            position = arguments.get("position", "all")
-            sort = arguments.get("sort", "rank")
-            count = arguments.get("count", 20)
+async def _handle_ff_refresh_token(arguments: dict) -> dict:
+    return await refresh_yahoo_token()
 
-            players = await get_waiver_wire_players(league_key, position, sort, count)
 
-            if players:
-                result = {
-                    "league_key": league_key,
-                    "position": position,
-                    "sort": sort,
-                    "total_players": len(players),
-                    "players": players,
-                }
-            else:
-                result = {
-                    "league_key": league_key,
-                    "message": "No available players found or error retrieving data",
-                }
+async def _handle_ff_get_api_status(arguments: dict) -> dict:
+    return {
+        "rate_limit": rate_limiter.get_status(),
+        "cache": response_cache.get_stats(),
+    }
 
-        elif name == "ff_get_draft_rankings":
-            # Get pre-draft rankings
-            league_key = arguments.get("league_key", None)
-            position = arguments.get("position", "all")
-            count = arguments.get("count", 50)
 
-            players = await get_draft_rankings(league_key, position, count)
+async def _handle_ff_clear_cache(arguments: dict) -> dict:
+    pattern = arguments.get("pattern")
+    await response_cache.clear(pattern)
+    suffix = f" for pattern: {pattern}" if pattern else " completely"
+    return {
+        "status": "success",
+        "message": f"Cache cleared{suffix}",
+    }
 
-            if players:
-                result = {"position": position, "total_players": len(players), "rankings": players}
-            else:
-                result = {"message": "Could not retrieve draft rankings"}
 
-        elif name == "ff_get_draft_recommendation":
-            # Get AI-powered draft recommendations
-            if not DRAFT_AVAILABLE:
-                result = {
-                    "error": "Draft functionality not available. Please check module dependencies."
-                }
-            else:
-                try:
-                    league_key = arguments.get("league_key")
-                    strategy = arguments.get("strategy", "balanced")
-                    num_recommendations = arguments.get("num_recommendations", 10)
-                    current_pick = arguments.get("current_pick")
+async def _handle_ff_get_draft_results(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    teams = await get_all_teams_info(league_key)
+    if not teams:
+        return {"error": f"Could not retrieve draft results for league {league_key}"}
+    return {
+        "league_key": league_key,
+        "total_teams": len(teams),
+        "draft_results": teams,
+    }
 
-                    # Create simplified draft recommendation
-                    result = await get_draft_recommendation_simple(
-                        league_key, strategy, num_recommendations, current_pick
-                    )
-                except Exception as e:
-                    result = {
-                        "error": f"Draft recommendation failed: {str(e)}",
-                        "available_tools": ["ff_get_draft_rankings", "ff_get_players"],
-                    }
 
-        elif name == "ff_analyze_draft_state":
-            # Analyze current draft state
-            if not DRAFT_AVAILABLE:
-                result = {
-                    "error": "Draft functionality not available. Please check module dependencies."
-                }
-            else:
-                try:
-                    league_key = arguments.get("league_key")
-                    strategy = arguments.get("strategy", "balanced")
+async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    position = arguments.get("position", "all")
+    sort = arguments.get("sort", "rank")
+    count = arguments.get("count", 20)
 
-                    # Create simplified draft state analysis
-                    result = await analyze_draft_state_simple(league_key, strategy)
-                except Exception as e:
-                    result = {
-                        "error": f"Draft analysis failed: {str(e)}",
-                        "suggestion": "Try using ff_get_roster to check current team composition",
-                    }
+    players = await get_waiver_wire_players(league_key, position, sort, count)
+    if players:
+        return {
+            "league_key": league_key,
+            "position": position,
+            "sort": sort,
+            "total_players": len(players),
+            "players": players,
+        }
+    return {
+        "league_key": league_key,
+        "message": "No available players found or error retrieving data",
+    }
 
-        elif name == "ff_analyze_reddit_sentiment":
-            # Analyze Reddit sentiment for players
-            players = arguments.get("players", [])
-            time_window = arguments.get("time_window_hours", 48)
 
-            if not players:
-                result = {"error": "No players specified for sentiment analysis"}
-            else:
-                result = await analyze_reddit_sentiment(players, time_window)
+async def _handle_ff_get_draft_rankings(arguments: dict) -> dict:
+    league_key = arguments.get("league_key")
+    position = arguments.get("position", "all")
+    count = arguments.get("count", 50)
 
+    players = await get_draft_rankings(league_key, position, count)
+    if players:
+        return {
+            "position": position,
+            "total_players": len(players),
+            "rankings": players,
+        }
+    return {"message": "Could not retrieve draft rankings"}
+
+
+async def _handle_ff_get_draft_recommendation(arguments: dict) -> dict:
+    if not DRAFT_AVAILABLE:
+        return {"error": "Draft functionality not available. Please check module dependencies."}
+
+    try:
+        league_key = arguments.get("league_key")
+        strategy = arguments.get("strategy", "balanced")
+        num_recommendations = arguments.get("num_recommendations", 10)
+        current_pick = arguments.get("current_pick")
+        return await get_draft_recommendation_simple(
+            league_key,
+            strategy,
+            num_recommendations,
+            current_pick,
+        )
+    except Exception as exc:
+        return {
+            "error": f"Draft recommendation failed: {exc}",
+            "available_tools": ["ff_get_draft_rankings", "ff_get_players"],
+        }
+
+
+async def _handle_ff_analyze_draft_state(arguments: dict) -> dict:
+    if not DRAFT_AVAILABLE:
+        return {"error": "Draft functionality not available. Please check module dependencies."}
+
+    try:
+        league_key = arguments.get("league_key")
+        strategy = arguments.get("strategy", "balanced")
+        return await analyze_draft_state_simple(league_key, strategy)
+    except Exception as exc:
+        return {
+            "error": f"Draft analysis failed: {exc}",
+            "suggestion": "Try using ff_get_roster to check current team composition",
+        }
+
+
+async def _handle_ff_analyze_reddit_sentiment(arguments: dict) -> dict:
+    players = arguments.get("players", [])
+    time_window = arguments.get("time_window_hours", 48)
+
+    if not players:
+        return {"error": "No players specified for sentiment analysis"}
+    return await analyze_reddit_sentiment(players, time_window)
+
+
+TOOL_HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
+    "ff_get_leagues": _handle_ff_get_leagues,
+    "ff_get_league_info": _handle_ff_get_league_info,
+    "ff_get_standings": _handle_ff_get_standings,
+    "ff_get_teams": _handle_ff_get_teams,
+    "ff_get_roster": _handle_ff_get_roster,
+    "ff_get_roster_with_projections": _handle_ff_get_roster,
+    "ff_get_matchup": _handle_ff_get_matchup,
+    "ff_get_players": _handle_ff_get_players,
+    "ff_compare_teams": _handle_ff_compare_teams,
+    "ff_get_optimal_lineup": _handle_ff_get_optimal_lineup,
+    "ff_refresh_token": _handle_ff_refresh_token,
+    "ff_get_api_status": _handle_ff_get_api_status,
+    "ff_clear_cache": _handle_ff_clear_cache,
+    "ff_get_draft_results": _handle_ff_get_draft_results,
+    "ff_get_waiver_wire": _handle_ff_get_waiver_wire,
+    "ff_get_draft_rankings": _handle_ff_get_draft_rankings,
+    "ff_get_draft_recommendation": _handle_ff_get_draft_recommendation,
+    "ff_analyze_draft_state": _handle_ff_analyze_draft_state,
+    "ff_analyze_reddit_sentiment": _handle_ff_analyze_reddit_sentiment,
+}
+
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict) -> list[TextContent]:
+    """Execute a fantasy football tool via modular handlers."""
+    original_arguments = dict(arguments)
+    handler_args = {k: v for k, v in original_arguments.items() if k != "debug"}
+    debug_flag = original_arguments.get("debug") is True
+    debug_msgs: list[str] = []
+    if debug_flag:
+        debug_msgs.append(f"debug: call_tool entered for {name}")
+
+    try:
+        handler = TOOL_HANDLERS.get(name)
+        if handler is None:
+            result: Any = {"error": f"Unknown tool: {name}"}
         else:
-            result = {"error": f"Unknown tool: {name}"}
+            result = await handler(handler_args)
 
-        # Final defensive guard: never return raw '0' (observed upstream)
         if isinstance(result, str) and result.strip() == "0":
             result = {
                 "status": "error",
@@ -1758,18 +1817,27 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 "tool": name,
                 "stage": "legacy.call_tool.guard",
             }
+
         if debug_flag:
-            # Attach debug messages & echo minimal arguments (excluding secrets)
-            safe_args = {k: v for k, v in arguments.items() if not k.lower().endswith("token")}
+            safe_args = {
+                key: value
+                for key, value in handler_args.items()
+                if not key.lower().endswith("token")
+            }
+            debug_msgs.append(f"debug: sanitized arguments -> {sorted(safe_args.keys())}")
             result["_debug"] = {
                 "messages": debug_msgs,
                 "tool": name,
                 "arguments": safe_args,
             }
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
-    except Exception as e:
-        error_result = {"error": str(e), "tool": name, "arguments": arguments}
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except Exception as exc:  # pragma: no cover - defensive catch
+        error_result = {
+            "error": str(exc),
+            "tool": name,
+            "arguments": original_arguments,
+        }
         return [TextContent(type="text", text=json.dumps(error_result, indent=2))]
 
 
@@ -1921,3 +1989,8 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+
+
+

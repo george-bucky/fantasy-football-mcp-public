@@ -10,6 +10,7 @@ import json
 from typing import Any, Dict, Optional, Callable
 from functools import wraps
 from collections import deque
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 
@@ -81,13 +82,25 @@ class RateLimiter:
         }
 
 
+@dataclass
+class CacheEntry:
+    data: Any
+    timestamp: float
+    endpoint: str
+    ttl: int
+
+    @property
+    def age(self) -> float:
+        return time.time() - self.timestamp
+
+
 class ResponseCache:
     """Simple TTL-based cache for API responses."""
-    
+
     def __init__(self):
-        self.cache: Dict[str, tuple[Any, float]] = {}
+        self.cache: Dict[str, CacheEntry] = {}
         self._lock = asyncio.Lock()
-        
+
         # Default TTLs for different endpoint types (in seconds)
         self.default_ttls = {
             "leagues": 3600,      # 1 hour - leagues don't change often
@@ -100,96 +113,125 @@ class ResponseCache:
             "waiver": 300,        # 5 minutes - waiver wire is dynamic
             "user": 3600,         # 1 hour - user info rarely changes
         }
-    
+
     def _get_cache_key(self, endpoint: str) -> str:
         """Generate cache key from endpoint."""
         return hashlib.md5(endpoint.encode()).hexdigest()
-    
+
     def _get_ttl_for_endpoint(self, endpoint: str) -> int:
         """Determine TTL based on endpoint type."""
-        # Check endpoint patterns to determine type
         if "leagues" in endpoint or "games" in endpoint:
             return self.default_ttls["leagues"]
-        elif "standings" in endpoint:
+        if "standings" in endpoint:
             return self.default_ttls["standings"]
-        elif "roster" in endpoint:
+        if "roster" in endpoint:
             return self.default_ttls["roster"]
-        elif "matchup" in endpoint or "scoreboard" in endpoint:
+        if "matchup" in endpoint or "scoreboard" in endpoint:
             return self.default_ttls["matchup"]
-        elif "players" in endpoint and "status=A" in endpoint:
+        if "players" in endpoint and "status=A" in endpoint:
             return self.default_ttls["players"]
-        elif "draft" in endpoint:
+        if "draft" in endpoint:
             return self.default_ttls["draft"]
-        elif "teams" in endpoint:
+        if "teams" in endpoint:
             return self.default_ttls["teams"]
-        elif "users" in endpoint:
+        if "users" in endpoint:
             return self.default_ttls["user"]
-        else:
-            return 300  # Default 5 minutes
-    
+        return 300  # Default 5 minutes
+
     async def get(self, endpoint: str) -> Optional[Any]:
         """Get cached response if valid."""
+        cache_key = self._get_cache_key(endpoint)
         async with self._lock:
-            cache_key = self._get_cache_key(endpoint)
-            
-            if cache_key in self.cache:
-                data, timestamp = self.cache[cache_key]
+            entry = self.cache.get(cache_key)
+            if entry is None:
+                return None
+
+            if not isinstance(entry, CacheEntry):
+                data, timestamp = entry  # Backwards compatibility for old entries
                 ttl = self._get_ttl_for_endpoint(endpoint)
-                
                 if time.time() - timestamp < ttl:
-                    age = time.time() - timestamp
                     return data
-                else:
-                    # Expired, remove from cache
-                    del self.cache[cache_key]
-            
+                del self.cache[cache_key]
+                return None
+
+            if entry.age < entry.ttl:
+                return entry.data
+
+            del self.cache[cache_key]
             return None
-    
-    async def set(self, endpoint: str, data: Any):
+
+    async def set(self, endpoint: str, data: Any, ttl: Optional[int] = None):
         """Store response in cache."""
+        cache_key = self._get_cache_key(endpoint)
+        ttl_value = ttl if ttl is not None else self._get_ttl_for_endpoint(endpoint)
         async with self._lock:
-            cache_key = self._get_cache_key(endpoint)
-            self.cache[cache_key] = (data, time.time())
-    
+            self.cache[cache_key] = CacheEntry(
+                data=data,
+                timestamp=time.time(),
+                endpoint=endpoint,
+                ttl=ttl_value,
+            )
+
     async def clear(self, pattern: Optional[str] = None):
         """Clear cache entries matching pattern or all if no pattern."""
         async with self._lock:
             if pattern:
                 keys_to_delete = [
-                    key for key in self.cache.keys()
+                    key
+                    for key, entry in self.cache.items()
                     if pattern in key
+                    or (isinstance(entry, CacheEntry) and pattern in entry.endpoint)
                 ]
                 for key in keys_to_delete:
                     del self.cache[key]
             else:
                 self.cache.clear()
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
         now = time.time()
-        total_entries = len(self.cache)
-        
+        entries = list(self.cache.values())
+        total_entries = len(entries)
+
         expired_count = 0
         total_size = 0
-        
-        for endpoint_hash, (data, timestamp) in self.cache.items():
-            # Estimate size (rough)
-            total_size += len(json.dumps(data, default=str))
-            
-            # Find endpoint type from hash (approximate)
-            for endpoint_type in self.default_ttls:
-                ttl = self.default_ttls[endpoint_type]
-                if now - timestamp >= ttl:
-                    expired_count += 1
-                    break
-        
+        sample_endpoints = []
+        oldest_age = 0.0
+
+        for entry in entries:
+            if isinstance(entry, CacheEntry):
+                ttl = entry.ttl
+                endpoint = entry.endpoint
+                timestamp = entry.timestamp
+                data = entry.data
+                sample_endpoints.append(endpoint)
+            else:
+                data, timestamp = entry
+                endpoint = "unknown"
+                ttl = self._get_ttl_for_endpoint(endpoint)
+
+            if now - timestamp >= ttl:
+                expired_count += 1
+
+            age = now - timestamp
+            if age > oldest_age:
+                oldest_age = age
+
+            try:
+                total_size += len(json.dumps(data, default=str))
+            except TypeError:
+                pass
+
         return {
             "total_entries": total_entries,
             "expired_entries": expired_count,
             "active_entries": total_entries - expired_count,
-            "cache_size_bytes": total_size,
-            "cache_size_mb": round(total_size / (1024 * 1024), 2)
+            "cache_size_bytes_est": total_size,
+            "cache_size_mb_est": round(total_size / (1024 * 1024), 2),
+            "oldest_entry_age_seconds": round(oldest_age, 1),
+            "sample_endpoints": sample_endpoints[:5],
         }
+
 
 
 # Global instances
@@ -226,7 +268,7 @@ def with_cache(ttl_seconds: Optional[int] = None) -> Callable:
             
             # Store in cache
             if result:  # Only cache successful responses
-                await response_cache.set(endpoint, result)
+                await response_cache.set(endpoint, result, ttl=ttl_seconds)
             
             return result
         return wrapper

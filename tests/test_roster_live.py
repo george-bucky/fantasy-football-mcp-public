@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from typing import Dict, Tuple
 
 import pytest
@@ -18,6 +19,11 @@ from lineup_optimizer import LineupOptimizer
 
 load_dotenv(".env")
 
+
+pytestmark = pytest.mark.skipif(
+    os.getenv("RUN_LIVE_TESTS") != "1",
+    reason="Set RUN_LIVE_TESTS=1 to execute live Yahoo API integration tests.",
+)
 
 async def _get_primary_league_and_team() -> Tuple[str, str]:
     leagues = await discover_leagues()
