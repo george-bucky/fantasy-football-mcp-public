@@ -16,11 +16,11 @@ from mcp.types import TextContent
 
 import fantasy_football_multi_league
 from enhanced_mcp_tools import (
-    ff_get_enhanced_roster,
-    ff_analyze_lineup_options,
-    ff_compare_players,
-    ff_what_if_analysis,
-    ff_get_decision_context
+    ff_get_enhanced_roster as _ff_get_enhanced_roster,
+    ff_analyze_lineup_options as _ff_analyze_lineup_options,
+    ff_compare_players as _ff_compare_players,
+    ff_what_if_analysis as _ff_what_if_analysis,
+    ff_get_decision_context as _ff_get_decision_context
 )
 
 LegacyCallFn = Callable[[str, Dict[str, Any]], Awaitable[Sequence[TextContent]]]
@@ -518,7 +518,7 @@ async def ff_get_enhanced_roster_wrapper(
     week: Optional[int] = None
 ) -> Dict[str, Any]:
     """Get enhanced roster data with comprehensive player information."""
-    return await ff_get_enhanced_roster(ctx, league_key, team_key, week)
+    return await _ff_get_enhanced_roster(ctx, league_key, team_key, week)
 
 
 @server.tool(
@@ -545,7 +545,7 @@ async def ff_analyze_lineup_options_wrapper(
 ) -> Dict[str, Any]:
     """Analyze different lineup construction strategies."""
     strategies_list = list(strategies) if strategies else None
-    return await ff_analyze_lineup_options(ctx, league_key, team_key, week, strategies_list)
+    return await _ff_analyze_lineup_options(ctx, league_key, team_key, week, strategies_list)
 
 
 @server.tool(
@@ -571,7 +571,7 @@ async def ff_compare_players_wrapper(
 ) -> Dict[str, Any]:
     """Compare multiple players with detailed analysis."""
     factors_list = list(comparison_factors) if comparison_factors else None
-    return await ff_compare_players(ctx, league_key, list(player_names), factors_list)
+    return await _ff_compare_players(ctx, league_key, list(player_names), factors_list)
 
 
 @server.tool(
@@ -598,7 +598,7 @@ async def ff_what_if_analysis_wrapper(
     scenario_data: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """Perform what-if analysis for lineup scenarios."""
-    return await ff_what_if_analysis(ctx, league_key, team_key, week, scenario_type, scenario_data)
+    return await _ff_what_if_analysis(ctx, league_key, team_key, week, scenario_type, scenario_data)
 
 
 @server.tool(
@@ -622,7 +622,7 @@ async def ff_get_decision_context_wrapper(
     week: Optional[int] = None
 ) -> Dict[str, Any]:
     """Get comprehensive decision context for lineup optimization."""
-    return await ff_get_decision_context(ctx, league_key, week)
+    return await _ff_get_decision_context(ctx, league_key, week)
 
 
 # ============================================================================
