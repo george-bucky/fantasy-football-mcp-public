@@ -3,7 +3,7 @@ services:
     name: fantasy-football-mcp-server
     runtime: python
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "python render_server.py"
+    startCommand: "python fastmcp_server.py"
     healthCheckPath: /health
     numInstances: 1
     envVars:
