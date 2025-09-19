@@ -839,6 +839,36 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
         
         try:
             logger.info("Starting Yahoo roster parsing...")
+
+            # Strategy 0: Handle simplified list structure from ff_get_roster
+            try:
+                if isinstance(roster_data, dict) and isinstance(roster_data.get("roster"), list):
+                    logger.info("Detected simplified roster format; parsing list of players...")
+                    for entry in roster_data["roster"]:
+                        if not isinstance(entry, dict):
+                            continue
+                        name = (entry.get("name") or "").strip()
+                        position = (entry.get("position") or "").strip().upper()
+                        team_raw = (entry.get("team") or "").strip()
+                        if not name or not position or not team_raw:
+                            continue
+                        team = self.normalize_team_name(team_raw)
+                        player = Player(
+                            name=name,
+                            position=position,
+                            team=team,
+                            opponent="",
+                            yahoo_projection=0.0,
+                            sleeper_projection=0.0
+                        )
+                        players.append(player)
+                    if players:
+                        logger.info(f"Parsed {len(players)} players from simplified roster format")
+                        # Fill opponent data if missing
+                        await self._fill_opponent_data(players)
+                        return players
+            except Exception as e:
+                logger.warning(f"Simplified roster parsing failed: {e}")
             
             # Strategy 1: Handle the actual Yahoo API format: fantasy_content.team[1].roster['0'].players['0'].player
             # FIXED: Updated for Yahoo API response structure - September 18, 2025
@@ -1239,8 +1269,14 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
         
         return consistency
     
-    async def enhance_with_external_data(self, players: List[Player]) -> List[Player]:
-        """Add Sleeper projections, matchup scores, trending data, momentum, and tier with robust error handling."""
+    async def enhance_with_external_data(self, players: List[Player], week: Optional[int] = None, season: Optional[int] = None) -> List[Player]:
+        """Add Sleeper projections, matchup scores, trending data, momentum, and tier with robust error handling.
+
+        Args:
+            players: List of Player objects to enhance
+            week: Optional NFL week for week-specific projections
+            season: Optional NFL season; if None, projection helper resolves current season
+        """
         logger.info(f"Enhancing {len(players)} players with external data...")
         
         # Import sleeper function for projections
@@ -1326,7 +1362,7 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
                             player.sleeper_match_method = sleeper_player.get("match_method") or "unknown"
                         
                         # Get projection data
-                        proj = await get_player_projection(player.name)
+                        proj = await get_player_projection(player.name, week=week, season=season)
                         if proj and isinstance(proj, dict):
                             player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0)) or 0.0
                             # Store additional projection details with safe defaults

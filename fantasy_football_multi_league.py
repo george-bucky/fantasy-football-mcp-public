@@ -1465,7 +1465,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                                 "suggestion": "Check roster data format or try refreshing",
                             }
                         else:
-                            players = await lineup_optimizer.enhance_with_external_data(players)
+                            players = await lineup_optimizer.enhance_with_external_data(players, week=week)
                             # Check for LLM optimization flag (default to False for now to test)
                             use_llm = arguments.get('use_llm', False)
                             optimization = await lineup_optimizer.optimize_lineup_smart(players, strategy, week, use_llm)
