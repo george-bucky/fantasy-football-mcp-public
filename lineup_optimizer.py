@@ -1269,8 +1269,14 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
         
         return consistency
     
-    async def enhance_with_external_data(self, players: List[Player]) -> List[Player]:
-        """Add Sleeper projections, matchup scores, trending data, momentum, and tier with robust error handling."""
+    async def enhance_with_external_data(self, players: List[Player], week: Optional[int] = None, season: Optional[int] = None) -> List[Player]:
+        """Add Sleeper projections, matchup scores, trending data, momentum, and tier with robust error handling.
+
+        Args:
+            players: List of Player objects to enhance
+            week: Optional NFL week for week-specific projections
+            season: Optional NFL season; if None, projection helper resolves current season
+        """
         logger.info(f"Enhancing {len(players)} players with external data...")
         
         # Import sleeper function for projections
@@ -1356,7 +1362,7 @@ CRITICAL: Your reasoning must cite SPECIFIC data points (projections, matchup sc
                             player.sleeper_match_method = sleeper_player.get("match_method") or "unknown"
                         
                         # Get projection data
-                        proj = await get_player_projection(player.name)
+                        proj = await get_player_projection(player.name, week=week, season=season)
                         if proj and isinstance(proj, dict):
                             player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0)) or 0.0
                             # Store additional projection details with safe defaults

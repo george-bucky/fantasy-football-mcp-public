@@ -198,7 +198,7 @@ async def ff_get_roster_with_projections(
             return {"status": "error", "message": "Failed to parse player data"}
         
         # Enhance with external data (use provided week)
-        enhanced_players = await lineup_optimizer.enhance_with_external_data(players)
+        enhanced_players = await lineup_optimizer.enhance_with_external_data(players, week=week)
         
         # Convert to enhanced data structure
         enhanced_data = []
@@ -287,7 +287,7 @@ async def ff_analyze_lineup_options(
 
         # Parse players from Yahoo roster output (supports simplified and raw formats)
         players = await lineup_optimizer.parse_yahoo_roster(yahoo_roster)
-        enhanced_players = await lineup_optimizer.enhance_with_external_data(players)
+        enhanced_players = await lineup_optimizer.enhance_with_external_data(players, week=week)
         
         lineup_analyses = {}
         
