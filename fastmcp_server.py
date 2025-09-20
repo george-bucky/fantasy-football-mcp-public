@@ -256,7 +256,7 @@ async def ff_get_roster(
     include_projections: bool = True,
     include_external_data: bool = True,
     include_analysis: bool = True,
-    data_level: Literal["basic", "standard", "full"] = "full",
+    data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
     """
     Consolidated roster tool with configurable detail levels.
@@ -270,6 +270,10 @@ async def ff_get_roster(
         include_analysis: Include enhanced player analysis and recommendations
         data_level: "basic" (roster only), "standard" (+ projections), "full" (everything)
     """
+    
+    # Ensure we have a valid data_level
+    if data_level is None:
+        data_level = "full"
     
     # Determine effective settings based on data_level and explicit parameters
     if data_level == "basic":
