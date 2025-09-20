@@ -56,7 +56,8 @@ _TOOL_PROMPTS: Dict[str, str] = {
     ),
     "ff_get_players": (
         "Research free agents or player pools for waiver pickups by filtering "
-        "Yahoo players by position and limiting the result count."
+        "Yahoo players by position and limiting the result count. Accepts optional "
+        "parameters for enhanced analysis similar to roster data."
     ),
     "ff_compare_teams": (
         "Contrast two league rosters side-by-side to evaluate trades or matchup "
@@ -126,11 +127,11 @@ async def _call_legacy_tool(
 
     raw_blocks = await _legacy_call_tool(name=name, arguments=filtered_args)
     if raw_blocks is None:
-        blocks: list[ContentBlock] = []
+        blocks: Sequence[Any] = []
     elif isinstance(raw_blocks, Iterable) and not isinstance(raw_blocks, (str, bytes, TextContent)):
         blocks = list(raw_blocks)
     else:
-        blocks = [raw_blocks]  # type: ignore[list-item]
+        blocks = [raw_blocks]
     if not blocks:
         return {
             "status": "error",
@@ -377,7 +378,9 @@ async def ff_get_matchup(
     name="ff_get_players",
     description=(
         "Surface free-agent players from Yahoo for waiver research. Optionally "
-        "filter by position and limit the number of results."
+        "filter by position and limit the number of results. Supports additional "
+        "parameters for enhanced analysis (week, team_key, data_level, etc.) "
+        "though the core functionality focuses on basic player discovery."
     ),
     meta=_tool_meta("ff_get_players"),
 )
@@ -386,6 +389,12 @@ async def ff_get_players(
     league_key: str,
     position: Optional[str] = None,
     count: int = 10,
+    week: Optional[int] = None,
+    team_key: Optional[str] = None,
+    data_level: Optional[str] = None,
+    include_analysis: Optional[bool] = None,
+    include_projections: Optional[bool] = None,
+    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_get_players",
@@ -393,6 +402,12 @@ async def ff_get_players(
         league_key=league_key,
         position=position,
         count=count,
+        week=week,
+        team_key=team_key,
+        data_level=data_level,
+        include_analysis=include_analysis,
+        include_projections=include_projections,
+        include_external_data=include_external_data,
     )
 
 
