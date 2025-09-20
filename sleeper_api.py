@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Any
 from datetime import datetime
 import hashlib
 import difflib
+import os
 import re
 
 # Import caching from our yahoo utils
@@ -97,20 +98,58 @@ class SleeperAPI:
         Steps:
         - Lowercase
         - Remove punctuation (periods, apostrophes, commas, hyphens)
-        - Remove suffix tokens (jr, sr, ii, iii, iv, v)
+        - Handle initials: Concatenate consecutive single letters (e.g., "J.K." -> "jk")
+        - Remove suffix tokens (jr, sr, ii, iii, iv, v, jr., sr., etc.)
         - Collapse whitespace
+        - Optional: Apply common nickname mappings
         """
         if not name:
             return ""
         n = name.lower()
-        # Remove punctuation
+        # Remove punctuation but preserve for initial detection
+        n = re.sub(r"[,`'-]", " ", n)
+        
+        # Handle initials: Find patterns like "j . k" or "j.k" and concatenate to "jk"
+        words = n.split()
+        i = 0
+        while i < len(words):
+            word = words[i]
+            if len(word) == 1 and i + 1 < len(words) and len(words[i+1]) == 1:
+                # Concatenate two single letters: "j k" -> "jk"
+                words[i] = word + words[i+1]
+                del words[i+1]
+                i += 1  # Skip next now-deleted
+            elif '.' in word and all(len(part) == 1 for part in word.split('.')):
+                # "j.k." -> "jk"
+                words[i] = ''.join(part for part in word.split('.') if part)
+            i += 1
+        
+        n = ' '.join(words)
+        
+        # Remove punctuation fully now
         n = re.sub(r"[\.'`,-]", " ", n)
-        # Remove suffix tokens
-        suffixes = {"jr", "sr", "ii", "iii", "iv", "v"}
-        parts = [p for p in n.split() if p not in suffixes and len(p) > 0]
-        # Remove single-letter middle initials
+        
+        # Remove suffix tokens (expanded)
+        suffixes = {"jr", "sr", "ii", "iii", "iv", "v", "jr.", "sr.", "ii.", "iii.", "iv.", "v."}
+        parts = [p.strip() for p in n.split() if p.strip() not in suffixes and len(p.strip()) > 0]
+        
+        # Remove single-letter middle initials (now after concatenation)
         parts = [p for p in parts if len(p) > 1 or parts.count(p) == 1]
-        return " ".join(parts).strip()
+        
+        normalized = " ".join(parts).strip()
+        
+        # Apply common nickname mappings (expand as needed)
+        nickname_map = {
+            "deebosamuel": "demonte samuel",
+            "dkmetcalf": "dk metcalf",
+            # Add more: "cmac" -> "christian mccaffrey", etc.
+        }
+        normalized_lower = normalized.lower().replace(' ', '')
+        for nick, full in nickname_map.items():
+            if nick in normalized_lower:
+                return full
+        
+        return normalized
 
     def _build_normalized_index(self, players: Dict[str, Dict]) -> None:
         """Build a mapping of normalized full names -> player_id for fast lookup."""
@@ -125,14 +164,27 @@ class SleeperAPI:
             norm = self._normalize_name(full)
             if norm and norm not in idx:
                 idx[norm] = pid
-                # Store variant forms (initial + last)
+                # Store variant forms
                 if first and last:
+                    # Initial + last (original)
                     initial_form = f"{first[0]} {last}".lower()
                     variants.setdefault(norm, []).append(self._normalize_name(initial_form))
+                    
+                    # Concatenated initials + last (new: e.g., "jk dobbins")
+                    initials = ''.join([f[0] for f in first.split() if f and len(f) > 0])
+                    if len(initials) > 1:
+                        concat_form = f"{initials} {last}".lower()
+                        variants.setdefault(norm, []).append(self._normalize_name(concat_form))
+                    
+                    # Full first without middle + last
+                    first_no_middle = ' '.join([part for part in first.split() if len(part) > 1])
+                    if first_no_middle:
+                        full_no_middle = f"{first_no_middle} {last}".lower()
+                        variants.setdefault(norm, []).append(self._normalize_name(full_no_middle))
         self._normalized_index = idx
         self._normalized_variants = variants
 
-    def _fuzzy_lookup(self, norm_query: str, cutoff: float = 0.88) -> Optional[str]:
+    def _fuzzy_lookup(self, norm_query: str, cutoff: float = 0.82) -> Optional[str]:
         """Fuzzy match normalized query among normalized index keys."""
         if not self._normalized_index:
             return None
@@ -250,13 +302,21 @@ class SleeperAPI:
         raw = name.strip()
         lower_raw = raw.lower()
         norm = self._normalize_name(raw)
+        
+        # Debug logging (enable with SLEEPER_DEBUG=1 env var)
+        debug = os.getenv("SLEEPER_DEBUG")
+        if debug:
+            print(f"DEBUG Sleeper lookup: raw='{raw}' -> norm='{norm}'")
 
         # Direct exact full-name match (raw)
         for pid, pdata in all_players.items():
             full = f"{pdata.get('first_name', '')} {pdata.get('last_name', '')}".strip().lower()
             if full == lower_raw:
+                pdata = pdata.copy()
                 pdata["sleeper_id"] = pid
                 pdata["match_method"] = "exact"
+                if debug:
+                    print(f"  -> Matched EXACT: {full}")
                 return pdata
 
         # Normalized index lookup
@@ -264,8 +324,11 @@ class SleeperAPI:
             pid = self._normalized_index[norm]
             pdata = all_players.get(pid)
             if pdata:
+                pdata = pdata.copy()
                 pdata["sleeper_id"] = pid
                 pdata["match_method"] = "normalized"
+                if debug:
+                    print(f"  -> Matched NORMALIZED: {norm}")
                 return pdata
 
         # Variant forms (initial + last)
@@ -275,8 +338,11 @@ class SleeperAPI:
                 if pid:
                     pdata = all_players.get(pid)
                     if pdata:
+                        pdata = pdata.copy()
                         pdata["sleeper_id"] = pid
                         pdata["match_method"] = "variant"
+                        if debug:
+                            print(f"  -> Matched VARIANT: {norm} -> {base_norm}")
                         return pdata
 
         # Partial token match (subset containment)
@@ -285,8 +351,11 @@ class SleeperAPI:
             for pid, pdata in all_players.items():
                 full_norm = self._normalize_name(f"{pdata.get('first_name', '')} {pdata.get('last_name', '')}")
                 if tokens.issubset(set(full_norm.split())):
+                    pdata = pdata.copy()
                     pdata["sleeper_id"] = pid
                     pdata["match_method"] = "token_subset"
+                    if debug:
+                        print(f"  -> Matched TOKEN_SUBSET: {tokens} subset of {full_norm}")
                     return pdata
 
         # Fuzzy fallback
@@ -294,10 +363,15 @@ class SleeperAPI:
         if fuzzy_pid:
             pdata = all_players.get(fuzzy_pid)
             if pdata:
+                pdata = pdata.copy()
                 pdata["sleeper_id"] = fuzzy_pid
                 pdata["match_method"] = "fuzzy"
+                if debug:
+                    print(f"  -> Matched FUZZY: {norm} -> {fuzzy_pid}")
                 return pdata
 
+        if debug:
+            print(f"  -> NO MATCH for '{norm}'")
         return None
     
     async def get_defensive_rankings(self, season: int = 2024) -> Dict[str, Dict]:
@@ -367,18 +441,30 @@ class SleeperAPI:
             team: Optional team to help disambiguation
             
         Returns:
-            Sleeper player_id if found
+            Sleeper player_id if found (with relaxed filters)
         """
         # Clean the Yahoo name (remove Jr., Sr., III, etc)
-        clean_name = yahoo_name.replace(" Jr.", "").replace(" Sr.", "").replace(" III", "").replace(" II", "")
+        clean_name = yahoo_name.replace(" Jr.", "").replace(" Sr.", "").replace(" III", "").replace(" II", "").replace(" IV", "").replace(" Jr", "").replace(" Sr", "")
         
         player = await self.get_player_by_name(clean_name)
         
         if player:
-            # Verify position/team if provided
-            if position and player.get("position") != position:
-                return None
-            if team and player.get("team") != team:
+            match_method = player.get("match_method", "unknown")
+            
+            # Relaxed verification: Flag mismatches but don't reject
+            pos_mismatch = position and player.get("position") != position
+            team_mismatch = team and player.get("team") != team
+            
+            if pos_mismatch:
+                match_method += "_pos_mismatch"
+            if team_mismatch:
+                match_method += "_team_mismatch"
+            
+            # Update match_method in player data
+            player["sleeper_match_method"] = match_method
+            
+            # Only reject if both mismatch AND no strong match (e.g., fuzzy or weaker)
+            if (pos_mismatch and team_mismatch) and match_method in ["fuzzy", "token_subset"]:
                 return None
             
             return player.get("sleeper_id")

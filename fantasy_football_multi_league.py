@@ -560,6 +560,11 @@ async def get_waiver_wire_players(
                                             player_info["injury_detail"] = element["status_full"]
 
                                 if player_info.get("name"):
+                                    # Ensure all expected fields are present with defaults
+                                    player_info.setdefault("team", "FA")  # Free Agent if no team
+                                    player_info.setdefault("owned_pct", 0)  # 0% if no ownership data
+                                    player_info.setdefault("weekly_change", 0)  # No change if no data
+                                    player_info.setdefault("injury_status", "Healthy")  # Assume healthy if not specified
                                     players.append(player_info)
 
         return players
@@ -1783,9 +1788,9 @@ async def _handle_ff_get_players(arguments: dict) -> dict:
                 if "display_position" in payload:
                     player_info["position"] = payload["display_position"]
                 if "ownership" in payload and isinstance(payload["ownership"], dict):
-                    player_info["owned_pct"] = payload["ownership"].get("ownership_percentage", 0)
+                    player_info["owned_pct"] = payload["ownership"].get("ownership_percentage", 0.0)
                 if "percent_owned" in payload:
-                    player_info["owned_pct"] = payload.get("percent_owned")
+                    player_info["owned_pct"] = float(payload.get("percent_owned", 0.0))
                 # Add injury, bye as in waiver
                 if "status" in payload:
                     player_info["injury_status"] = payload["status"]
@@ -1850,8 +1855,9 @@ async def _handle_ff_get_players(arguments: dict) -> dict:
                 # Add analysis if flagged
                 if include_analysis:
                     proj = (player.yahoo_projection or 0) + (player.sleeper_projection or 0)
-                    base["free_agent_value"] = round(proj * (1 - base["owned_pct"]/100), 1)
-                    base["analysis"] = f"Value based on low ownership ({base['owned_pct']}%) and proj ({proj:.1f})"
+                    owned = base.get("owned_pct", 0.0)
+                    base["free_agent_value"] = round(proj * (1 - owned / 100), 1)
+                    base["analysis"] = f"Value based on low ownership ({owned}%) and proj ({proj:.1f})"
                 
                 return base
 
@@ -2132,7 +2138,7 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     "matchup_description": player.matchup_description if include_external_data else None,
                     "trending_score": player.trending_score if include_external_data else None,
                     "risk_level": player.risk_level,
-                    "owned_pct": next((p.get("owned_pct") or 0 for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0),
+                    "owned_pct": next((p.get("owned_pct") or 0.0 for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0.0),
                     "weekly_change": next((p.get("weekly_change") for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0),
                     "injury_status": getattr(player, "injury_status", "Healthy"),
                     "bye": next((p.get("bye") for p in basic_players if p.get("name", "").lower() == player.name.lower()), "N/A"),
@@ -2149,6 +2155,7 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                 if include_analysis:
                     proj = (player.yahoo_projection or 0) + (player.sleeper_projection or 0)
                     trend_score = base.get("trending_count", 0)
+                    owned = base.get("owned_pct", 0.0)
                     base["waiver_priority"] = round((proj * 0.6 + trend_score * 0.4), 1)
                     base["analysis"] = f"Priority based on proj ({proj:.1f}) + trending ({trend_score})"
                 

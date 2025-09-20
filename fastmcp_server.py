@@ -567,11 +567,25 @@ async def ff_get_waiver_wire(
         data_level: Data detail level ("basic", "standard", "full")
     """
     
-    # Default to enhanced mode for better waiver analysis
+    # Default to enhanced mode for better waiver analysis, but basic mode if expert analysis disabled
     if data_level is None:
-        data_level = "full" if include_expert_analysis else "standard"
+        data_level = "full" if include_expert_analysis else "basic"
         
     try:
+        # Map data_level to legacy parameters for backward compatibility
+        if data_level == "basic":
+            include_projections = False
+            include_external_data = False
+            include_analysis = False
+        elif data_level == "standard":
+            include_projections = True
+            include_external_data = False
+            include_analysis = False
+        else:  # "full"
+            include_projections = True
+            include_external_data = True
+            include_analysis = include_expert_analysis
+        
         result = await _call_legacy_tool(
             "ff_get_waiver_wire",
             ctx=ctx,
@@ -579,6 +593,9 @@ async def ff_get_waiver_wire(
             position=position,
             sort=sort,
             count=count,
+            include_projections=include_projections,
+            include_external_data=include_external_data,
+            include_analysis=include_analysis,
         )
         
         # If expert analysis requested and we have players, enhance them

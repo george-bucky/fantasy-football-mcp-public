@@ -26,7 +26,7 @@ class DummyResponse:
             "ff_get_players",
             {"league_key": "123"},
             "ff_get_players",
-            {"league_key": "123", "count": 10},
+            {"league_key": "123", "count": 10, "data_level": "full", "include_analysis": True, "include_external_data": True},
         ),
         (
             "ff_compare_teams",
@@ -47,7 +47,7 @@ class DummyResponse:
             "ff_get_waiver_wire",
             {"league_key": "123"},
             "ff_get_waiver_wire",
-            {"league_key": "123", "sort": "rank", "count": 20},
+            {"league_key": "123", "sort": "rank", "count": 20, "include_projections": True, "include_external_data": True, "include_analysis": True},
         ),
         (
             "ff_get_draft_rankings",

@@ -281,11 +281,18 @@ class LineupOptimizer:
                                 proj_data = projections[sleeper_id]
                                 # Sleeper projections typically have 'projected_stats' with 'pts' or position-specific
                                 stats = proj_data.get('projected_stats', {})
-                                enhanced_player.sleeper_projection = _coerce_float(stats.get('pts') or proj_data.get('pts', 0))
-                                # Set variants if available
-                                enhanced_player.sleeper_projection_std = _coerce_float(stats.get('pts_std') or proj_data.get('pts_std', 0))
-                                enhanced_player.sleeper_projection_ppr = _coerce_float(stats.get('pts_ppr') or proj_data.get('pts_ppr', enhanced_player.sleeper_projection))
-                                enhanced_player.sleeper_projection_half_ppr = _coerce_float(stats.get('pts_half_ppr') or proj_data.get('pts_half_ppr', enhanced_player.sleeper_projection))
+                                if isinstance(stats, list):
+                                    # Sum pts from list of stats if present
+                                    enhanced_player.sleeper_projection = sum(_coerce_float(s.get('pts', 0)) for s in stats)
+                                    enhanced_player.sleeper_projection_std = sum(_coerce_float(s.get('pts_std', 0)) for s in stats)
+                                    enhanced_player.sleeper_projection_ppr = sum(_coerce_float(s.get('pts_ppr', 0)) for s in stats)
+                                    enhanced_player.sleeper_projection_half_ppr = sum(_coerce_float(s.get('pts_half_ppr', 0)) for s in stats)
+                                else:
+                                    # Dict or direct pts
+                                    enhanced_player.sleeper_projection = _coerce_float(stats.get('pts') or proj_data.get('pts', 0))
+                                    enhanced_player.sleeper_projection_std = _coerce_float(stats.get('pts_std') or proj_data.get('pts_std', 0))
+                                    enhanced_player.sleeper_projection_ppr = _coerce_float(stats.get('pts_ppr') or proj_data.get('pts_ppr', enhanced_player.sleeper_projection))
+                                    enhanced_player.sleeper_projection_half_ppr = _coerce_float(stats.get('pts_half_ppr') or proj_data.get('pts_half_ppr', enhanced_player.sleeper_projection))
                         except Exception:
                             enhanced_player.sleeper_projection = 0.0  # Fallback if projections fail
                         

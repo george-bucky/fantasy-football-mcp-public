@@ -30,31 +30,40 @@ dist/
 logs/
 *.log
 
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
 # Auth and tokens
 .auth/
 token.json
 yahoo_token.json
 *.token
 
-# Test files and debug output
-test_*.py
+# Test files and debug output (excluding organized test directories)
 debug_*.py
-*_test.py
 *_debug.py
-*_demo.py
-demo_*.py
 find_*.py
 parse_*.py
 fetch_*.py
 get_*.py
-comprehensive_*.py
 simple_*.py
 standalone_*.py
 mcp_server_test*.py
 exchange_code.py
 quick_validation.py
-!tests/test_fastmcp_server.py
-!tests/test_roster_live.py
+
+# Temporary and analysis files
+temp/
+*_analysis.py
+*_summary.py
+cleanup_*.py
+
+# Keep organized test directories
+!tests/
+!examples/
 
 # JSON test data
 all_leagues_raw.json
