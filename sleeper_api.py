@@ -39,6 +39,10 @@ class SleeperAPI:
         
     async def _make_request(self, endpoint: str, use_cache: bool = True) -> Optional[Dict]:
         """Make a request to Sleeper API."""
+        # Ensure endpoint is str
+        if not isinstance(endpoint, str):
+            endpoint = str(endpoint)
+        
         # Check cache first
         if use_cache:
             cached = await self.cache.get(endpoint)
@@ -268,11 +272,12 @@ class SleeperAPI:
         for base_norm, var_list in self._normalized_variants.items():
             if norm in var_list:
                 pid = self._normalized_index.get(base_norm)
-                pdata = all_players.get(pid)
-                if pdata:
-                    pdata["sleeper_id"] = pid
-                    pdata["match_method"] = "variant"
-                    return pdata
+                if pid:
+                    pdata = all_players.get(pid)
+                    if pdata:
+                        pdata["sleeper_id"] = pid
+                        pdata["match_method"] = "variant"
+                        return pdata
 
         # Partial token match (subset containment)
         tokens = set(norm.split())
@@ -315,7 +320,7 @@ class SleeperAPI:
         # from game stats or integrate with another source
         
         # Mock data for testing (will be replaced with real calculations)
-        mock_rankings = {
+        mock_rankings: Dict[str, Dict[str, int]] = {
             "ARI": {"vs_qb": 28, "vs_rb": 32, "vs_wr": 25, "vs_te": 27},
             "ATL": {"vs_qb": 22, "vs_rb": 26, "vs_wr": 18, "vs_te": 20},
             "BAL": {"vs_qb": 2, "vs_rb": 3, "vs_wr": 2, "vs_te": 5},
@@ -352,7 +357,7 @@ class SleeperAPI:
         
         return mock_rankings
     
-    async def map_yahoo_to_sleeper(self, yahoo_name: str, position: str = None, team: str = None) -> Optional[str]:
+    async def map_yahoo_to_sleeper(self, yahoo_name: str, position: Optional[str] = None, team: Optional[str] = None) -> Optional[str]:
         """
         Map a Yahoo player name to Sleeper player ID.
         
