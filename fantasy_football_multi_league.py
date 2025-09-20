@@ -1487,33 +1487,43 @@ async def _handle_ff_get_players(arguments: dict) -> dict:
         f"league/{league_key}/players;status=A{pos_filter};count={count}"
     )
 
-    players = []
+    def _iter_payload_dicts(container: Any):
+        if isinstance(container, dict):
+            yield container
+        elif isinstance(container, list):
+            for item in container:
+                yield from _iter_payload_dicts(item)
+
+    players: list[dict[str, Any]] = []
     league = data.get("fantasy_content", {}).get("league", [])
     for item in league:
-        if isinstance(item, dict) and "players" in item:
-            players_data = item["players"]
-            for key, player_entry in players_data.items():
-                if key == "count" or not isinstance(player_entry, dict):
-                    continue
-                player_array = player_entry.get("player")
-                if not isinstance(player_array, list):
-                    continue
-                player_info: dict[str, Any] = {}
-                for payload in player_array:
-                    if not isinstance(payload, dict):
-                        continue
-                    if "name" in payload:
-                        player_info["name"] = payload["name"].get("full")
-                    if "editorial_team_abbr" in payload:
-                        player_info["team"] = payload["editorial_team_abbr"]
-                    if "display_position" in payload:
-                        player_info["position"] = payload["display_position"]
-                    if "ownership" in payload:
-                        player_info["owned_pct"] = payload["ownership"].get(
-                            "ownership_percentage", 0
-                        )
-                if player_info:
-                    players.append(player_info)
+        if not (isinstance(item, dict) and "players" in item):
+            continue
+        players_data = item["players"]
+        if not isinstance(players_data, dict):
+            continue
+
+        for key, player_entry in players_data.items():
+            if key == "count" or not isinstance(player_entry, dict):
+                continue
+            player_array = player_entry.get("player")
+            if not isinstance(player_array, list):
+                continue
+
+            player_info: dict[str, Any] = {}
+            for payload in _iter_payload_dicts(player_array):
+                if "name" in payload and isinstance(payload["name"], dict):
+                    player_info["name"] = payload["name"].get("full")
+                if "editorial_team_abbr" in payload:
+                    player_info["team"] = payload["editorial_team_abbr"]
+                if "display_position" in payload:
+                    player_info["position"] = payload["display_position"]
+                if "ownership" in payload and isinstance(payload["ownership"], dict):
+                    player_info["owned_pct"] = payload["ownership"].get("ownership_percentage", 0)
+                if "percent_owned" in payload:
+                    player_info["owned_pct"] = payload.get("percent_owned")
+            if player_info:
+                players.append(player_info)
 
     return {
         "league_key": league_key,

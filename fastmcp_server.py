@@ -9,17 +9,18 @@ This module wraps the existing Yahoo Fantasy Football tooling defined in
 
 import json
 import os
-from typing import Any, Awaitable, Callable, Dict, Literal, Optional, Sequence
+from collections.abc import Iterable
+from dataclasses import asdict, is_dataclass
+from typing import Any, Awaitable, Callable, Dict, Literal, Optional, Sequence, Union
 
 from fastmcp import Context, FastMCP
-from mcp.types import TextContent
+from mcp.types import ContentBlock, TextContent
 
 import fantasy_football_multi_league
 # REMOVED: enhanced_mcp_tools imports - no longer using wrapper tools
 
-LegacyCallFn = Callable[[str, Dict[str, Any]], Awaitable[Sequence[TextContent]]]
-
-_legacy_call_tool: LegacyCallFn = fantasy_football_multi_league.call_tool
+# Remove explicit typing to avoid type conflicts with evolving MCP types
+_legacy_call_tool = fantasy_football_multi_league.call_tool
 _legacy_refresh_token = fantasy_football_multi_league.refresh_yahoo_token
 
 server = FastMCP(
@@ -123,15 +124,39 @@ async def _call_legacy_tool(
     if ctx is not None:
         await ctx.info(f"Calling legacy Yahoo tool: {name}")
 
-    responses = await _legacy_call_tool(name=name, arguments=filtered_args)
+    raw_blocks = await fantasy_football_multi_league.call_tool(name=name, arguments=filtered_args)
+    blocks = list(raw_blocks) if raw_blocks is not None else []
 
-    if not responses:
+    if not blocks:
         return {
             "status": "error",
             "message": "Legacy tool returned no response",
             "tool": name,
             "arguments": filtered_args,
         }
+
+    def _coerce_text(block: Any) -> TextContent:
+        if isinstance(block, TextContent):
+            return block
+        if hasattr(block, "text") and isinstance(getattr(block, "text"), str):
+            return TextContent(type="text", text=getattr(block, "text"))
+        if is_dataclass(block) and not isinstance(block, type):
+            return TextContent(type="text", text=json.dumps(asdict(block)))
+        if hasattr(block, "data"):
+            data = getattr(block, "data")
+            if isinstance(data, bytes):
+                try:
+                    data = data.decode("utf-8")
+                except Exception:
+                    data = repr(data)
+            if isinstance(data, str):
+                return TextContent(type="text", text=data)
+        try:
+            return TextContent(type="text", text=json.dumps(block, default=str))
+        except Exception:
+            return TextContent(type="text", text=str(block))
+
+    responses = [_coerce_text(block) for block in blocks]
 
     first = responses[0]
     payload = getattr(first, "text", "")
@@ -168,6 +193,7 @@ async def _call_legacy_tool(
             "arguments": filtered_args,
             "raw": payload,
         }
+
 
 
 @server.tool(
@@ -1015,3 +1041,10 @@ def get_version() -> str:  # pragma: no cover - simple accessor
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+
+
