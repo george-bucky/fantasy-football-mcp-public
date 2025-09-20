@@ -1420,6 +1420,8 @@ async def _handle_ff_get_roster(arguments: dict) -> dict:
             "status": player.status,
             "yahoo_projection": player.yahoo_projection,
             "sleeper_projection": player.sleeper_projection,
+            "sleeper_id": player.sleeper_id,
+            "sleeper_match_method": player.sleeper_match_method,
             "floor_projection": player.floor_projection,
             "ceiling_projection": player.ceiling_projection,
             "consistency_score": player.consistency_score,
@@ -1428,6 +1430,12 @@ async def _handle_ff_get_roster(arguments: dict) -> dict:
             "matchup_description": player.matchup_description,
             "trending_score": player.trending_score,
             "risk_level": player.risk_level,
+            # Expert advice fields
+            "expert_tier": player.expert_tier,
+            "expert_recommendation": player.expert_recommendation,
+            "expert_confidence": player.expert_confidence,
+            "expert_advice": player.expert_advice,
+            "search_rank": player.search_rank,
         }
 
     players_by_position: Dict[str, List[Dict[str, Any]]] = {}
@@ -1444,7 +1452,7 @@ async def _handle_ff_get_roster(arguments: dict) -> dict:
             "players_by_position": players_by_position,
             "all_players": [serialize_player(player) for player in players],
             "analysis_context": {
-                "data_sources": ["Yahoo"],
+                "data_sources": ["Yahoo"] + (["Sleeper"] if effective_external else []),
                 "data_level": data_level,
                 "includes": {
                     "projections": effective_projections,
@@ -1452,6 +1460,14 @@ async def _handle_ff_get_roster(arguments: dict) -> dict:
                     "analysis": effective_analysis,
                 },
                 "week": week or "current",
+                "enhancement_features": (
+                    [
+                        "Expert tiers and recommendations",
+                        "Position rankings and confidence scores", 
+                        "Risk assessment and trending data",
+                        "Sleeper player matching and IDs"
+                    ] if effective_external else []
+                ),
             },
         }
     )

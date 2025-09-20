@@ -380,6 +380,100 @@ class SleeperAPI:
         
         return None
 
+    async def get_position_rankings(self, position: str, week: Optional[int] = None) -> List[Dict]:
+        """
+        Get position rankings and tiers for lineup decisions.
+        Returns players ranked by expert consensus and matchup strength.
+        """
+        # Get all players for the position
+        all_players = await self.get_all_players()
+        position_players = [
+            player for player in all_players.values() 
+            if player.get('position') == position.upper() and player.get('active', False)
+        ]
+        
+        # Sort by search_rank (Sleeper's internal ranking)
+        position_players.sort(key=lambda x: x.get('search_rank', 9999))
+        
+        # Create tier-based rankings
+        rankings = []
+        for i, player in enumerate(position_players[:50]):  # Top 50 per position
+            tier = 1 if i < 5 else 2 if i < 12 else 3 if i < 24 else 4
+            confidence = max(100 - (i * 2), 50)  # Confidence decreases with rank
+            
+            rankings.append({
+                'player_id': player.get('sleeper_id'),
+                'name': player.get('full_name'),
+                'team': player.get('team'),
+                'position': player.get('position'),
+                'rank': i + 1,
+                'tier': tier,
+                'confidence': confidence,
+                'tier_description': {
+                    1: 'Elite - Must Start',
+                    2: 'Strong Start',
+                    3: 'Solid Option',
+                    4: 'Depth/Bye Week'
+                }.get(tier, 'Deep Bench')
+            })
+        
+        return rankings
+
+    async def get_expert_advice(self, player_name: str, week: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Generate expert advice for a specific player including start/sit recommendations.
+        """
+        player = await self.get_player_by_name(player_name)
+        if not player:
+            return {'advice': 'Player not found', 'confidence': 0}
+        
+        position = player.get('position')
+        team = player.get('team')
+        search_rank = player.get('search_rank', 500)
+        
+        # Determine player tier based on search rank
+        if search_rank <= 20:
+            tier = "Elite"
+            base_confidence = 85
+        elif search_rank <= 50:
+            tier = "Strong"
+            base_confidence = 70
+        elif search_rank <= 100:
+            tier = "Solid"
+            base_confidence = 55
+        elif search_rank <= 200:
+            tier = "Depth"
+            base_confidence = 40
+        else:
+            tier = "Deep"
+            base_confidence = 25
+        
+        # Generate contextual advice
+        if base_confidence >= 70:
+            recommendation = "Strong Start"
+            advice_text = f"{player_name} ({tier} tier) is a confident start option this week."
+        elif base_confidence >= 50:
+            recommendation = "Start"
+            advice_text = f"{player_name} ({tier} tier) is a solid start option for your lineup."
+        elif base_confidence >= 35:
+            recommendation = "Flex/Consider"
+            advice_text = f"{player_name} ({tier} tier) could work as a flex play or deeper option."
+        else:
+            recommendation = "Bench/Avoid"
+            advice_text = f"{player_name} ({tier} tier) is better kept on bench unless desperate."
+        
+        return {
+            'player_name': player_name,
+            'position': position,
+            'team': team,
+            'tier': tier,
+            'search_rank': search_rank,
+            'recommendation': recommendation,
+            'confidence': base_confidence,
+            'advice': advice_text,
+            'week': week or await get_current_week()
+        }
+
 
 # Global instance
 sleeper_client = SleeperAPI()

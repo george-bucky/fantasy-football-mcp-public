@@ -101,6 +101,12 @@ class Player:
     consistency_score: float = 0.0
     risk_level: str = "medium"
     composite_score: float = 0.0
+    # New expert advice fields
+    expert_tier: str = ""
+    expert_recommendation: str = ""
+    expert_confidence: int = 0
+    expert_advice: str = ""
+    search_rank: int = 500
     raw: Dict[str, Any] = field(default_factory=dict)
 
     def is_valid(self) -> bool:
@@ -201,23 +207,143 @@ class LineupOptimizer:
         *,
         week: Optional[int] = None,
     ) -> List[Player]:
-        """Populate derived metrics so downstream consumers have rich data."""
+        """Enhance players with Sleeper data including rankings, advice, and matchup analysis."""
 
         enhanced: List[Player] = []
-        for player in players:
-            if player.composite_score == 0.0:
-                player.composite_score = (
-                    player.yahoo_projection or player.sleeper_projection
+        
+        try:
+            from sleeper_api import sleeper_client
+            
+            for player in players:
+                # Create a copy to avoid modifying the original
+                enhanced_player = Player(
+                    name=player.name,
+                    position=player.position,
+                    team=player.team,
+                    opponent=player.opponent,
+                    status=player.status,
+                    yahoo_projection=player.yahoo_projection,
+                    sleeper_projection=player.sleeper_projection,
+                    sleeper_projection_std=player.sleeper_projection_std,
+                    sleeper_projection_ppr=player.sleeper_projection_ppr,
+                    sleeper_projection_half_ppr=player.sleeper_projection_half_ppr,
+                    sleeper_id=player.sleeper_id,
+                    sleeper_status=player.sleeper_status,
+                    sleeper_injury_status=player.sleeper_injury_status,
+                    sleeper_match_method=player.sleeper_match_method,
+                    player_tier=player.player_tier,
+                    matchup_score=player.matchup_score,
+                    matchup_description=player.matchup_description,
+                    trending_score=player.trending_score,
+                    injury_status=player.injury_status,
+                    injury_probability=player.injury_probability,
+                    ownership_pct=player.ownership_pct,
+                    recent_performance=player.recent_performance.copy(),
+                    season_avg=player.season_avg,
+                    target_share=player.target_share,
+                    snap_count_pct=player.snap_count_pct,
+                    weather_impact=player.weather_impact,
+                    vegas_total=player.vegas_total,
+                    team_implied_total=player.team_implied_total,
+                    spread=player.spread,
+                    defense_rank_allowed=player.defense_rank_allowed,
+                    value=player.value,
+                    value_score=player.value_score,
+                    floor_projection=player.floor_projection,
+                    ceiling_projection=player.ceiling_projection,
+                    consistency_score=player.consistency_score,
+                    risk_level=player.risk_level,
+                    composite_score=player.composite_score,
+                    raw=player.raw.copy(),
                 )
-            if player.floor_projection == 0.0:
-                player.floor_projection = max(player.composite_score * 0.75, 0.0)
-            if player.ceiling_projection == 0.0:
-                player.ceiling_projection = max(player.composite_score * 1.25, player.floor_projection)
-            if player.matchup_description == "No matchup context":
-                player.matchup_description = f"Week {week or 'current'} outlook"
-            if not player.matchup_score:
-                player.matchup_score = 50
-            enhanced.append(player)
+                
+                try:
+                    # Get Sleeper player mapping and basic data
+                    sleeper_id = await sleeper_client.map_yahoo_to_sleeper(
+                        player.name, position=player.position, team=player.team
+                    )
+                    
+                    if sleeper_id:
+                        enhanced_player.sleeper_id = sleeper_id
+                        enhanced_player.sleeper_match_method = "api"
+                        
+                        # Get expert advice for this player
+                        advice = await sleeper_client.get_expert_advice(player.name, week=week)
+                        if advice and advice.get('confidence', 0) > 0:
+                            enhanced_player.expert_tier = advice.get('tier', 'starter')
+                            enhanced_player.expert_recommendation = advice.get('recommendation', 'Start')
+                            enhanced_player.expert_confidence = advice.get('confidence', 50)
+                            enhanced_player.expert_advice = advice.get('advice', 'No advice available')
+                            enhanced_player.search_rank = advice.get('search_rank', 500)
+                            enhanced_player.matchup_description = advice.get('advice', 'No advice available')
+                            
+                            # Convert confidence to matchup score (0-100 -> 0-100)
+                            enhanced_player.matchup_score = advice.get('confidence', 50)
+                            
+                            # Set risk level based on tier and confidence
+                            confidence = advice.get('confidence', 50)
+                            if confidence >= 70:
+                                enhanced_player.risk_level = "low"
+                            elif confidence >= 50:
+                                enhanced_player.risk_level = "medium"
+                            else:
+                                enhanced_player.risk_level = "high"
+                        
+                        # Try to get trending data
+                        try:
+                            trending_adds = await sleeper_client.get_trending_players("nfl", "add", hours=24)
+                            trending_drops = await sleeper_client.get_trending_players("nfl", "drop", hours=24)
+                            
+                            # Check if this player is trending
+                            trending_add_ids = [p.get('player_id') for p in trending_adds]
+                            trending_drop_ids = [p.get('player_id') for p in trending_drops]
+                            
+                            if sleeper_id in trending_add_ids:
+                                enhanced_player.trending_score = 75  # Trending up
+                            elif sleeper_id in trending_drop_ids:
+                                enhanced_player.trending_score = 25  # Trending down
+                            else:
+                                enhanced_player.trending_score = 50  # Neutral
+                        except Exception:
+                            enhanced_player.trending_score = 50  # Default if trending fails
+                            
+                except Exception:
+                    # If Sleeper lookup fails, keep original data
+                    enhanced_player.sleeper_match_method = "failed"
+                
+                # Populate derived metrics
+                if enhanced_player.composite_score == 0.0:
+                    enhanced_player.composite_score = (
+                        enhanced_player.yahoo_projection or enhanced_player.sleeper_projection
+                    )
+                if enhanced_player.floor_projection == 0.0:
+                    enhanced_player.floor_projection = max(enhanced_player.composite_score * 0.75, 0.0)
+                if enhanced_player.ceiling_projection == 0.0:
+                    enhanced_player.ceiling_projection = max(enhanced_player.composite_score * 1.25, enhanced_player.floor_projection)
+                if enhanced_player.matchup_description == "No matchup context":
+                    enhanced_player.matchup_description = f"Week {week or 'current'} outlook"
+                if not enhanced_player.matchup_score:
+                    enhanced_player.matchup_score = 50
+                    
+                enhanced.append(enhanced_player)
+                
+        except ImportError:
+            # If Sleeper API not available, fall back to basic enhancement
+            for player in players:
+                if player.composite_score == 0.0:
+                    player.composite_score = (
+                        player.yahoo_projection or player.sleeper_projection
+                    )
+                if player.floor_projection == 0.0:
+                    player.floor_projection = max(player.composite_score * 0.75, 0.0)
+                if player.ceiling_projection == 0.0:
+                    player.ceiling_projection = max(player.composite_score * 1.25, player.floor_projection)
+                if player.matchup_description == "No matchup context":
+                    player.matchup_description = f"Week {week or 'current'} outlook"
+                if not player.matchup_score:
+                    player.matchup_score = 50
+                enhanced.append(player)
+        
         return enhanced
 
     async def optimize_lineup_smart(
