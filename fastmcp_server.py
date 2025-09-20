@@ -124,9 +124,13 @@ async def _call_legacy_tool(
     if ctx is not None:
         await ctx.info(f"Calling legacy Yahoo tool: {name}")
 
-    raw_blocks = await fantasy_football_multi_league.call_tool(name=name, arguments=filtered_args)
-    blocks = list(raw_blocks) if raw_blocks is not None else []
-
+    raw_blocks = await _legacy_call_tool(name=name, arguments=filtered_args)
+    if raw_blocks is None:
+        blocks: list[ContentBlock] = []
+    elif isinstance(raw_blocks, Iterable) and not isinstance(raw_blocks, (str, bytes, TextContent)):
+        blocks = list(raw_blocks)
+    else:
+        blocks = [raw_blocks]  # type: ignore[list-item]
     if not blocks:
         return {
             "status": "error",
@@ -216,20 +220,21 @@ async def ff_get_leagues(ctx: Context) -> Dict[str, Any]:
     ),
     meta=_tool_meta("ff_get_league_info"),
 )
-async def ff_get_league_info(ctx: Context, league_key: str) -> Dict[str, Any]:
-    return await _call_legacy_tool("ff_get_league_info", ctx=ctx, league_key=league_key)
-
-
-@server.tool(
-    name="ff_get_standings",
-    description=(
-        "Return the current standings table for a Yahoo league showing ranks, "
-        "records, and points for each team."
-    ),
-    meta=_tool_meta("ff_get_standings"),
-)
-async def ff_get_standings(ctx: Context, league_key: str) -> Dict[str, Any]:
-    return await _call_legacy_tool("ff_get_standings", ctx=ctx, league_key=league_key)
+async def ff_get_league_info(
+    ctx: Context,
+    league_key: str,
+    week: Optional[int] = None,
+    team_key: Optional[str] = None,
+    data_level: Optional[str] = None,
+    include_analysis: Optional[bool] = None,
+    include_projections: Optional[bool] = None,
+    include_external_data: Optional[bool] = None,
+) -> Dict[str, Any]:
+    return await _call_legacy_tool(
+        "ff_get_league_info",
+        ctx=ctx,
+        league_key=league_key,
+    )
 
 
 @server.tool(
@@ -241,6 +246,7 @@ async def ff_get_standings(ctx: Context, league_key: str) -> Dict[str, Any]:
     ),
     meta=_tool_meta("ff_get_roster"),
 )
+
 async def ff_get_roster(
     ctx: Context,
     league_key: str,
@@ -317,6 +323,28 @@ async def ff_get_roster(
         }
 
 
+
+@server.tool(
+    name="ff_get_standings",
+    description=(
+        "Return the current standings table for a Yahoo league showing ranks, "
+        "records, and points for each team."
+    ),
+    meta=_tool_meta("ff_get_standings"),
+)
+async def ff_get_standings(
+    ctx: Context,
+    league_key: str,
+    week: Optional[int] = None,
+    team_key: Optional[str] = None,
+    data_level: Optional[str] = None,
+    include_analysis: Optional[bool] = None,
+    include_projections: Optional[bool] = None,
+    include_external_data: Optional[bool] = None,
+) -> Dict[str, Any]:
+    return await _call_legacy_tool("ff_get_standings", ctx=ctx, league_key=league_key)
+
+
 @server.tool(
     name="ff_get_matchup",
     description=(
@@ -329,6 +357,11 @@ async def ff_get_matchup(
     ctx: Context,
     league_key: str,
     week: Optional[int] = None,
+    team_key: Optional[str] = None,
+    data_level: Optional[str] = None,
+    include_analysis: Optional[bool] = None,
+    include_projections: Optional[bool] = None,
+    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_get_matchup",
@@ -336,6 +369,8 @@ async def ff_get_matchup(
         league_key=league_key,
         week=week,
     )
+
+
 
 
 @server.tool(
@@ -1041,10 +1076,6 @@ def get_version() -> str:  # pragma: no cover - simple accessor
 
 if __name__ == "__main__":
     main()
-
-
-
-
 
 
 
