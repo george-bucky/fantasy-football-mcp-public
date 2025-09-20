@@ -381,10 +381,9 @@ async def ff_get_matchup(
 @server.tool(
     name="ff_get_players",
     description=(
-        "Surface free-agent players from Yahoo for waiver research. Optionally "
-        "filter by position and limit the number of results. Supports additional "
-        "parameters for enhanced analysis (week, team_key, data_level, etc.) "
-        "though the core functionality focuses on basic player discovery."
+        "Search for specific players with enhanced analysis including expert tiers, "
+        "recommendations, and Sleeper rankings. Find players by name or position "
+        "with comprehensive data for lineup decisions and waiver research."
     ),
     meta=_tool_meta("ff_get_players"),
 )
@@ -395,11 +394,33 @@ async def ff_get_players(
     count: int = 10,
     week: Optional[int] = None,
     team_key: Optional[str] = None,
-    data_level: Optional[str] = None,
+    data_level: Optional[Literal["basic", "standard", "full"]] = None,
     include_analysis: Optional[bool] = None,
     include_projections: Optional[bool] = None,
     include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    """
+    Enhanced player search with expert analysis and Sleeper integration.
+    
+    Args:
+        league_key: League identifier
+        position: Filter by position (QB, RB, WR, TE, etc.)
+        count: Number of players to return
+        week: Week for analysis context
+        data_level: "basic" (names only), "standard" (+ stats), "full" (+ expert analysis)
+        include_analysis: Include expert tiers and recommendations
+        include_projections: Include projection data
+        include_external_data: Include Sleeper rankings and trending data
+    """
+    
+    # Default to enhanced mode for better player analysis
+    if data_level is None:
+        data_level = "full"
+    if include_analysis is None:
+        include_analysis = True
+    if include_external_data is None:
+        include_external_data = True
+        
     return await _call_legacy_tool(
         "ff_get_players",
         ctx=ctx,
@@ -519,8 +540,9 @@ async def ff_get_draft_results(ctx: Context, league_key: str) -> Dict[str, Any]:
 @server.tool(
     name="ff_get_waiver_wire",
     description=(
-        "List top waiver-wire candidates with Yahoo stats and projections. "
-        "Supports position and sort filtering."
+        "Discover top waiver wire pickups with expert analysis, tiers, and "
+        "recommendations. Enhanced with Sleeper rankings, trending data, and "
+        "start/sit advice to identify the best available free agents."
     ),
     meta=_tool_meta("ff_get_waiver_wire"),
 )
@@ -530,15 +552,104 @@ async def ff_get_waiver_wire(
     position: Optional[str] = None,
     sort: Literal["rank", "points", "owned", "trending"] = "rank",
     count: int = 20,
+    include_expert_analysis: bool = True,
+    data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
-    return await _call_legacy_tool(
-        "ff_get_waiver_wire",
-        ctx=ctx,
-        league_key=league_key,
-        position=position,
-        sort=sort,
-        count=count,
-    )
+    """
+    Enhanced waiver wire analysis with expert recommendations.
+    
+    Args:
+        league_key: League identifier
+        position: Filter by position (QB, RB, WR, TE, etc.)
+        sort: Sort method - "rank" (expert), "points" (season), "owned" (popularity), "trending" (hot pickups)
+        count: Number of players to return
+        include_expert_analysis: Include tiers, recommendations, and confidence scores
+        data_level: Data detail level ("basic", "standard", "full")
+    """
+    
+    # Default to enhanced mode for better waiver analysis
+    if data_level is None:
+        data_level = "full" if include_expert_analysis else "standard"
+        
+    try:
+        result = await _call_legacy_tool(
+            "ff_get_waiver_wire",
+            ctx=ctx,
+            league_key=league_key,
+            position=position,
+            sort=sort,
+            count=count,
+        )
+        
+        # If expert analysis requested and we have players, enhance them
+        if include_expert_analysis and result.get("players"):
+            try:
+                from lineup_optimizer import LineupOptimizer
+                from sleeper_api import sleeper_client
+                
+                if ctx:
+                    await ctx.info("Enhancing waiver wire players with expert analysis...")
+                
+                optimizer = LineupOptimizer()
+                
+                # Convert waiver players to Player objects for enhancement
+                enhanced_players = []
+                for player_data in result["players"]:
+                    # Create a minimal roster payload for the optimizer
+                    roster_payload = {"roster": [player_data]}
+                    players = await optimizer.parse_yahoo_roster(roster_payload)
+                    if players:
+                        enhanced = await optimizer.enhance_with_external_data(players)
+                        if enhanced:
+                            enhanced_players.append(enhanced[0])
+                
+                # Serialize enhanced players back to dict format
+                def serialize_waiver_player(player):
+                    return {
+                        **player.raw,  # Original Yahoo data
+                        "sleeper_id": player.sleeper_id,
+                        "sleeper_match_method": player.sleeper_match_method,
+                        "expert_tier": player.expert_tier,
+                        "expert_recommendation": player.expert_recommendation,
+                        "expert_confidence": player.expert_confidence,
+                        "expert_advice": player.expert_advice,
+                        "search_rank": player.search_rank,
+                        "risk_level": player.risk_level,
+                        "trending_score": player.trending_score,
+                        "matchup_score": player.matchup_score,
+                    }
+                
+                if enhanced_players:
+                    result["players"] = [serialize_waiver_player(p) for p in enhanced_players]
+                    result["enhancement_info"] = {
+                        "expert_analysis": True,
+                        "data_sources": ["Yahoo", "Sleeper"],
+                        "features": [
+                            "Expert tiers and recommendations",
+                            "Confidence scores and risk assessment",
+                            "Sleeper rankings and trending data"
+                        ]
+                    }
+                    
+                    # Sort by expert confidence if using rank sort
+                    if sort == "rank":
+                        result["players"].sort(key=lambda x: x.get("expert_confidence", 0), reverse=True)
+                    elif sort == "trending":
+                        result["players"].sort(key=lambda x: x.get("trending_score", 50), reverse=True)
+                
+            except Exception as e:
+                if ctx:
+                    await ctx.info(f"Expert analysis unavailable: {e}")
+                # Return original result if enhancement fails
+        
+        return result
+        
+    except Exception as exc:
+        return {
+            "status": "error",
+            "message": f"Waiver wire analysis failed: {exc}",
+            "league_key": league_key,
+        }
 
 
 @server.tool(
