@@ -325,10 +325,15 @@ def parse_team_roster(data: dict) -> list[dict]:
     for item in team:
         if isinstance(item, dict) and "roster" in item:
             roster_data = item["roster"]
-            players = (
-                roster_data.get("0", {}).get("players") if isinstance(roster_data, dict) else None
-            )
+            players = None
+            if isinstance(roster_data, dict):
+                players = roster_data.get("0", {}).get("players")
+                if not players:
+                    players = roster_data.get("players")  # Direct players key
+                if not players and "roster" in roster_data:
+                    players = roster_data["roster"].get("players")
             if not players:
+                print(f"DEBUG: No players in roster_data for item {item.get('roster', {}).keys() if isinstance(item.get('roster'), dict) else type(item.get('roster'))}")
                 continue
 
             for key, pdata in players.items():
@@ -1003,11 +1008,17 @@ async def list_tools() -> list[Tool]:
                         "description": "League key (e.g., '461.l.900001')",
                     },
                     "team_key": {
-                        "type": "string",
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "null"}
+                        ],
                         "description": "Optional team key if not the logged-in team",
                     },
                     "week": {
-                        "type": "integer",
+                        "anyOf": [
+                            {"type": "integer"},
+                            {"type": "null"}
+                        ],
                         "description": "Week for projections and analysis (optional, defaults to current)",
                     },
                     "data_level": {
@@ -1017,17 +1028,26 @@ async def list_tools() -> list[Tool]:
                         "default": "standard",
                     },
                     "include_analysis": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include basic roster analysis",
                         "default": False,
                     },
                     "include_projections": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include projections from Yahoo and Sleeper",
                         "default": True,
                     },
                     "include_external_data": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include Sleeper data, trending, and matchups",
                         "default": True,
                     },
@@ -1072,22 +1092,48 @@ async def list_tools() -> list[Tool]:
                         "description": "Number of players to return",
                         "default": 10,
                     },
+                    "sort": {
+                        "type": "string",
+                        "description": "Sort by: 'rank', 'points', 'owned', 'trending'",
+                        "enum": ["rank", "points", "owned", "trending"],
+                        "default": "rank",
+                    },
                     "week": {
-                        "type": "integer",
+                        "anyOf": [
+                            {"type": "integer"},
+                            {"type": "null"}
+                        ],
                         "description": "Week for projections and analysis (optional, defaults to current)",
                     },
                     "include_analysis": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include basic analysis and rankings",
                         "default": False,
                     },
+                    "include_expert_analysis": {
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
+                        "description": "Include expert analysis and recommendations",
+                        "default": False,
+                    },
                     "include_projections": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include projections from Yahoo and Sleeper",
                         "default": True,
                     },
                     "include_external_data": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include Sleeper data, trending, and matchups",
                         "default": True,
                     },
@@ -1194,25 +1240,40 @@ async def list_tools() -> list[Tool]:
                         "default": 20,
                     },
                     "week": {
-                        "type": "integer",
+                        "anyOf": [
+                            {"type": "integer"},
+                            {"type": "null"}
+                        ],
                         "description": "Week for projections and analysis (optional, defaults to current)",
                     },
                     "team_key": {
-                        "type": "string",
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "null"}
+                        ],
                         "description": "Optional team key for context (e.g., waiver priority)",
                     },
                     "include_analysis": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include basic waiver priority analysis",
                         "default": False,
                     },
                     "include_projections": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include projections from Yahoo and Sleeper",
                         "default": True,
                     },
                     "include_external_data": {
-                        "type": "boolean",
+                        "anyOf": [
+                            {"type": "boolean"},
+                            {"type": "null"}
+                        ],
                         "description": "Include Sleeper data, trending, and matchups",
                         "default": True,
                     },
@@ -1519,6 +1580,12 @@ async def _handle_ff_get_roster(arguments: dict) -> dict:
 
     data = await yahoo_api_call(f"team/{team_key}/roster")
     roster = parse_team_roster(data)
+    
+    if not roster:
+        print(f"DEBUG: Empty roster for team {team_key}. Raw data keys: {list(data.keys()) if data else 'None'}")
+        if data:
+            import json
+            print("DEBUG: Truncated raw data:", json.dumps(data, indent=2)[:2000])
 
     if team_info is None or team_info.get("team_key") != team_key:
         team_info = await get_user_team_info(league_key)
@@ -1532,6 +1599,14 @@ async def _handle_ff_get_roster(arguments: dict) -> dict:
         "draft_grade": team_info.get("draft_grade") if team_info else None,
         "roster": roster,
     }
+    
+    if not roster and data:
+        result["debug_info"] = {
+            "raw_response_keys": list(data.keys()),
+            "fantasy_content_present": "fantasy_content" in data,
+            "team_structure": str(type(data.get("fantasy_content", {}).get("team", []))),
+            "note": "Empty roster - possibly off-season or parsing variation. Check logs for raw data."
+        }
 
     if not needs_enhanced:
         return result
@@ -1767,7 +1842,7 @@ async def _handle_ff_get_players(arguments: dict) -> dict:
                     "matchup_description": player.matchup_description if include_external_data else None,
                     "trending_score": player.trending_score if include_external_data else None,
                     "risk_level": player.risk_level,
-                    "owned_pct": next((p.get("owned_pct") for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0),
+                    "owned_pct": next((p.get("owned_pct") or 0 for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0),
                     "injury_status": getattr(player, "injury_status", "Healthy"),
                     "bye": next((p.get("bye") for p in basic_players if p.get("name", "").lower() == player.name.lower()), "N/A"),
                 }
@@ -2057,7 +2132,7 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     "matchup_description": player.matchup_description if include_external_data else None,
                     "trending_score": player.trending_score if include_external_data else None,
                     "risk_level": player.risk_level,
-                    "owned_pct": next((p.get("owned_pct") for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0),
+                    "owned_pct": next((p.get("owned_pct") or 0 for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0),
                     "weekly_change": next((p.get("weekly_change") for p in basic_players if p.get("name", "").lower() == player.name.lower()), 0),
                     "injury_status": getattr(player, "injury_status", "Healthy"),
                     "bye": next((p.get("bye") for p in basic_players if p.get("name", "").lower() == player.name.lower()), "N/A"),

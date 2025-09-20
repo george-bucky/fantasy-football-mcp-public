@@ -214,6 +214,11 @@ class LineupOptimizer:
         try:
             from sleeper_api import sleeper_client
             
+            # Get current season and week once for all players
+            from sleeper_api import get_current_season, get_current_week
+            current_season = await get_current_season()
+            current_week = await get_current_week()
+            
             for player in players:
                 # Create a copy to avoid modifying the original
                 enhanced_player = Player(
@@ -257,6 +262,8 @@ class LineupOptimizer:
                     raw=player.raw.copy(),
                 )
                 
+                use_week = week or current_week
+                
                 try:
                     # Get Sleeper player mapping and basic data
                     sleeper_id = await sleeper_client.map_yahoo_to_sleeper(
@@ -267,8 +274,23 @@ class LineupOptimizer:
                         enhanced_player.sleeper_id = sleeper_id
                         enhanced_player.sleeper_match_method = "api"
                         
+                        # Fetch projections for this player
+                        try:
+                            projections = await sleeper_client.get_projections(current_season, use_week)
+                            if sleeper_id in projections:
+                                proj_data = projections[sleeper_id]
+                                # Sleeper projections typically have 'projected_stats' with 'pts' or position-specific
+                                stats = proj_data.get('projected_stats', {})
+                                enhanced_player.sleeper_projection = _coerce_float(stats.get('pts') or proj_data.get('pts', 0))
+                                # Set variants if available
+                                enhanced_player.sleeper_projection_std = _coerce_float(stats.get('pts_std') or proj_data.get('pts_std', 0))
+                                enhanced_player.sleeper_projection_ppr = _coerce_float(stats.get('pts_ppr') or proj_data.get('pts_ppr', enhanced_player.sleeper_projection))
+                                enhanced_player.sleeper_projection_half_ppr = _coerce_float(stats.get('pts_half_ppr') or proj_data.get('pts_half_ppr', enhanced_player.sleeper_projection))
+                        except Exception:
+                            enhanced_player.sleeper_projection = 0.0  # Fallback if projections fail
+                        
                         # Get expert advice for this player
-                        advice = await sleeper_client.get_expert_advice(player.name, week=week)
+                        advice = await sleeper_client.get_expert_advice(player.name, week=use_week)
                         if advice and advice.get('confidence', 0) > 0:
                             enhanced_player.expert_tier = advice.get('tier', 'starter')
                             enhanced_player.expert_recommendation = advice.get('recommendation', 'Start')
@@ -312,16 +334,16 @@ class LineupOptimizer:
                     enhanced_player.sleeper_match_method = "failed"
                 
                 # Populate derived metrics
+                # Use Sleeper projection if available, else Yahoo
+                base_projection = enhanced_player.sleeper_projection or enhanced_player.yahoo_projection or 0.0
                 if enhanced_player.composite_score == 0.0:
-                    enhanced_player.composite_score = (
-                        enhanced_player.yahoo_projection or enhanced_player.sleeper_projection
-                    )
+                    enhanced_player.composite_score = base_projection
                 if enhanced_player.floor_projection == 0.0:
-                    enhanced_player.floor_projection = max(enhanced_player.composite_score * 0.75, 0.0)
+                    enhanced_player.floor_projection = max(base_projection * 0.75, 0.0)
                 if enhanced_player.ceiling_projection == 0.0:
-                    enhanced_player.ceiling_projection = max(enhanced_player.composite_score * 1.25, enhanced_player.floor_projection)
+                    enhanced_player.ceiling_projection = max(base_projection * 1.25, enhanced_player.floor_projection)
                 if enhanced_player.matchup_description == "No matchup context":
-                    enhanced_player.matchup_description = f"Week {week or 'current'} outlook"
+                    enhanced_player.matchup_description = f"Week {use_week} outlook"
                 if not enhanced_player.matchup_score:
                     enhanced_player.matchup_score = 50
                     
