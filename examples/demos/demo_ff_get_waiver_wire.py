@@ -22,7 +22,6 @@ async def main():
         "league_key": league_key,
         "position": "all",
         "sort": "rank",
-        "count": 10,
         "include_expert_analysis": True,
         "include_projections": True,
         "include_external_data": True

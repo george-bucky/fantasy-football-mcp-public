@@ -32,7 +32,7 @@ local development.
 
 ### Player Discovery & Draft
 - `ff_get_players` – Browse current free agents with ownership context.
-- `ff_get_waiver_wire` – Surface top waiver targets with Yahoo stats.
+- `ff_get_waiver_wire` – Surface top waiver targets with Yahoo stats. (Default: 30 players for comprehensive analysis)
 - `ff_get_draft_rankings` – Pull Yahoo pre-draft rankings and ADP data.
 - `ff_get_draft_results` – Review draft positions, grades and summary by team.
 - `ff_get_draft_recommendation` – Strategy-aware draft pick suggestions.

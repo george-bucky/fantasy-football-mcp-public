@@ -551,7 +551,7 @@ async def ff_get_waiver_wire(
     league_key: str,
     position: Optional[str] = None,
     sort: Literal["rank", "points", "owned", "trending"] = "rank",
-    count: int = 20,
+    count: int = 30,
     include_expert_analysis: bool = True,
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:

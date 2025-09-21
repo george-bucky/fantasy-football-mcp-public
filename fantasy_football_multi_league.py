@@ -490,7 +490,7 @@ def parse_yahoo_free_agent_players(data: dict) -> list[dict]:
 
 
 async def get_waiver_wire_players(
-    league_key: str, position: str = "all", sort: str = "rank", count: int = 20
+    league_key: str, position: str = "all", sort: str = "rank", count: int = 30
 ) -> list[dict]:
     """Get available waiver wire players with detailed stats."""
     try:
@@ -1241,8 +1241,8 @@ async def list_tools() -> list[Tool]:
                     },
                     "count": {
                         "type": "integer",
-                        "description": "Number of players to return (default: 20)",
-                        "default": 20,
+                        "description": "Number of players to return (default: 30)",
+                        "default": 30,
                     },
                     "week": {
                         "anyOf": [
@@ -2068,7 +2068,7 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
     
     position = arguments.get("position", "all")
     sort = arguments.get("sort", "rank")
-    count = arguments.get("count", 20)
+    count = arguments.get("count", 30)
     week = arguments.get("week")
     team_key = arguments.get("team_key")
     include_analysis = arguments.get("include_analysis", False)
