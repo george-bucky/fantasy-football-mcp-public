@@ -95,6 +95,29 @@ Edit the config file and add:
 }
 ```
 
+### Add MCP Server Configuration (Virtual Environment)
+Edit the config file and add:
+
+```json
+{
+  "mcpServers": {
+    "fantasy-football": {
+      "command": "/absolute/path/to/fantasy-football-mcp-public/.venv/bin/python",
+      "args": [
+        "/absolute/path/to/fantasy_football_multi_league.py"
+      ],
+      "env": {
+        "YAHOO_ACCESS_TOKEN": "your_access_token",
+        "YAHOO_REFRESH_TOKEN": "your_refresh_token",
+        "YAHOO_CONSUMER_KEY": "your_consumer_key",
+        "YAHOO_CONSUMER_SECRET": "your_consumer_secret",
+        "YAHOO_GUID": "your_yahoo_guid"
+      }
+    }
+  }
+}
+```
+
 ### Get Your Credentials
 
 After running `setup_yahoo_auth.py`, find your credentials in `.env`:

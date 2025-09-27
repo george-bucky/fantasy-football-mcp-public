@@ -98,3 +98,4 @@ websocket-client==1.8.0
 yahoo-oauth==2.1.0
 yarl==1.20.1
 yfpy==16.0.3
+pip_system_certs==5.2
