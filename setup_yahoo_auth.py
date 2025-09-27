@@ -41,24 +41,24 @@ print("-" * 40)
 
 try:
     from yfpy import YahooFantasySportsQuery
-    
+
     print("This will:")
     print("1. Open your browser to Yahoo login")
     print("2. You login and click 'Agree' to authorize")
     print("3. Yahoo will show a verification code")
     print("4. Come back here and paste that code")
     print()
-    
+
     input("Press Enter to start the authentication process...")
     print()
-    
+
     # Create token directory
     token_dir = Path(".tokens")
     token_dir.mkdir(exist_ok=True)
-    
+
     print("🌐 Opening browser for Yahoo authorization...")
     print()
-    
+
     # Initialize - this will trigger OAuth flow
     try:
         query = YahooFantasySportsQuery(
@@ -69,41 +69,41 @@ try:
             yahoo_consumer_secret=CLIENT_SECRET,
             browser_callback=True,  # Opens browser automatically
             env_file_location=Path("."),  # Save token to current directory
-            save_token_data_to_env_file=True  # Save for reuse
+            save_token_data_to_env_file=True,  # Save for reuse
         )
-        
+
         print()
         print("✅ Authentication successful!")
         print()
-        
+
         # Test by getting user leagues
         print("Testing connection by fetching your leagues...")
         try:
             # Get user info to verify connection
             user_games = query.get_user_games()
             print(f"✅ Connected! Found {len(user_games) if user_games else 0} games")
-            
+
             # Try to get leagues
             user_leagues = query.get_user_leagues()
             if user_leagues:
                 print(f"✅ Found {len(user_leagues)} leagues:")
                 for i, league in enumerate(user_leagues, 1):
-                    league_name = getattr(league, 'name', 'Unknown')
-                    league_id = getattr(league, 'league_id', 'Unknown')
+                    league_name = getattr(league, "name", "Unknown")
+                    league_id = getattr(league, "league_id", "Unknown")
                     print(f"   {i}. {league_name} (ID: {league_id})")
-            
+
             # Save token for MCP server use
             token_file = Path(".yahoo_token.json")
-            if hasattr(query, 'oauth') and hasattr(query.oauth, 'token_data'):
-                with open(token_file, 'w') as f:
+            if hasattr(query, "oauth") and hasattr(query.oauth, "token_data"):
+                with open(token_file, "w") as f:
                     json.dump(query.oauth.token_data, f, indent=2)
                 print(f"\n✅ Token saved to {token_file}")
                 print("   The MCP server can now use this token!")
-            
+
         except Exception as e:
             print(f"⚠️  Connection test failed: {e}")
             print("   But authentication may still be successful.")
-            
+
     except Exception as e:
         print(f"\n❌ Authentication failed: {e}")
         print()
@@ -113,19 +113,19 @@ try:
         print("   - Check your app has 'Fantasy Sports - Read' permission")
         print("   - Redirect URI should be: oob (for out-of-band)")
         print("2. Try deleting any .yahoo_oauth or token files and retry")
-        
+
 except ImportError:
     print("❌ yfpy not installed")
     print("Install with: pip install yfpy")
     print()
     print("Falling back to Method 2...")
     print()
-    
+
     # Method 2: Manual OAuth flow
     print("METHOD 2: Manual OAuth Flow")
     print("-" * 40)
     print()
-    
+
     # Build authorization URL
     auth_url = (
         "https://api.login.yahoo.com/oauth2/request_auth?"
@@ -134,7 +134,7 @@ except ImportError:
         "response_type=code&"
         "language=en-us"
     )
-    
+
     print("Manual authentication steps:")
     print()
     print("1. Copy this URL and open it in your browser:")
@@ -147,7 +147,7 @@ except ImportError:
     print()
     print("5. You'll need to exchange this code for tokens")
     print("   (This requires additional implementation)")
-    
+
     # Try to open browser automatically
     try:
         webbrowser.open(auth_url)

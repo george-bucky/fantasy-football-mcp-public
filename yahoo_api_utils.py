@@ -16,12 +16,12 @@ from datetime import datetime, timedelta
 
 class RateLimiter:
     """Rate limiter for Yahoo API calls (1000 requests per hour)."""
-    
+
     def __init__(self, max_requests: int = 900, window_seconds: int = 3600):
         """
         Initialize rate limiter.
         Using 900 instead of 1000 to have safety margin.
-        
+
         Args:
             max_requests: Maximum requests allowed in the window
             window_seconds: Time window in seconds (3600 = 1 hour)
@@ -30,16 +30,16 @@ class RateLimiter:
         self.window_seconds = window_seconds
         self.requests = deque()
         self._lock = asyncio.Lock()
-    
+
     async def acquire(self):
         """Wait if necessary to respect rate limits."""
         async with self._lock:
             now = time.time()
-            
+
             # Remove old requests outside the window
             while self.requests and self.requests[0] <= now - self.window_seconds:
                 self.requests.popleft()
-            
+
             # If at limit, calculate wait time
             if len(self.requests) >= self.max_requests:
                 oldest_request = self.requests[0]
@@ -51,20 +51,20 @@ class RateLimiter:
                     now = time.time()
                     while self.requests and self.requests[0] <= now - self.window_seconds:
                         self.requests.popleft()
-            
+
             # Record this request
             self.requests.append(now)
-    
+
     def get_status(self) -> Dict[str, Any]:
         """Get current rate limiter status."""
         now = time.time()
         # Clean old requests
         while self.requests and self.requests[0] <= now - self.window_seconds:
             self.requests.popleft()
-        
+
         requests_in_window = len(self.requests)
         remaining = self.max_requests - requests_in_window
-        
+
         # Calculate reset time (when oldest request expires)
         reset_time = None
         if self.requests:
@@ -72,13 +72,13 @@ class RateLimiter:
             reset_in_seconds = max(0, reset_time - now)
         else:
             reset_in_seconds = 0
-        
+
         return {
             "requests_used": requests_in_window,
             "requests_remaining": remaining,
             "max_requests": self.max_requests,
             "reset_in_seconds": round(reset_in_seconds),
-            "reset_time": datetime.fromtimestamp(reset_time).isoformat() if reset_time else None
+            "reset_time": datetime.fromtimestamp(reset_time).isoformat() if reset_time else None,
         }
 
 
@@ -103,15 +103,15 @@ class ResponseCache:
 
         # Default TTLs for different endpoint types (in seconds)
         self.default_ttls = {
-            "leagues": 3600,      # 1 hour - leagues don't change often
-            "teams": 1800,        # 30 minutes - team info fairly static
-            "standings": 300,     # 5 minutes - standings update after games
-            "roster": 300,        # 5 minutes - roster changes matter
-            "matchup": 60,        # 1 minute - live scoring during games
-            "players": 600,       # 10 minutes - free agents change slowly
-            "draft": 86400,       # 24 hours - draft results are static
-            "waiver": 300,        # 5 minutes - waiver wire is dynamic
-            "user": 3600,         # 1 hour - user info rarely changes
+            "leagues": 3600,  # 1 hour - leagues don't change often
+            "teams": 1800,  # 30 minutes - team info fairly static
+            "standings": 300,  # 5 minutes - standings update after games
+            "roster": 300,  # 5 minutes - roster changes matter
+            "matchup": 60,  # 1 minute - live scoring during games
+            "players": 600,  # 10 minutes - free agents change slowly
+            "draft": 86400,  # 24 hours - draft results are static
+            "waiver": 300,  # 5 minutes - waiver wire is dynamic
+            "user": 3600,  # 1 hour - user info rarely changes
         }
 
     def _get_cache_key(self, endpoint: str) -> str:
@@ -233,7 +233,6 @@ class ResponseCache:
         }
 
 
-
 # Global instances
 rate_limiter = RateLimiter()
 response_cache = ResponseCache()
@@ -241,20 +240,23 @@ response_cache = ResponseCache()
 
 def with_rate_limit(func: Callable) -> Callable:
     """Decorator to add rate limiting to async functions."""
+
     @wraps(func)
     async def wrapper(*args, **kwargs):
         await rate_limiter.acquire()
         return await func(*args, **kwargs)
+
     return wrapper
 
 
 def with_cache(ttl_seconds: Optional[int] = None) -> Callable:
     """
     Decorator to add caching to async functions.
-    
+
     Args:
         ttl_seconds: Override default TTL for this function
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(endpoint: str, *args, **kwargs):
@@ -262,14 +264,16 @@ def with_cache(ttl_seconds: Optional[int] = None) -> Callable:
             cached_response = await response_cache.get(endpoint)
             if cached_response is not None:
                 return cached_response
-            
+
             # Not in cache, make the actual call
             result = await func(endpoint, *args, **kwargs)
-            
+
             # Store in cache
             if result:  # Only cache successful responses
                 await response_cache.set(endpoint, result, ttl=ttl_seconds)
-            
+
             return result
+
         return wrapper
+
     return decorator

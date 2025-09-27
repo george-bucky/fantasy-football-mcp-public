@@ -17,6 +17,7 @@ from fastmcp import Context, FastMCP
 from mcp.types import ContentBlock, TextContent
 
 import fantasy_football_multi_league
+
 # REMOVED: enhanced_mcp_tools imports - no longer using wrapper tools
 
 # Remove explicit typing to avoid type conflicts with evolving MCP types
@@ -200,7 +201,6 @@ async def _call_legacy_tool(
         }
 
 
-
 @server.tool(
     name="ff_get_leagues",
     description=(
@@ -247,7 +247,6 @@ async def ff_get_league_info(
     ),
     meta=_tool_meta("ff_get_roster"),
 )
-
 async def ff_get_roster(
     ctx: Context,
     league_key: str,
@@ -260,7 +259,7 @@ async def ff_get_roster(
 ) -> Dict[str, Any]:
     """
     Consolidated roster tool with configurable detail levels.
-    
+
     Args:
         league_key: League identifier
         team_key: Team identifier (optional, defaults to authenticated user's team)
@@ -270,11 +269,11 @@ async def ff_get_roster(
         include_analysis: Include enhanced player analysis and recommendations
         data_level: "basic" (roster only), "standard" (+ projections), "full" (everything)
     """
-    
+
     # Ensure we have a valid data_level
     if data_level is None:
         data_level = "full"
-    
+
     # Determine effective settings based on data_level and explicit parameters
     if data_level == "basic":
         effective_projections = False
@@ -328,7 +327,6 @@ async def ff_get_roster(
         }
 
 
-
 @server.tool(
     name="ff_get_standings",
     description=(
@@ -376,8 +374,6 @@ async def ff_get_matchup(
     )
 
 
-
-
 @server.tool(
     name="ff_get_players",
     description=(
@@ -401,7 +397,7 @@ async def ff_get_players(
 ) -> Dict[str, Any]:
     """
     Enhanced player search with expert analysis and Sleeper integration.
-    
+
     Args:
         league_key: League identifier
         position: Filter by position (QB, RB, WR, TE, etc.)
@@ -412,7 +408,7 @@ async def ff_get_players(
         include_projections: Include projection data
         include_external_data: Include Sleeper rankings and trending data
     """
-    
+
     # Default to enhanced mode for better player analysis
     if data_level is None:
         data_level = "full"
@@ -420,7 +416,7 @@ async def ff_get_players(
         include_analysis = True
     if include_external_data is None:
         include_external_data = True
-        
+
     return await _call_legacy_tool(
         "ff_get_players",
         ctx=ctx,
@@ -557,7 +553,7 @@ async def ff_get_waiver_wire(
 ) -> Dict[str, Any]:
     """
     Enhanced waiver wire analysis with expert recommendations.
-    
+
     Args:
         league_key: League identifier
         position: Filter by position (QB, RB, WR, TE, etc.)
@@ -566,11 +562,11 @@ async def ff_get_waiver_wire(
         include_expert_analysis: Include tiers, recommendations, and confidence scores
         data_level: Data detail level ("basic", "standard", "full")
     """
-    
+
     # Default to enhanced mode for better waiver analysis, but basic mode if expert analysis disabled
     if data_level is None:
         data_level = "full" if include_expert_analysis else "basic"
-        
+
     try:
         # Map data_level to legacy parameters for backward compatibility
         if data_level == "basic":
@@ -585,7 +581,7 @@ async def ff_get_waiver_wire(
             include_projections = True
             include_external_data = True
             include_analysis = include_expert_analysis
-        
+
         result = await _call_legacy_tool(
             "ff_get_waiver_wire",
             ctx=ctx,
@@ -597,18 +593,18 @@ async def ff_get_waiver_wire(
             include_external_data=include_external_data,
             include_analysis=include_analysis,
         )
-        
+
         # If expert analysis requested and we have players, enhance them
         if include_expert_analysis and result.get("players"):
             try:
                 from lineup_optimizer import LineupOptimizer
                 from sleeper_api import sleeper_client
-                
+
                 if ctx:
                     await ctx.info("Enhancing waiver wire players with expert analysis...")
-                
+
                 optimizer = LineupOptimizer()
-                
+
                 # Convert waiver players to Player objects for enhancement
                 enhanced_players = []
                 for player_data in result["players"]:
@@ -619,7 +615,7 @@ async def ff_get_waiver_wire(
                         enhanced = await optimizer.enhance_with_external_data(players)
                         if enhanced:
                             enhanced_players.append(enhanced[0])
-                
+
                 # Serialize enhanced players back to dict format
                 def serialize_waiver_player(player):
                     return {
@@ -635,7 +631,7 @@ async def ff_get_waiver_wire(
                         "trending_score": player.trending_score,
                         "matchup_score": player.matchup_score,
                     }
-                
+
                 if enhanced_players:
                     result["players"] = [serialize_waiver_player(p) for p in enhanced_players]
                     result["enhancement_info"] = {
@@ -644,23 +640,27 @@ async def ff_get_waiver_wire(
                         "features": [
                             "Expert tiers and recommendations",
                             "Confidence scores and risk assessment",
-                            "Sleeper rankings and trending data"
-                        ]
+                            "Sleeper rankings and trending data",
+                        ],
                     }
-                    
+
                     # Sort by expert confidence if using rank sort
                     if sort == "rank":
-                        result["players"].sort(key=lambda x: x.get("expert_confidence", 0), reverse=True)
+                        result["players"].sort(
+                            key=lambda x: x.get("expert_confidence", 0), reverse=True
+                        )
                     elif sort == "trending":
-                        result["players"].sort(key=lambda x: x.get("trending_score", 50), reverse=True)
-                
+                        result["players"].sort(
+                            key=lambda x: x.get("trending_score", 50), reverse=True
+                        )
+
             except Exception as e:
                 if ctx:
                     await ctx.info(f"Expert analysis unavailable: {e}")
                 # Return original result if enhancement fails
-        
+
         return result
-        
+
     except Exception as exc:
         return {
             "status": "error",
@@ -780,6 +780,7 @@ async def ff_analyze_reddit_sentiment(
 # PROMPTS - Reusable message templates for better LLM interactions
 # ============================================================================
 
+
 @server.prompt
 def analyze_roster_strengths(league_key: str, team_key: str) -> str:
     """Generate a prompt for analyzing roster strengths and weaknesses."""
@@ -866,6 +867,7 @@ Provide a clear recommendation with reasoning."""
 # ============================================================================
 # RESOURCES - Static and dynamic data for LLM context
 # ============================================================================
+
 
 @server.resource("config://scoring")
 def get_scoring_rules() -> str:
@@ -1060,7 +1062,9 @@ INACTIVE:
 - Check pre-game reports"""
 
 
-def run_http_server(host: Optional[str] = None, port: Optional[int] = None, *, show_banner: bool = True) -> None:
+def run_http_server(
+    host: Optional[str] = None, port: Optional[int] = None, *, show_banner: bool = True
+) -> None:
     """Start the FastMCP server using the HTTP transport."""
 
     resolved_host = host or os.getenv("HOST", "0.0.0.0")
@@ -1123,98 +1127,102 @@ try:
 except Exception:  # pragma: no cover - best effort
     _COMMIT_SHA = "unknown"
 
+
 @server.resource("guide://tool-selection")
 def get_tool_selection_guide() -> str:
     """Comprehensive guide for LLMs on when and how to use fantasy football tools."""
-    return json.dumps({
-        "title": "Fantasy Football Tool Selection Guide for LLMs",
-        "description": "Strategic guidance for AI assistants on optimal tool usage patterns",
-        "workflow_priority": [
-            "1. START: ff_get_leagues - Always begin here if you don't have a league_key",
-            "2. CONTEXT: ff_get_league_info - Understand league settings and scoring",
-            "3. BASELINE: ff_get_roster - Know current lineup before making recommendations",
-            "4. COMPETITION: ff_get_matchup - Analyze weekly opponent for strategic adjustments",
-            "5. OPPORTUNITIES: ff_get_waiver_wire - Identify available upgrades",
-            "6. OPTIMIZATION: ff_get_optimal_lineup - AI-powered lineup recommendations"
-        ],
-        "tool_categories": {
-            "CORE_LEAGUE_DATA": {
-                "description": "Essential league information and setup",
-                "tools": {
-                    "ff_get_leagues": "Discovery: Find available leagues and extract league_key identifiers",
-                    "ff_get_league_info": "Configuration: League settings, scoring rules, roster requirements",
-                    "ff_get_standings": "Rankings: Current standings, records, points for strategy context"
-                }
-            },
-            "PLAYER_ROSTER_ANALYSIS": {
-                "description": "Player and roster management tools",
-                "tools": {
-                    "ff_get_roster": "Current Lineup: Configurable roster data (basic/standard/full detail levels) for lineup decisions",
-                    "ff_get_players": "Player Search: Find specific players by name or position",
-                    "ff_get_waiver_wire": "Free Agents: Available players with advanced metrics"
-                }
-            },
-            "MATCHUP_COMPETITION": {
-                "description": "Head-to-head analysis and competitive intelligence",
-                "tools": {
-                    "ff_get_matchup": "Opponent Analysis: Weekly head-to-head strategic insights",
-                    "ff_compare_teams": "Team Comparison: Direct roster and performance comparisons"
-                }
-            },
-            "OPTIMIZATION_STRATEGY": {
-                "description": "AI-powered decision making and strategy tools",
-                "tools": {
-                    "ff_get_optimal_lineup": "AI Optimization: Championship-level lineup recommendations (use use_llm=true)",
-                    "ff_get_draft_rankings": "Player Tiers: Value assessment and tier-based rankings",
-                    "ff_analyze_reddit_sentiment": "Market Intelligence: Public opinion and trending players"
-                }
-            },
-            "ADVANCED_ANALYSIS": {
-                "description": "Deep analytics and historical insights",
-                "tools": {
-                    "ff_get_draft_results": "Draft History: Historical patterns and team building analysis",
-                    "ff_analyze_draft_state": "Live Draft: Real-time draft strategy and recommendations"
-                }
-            },
-            "UTILITY_MAINTENANCE": {
-                "description": "System maintenance and troubleshooting",
-                "tools": {
-                    "ff_refresh_token": "Authentication: Fix Yahoo API authentication issues",
-                    "ff_get_api_status": "Health Check: Verify system status and connectivity",
-                    "ff_clear_cache": "Reset: Clear cached data for fresh analysis"
-                }
-            }
-        },
-        "strategic_usage_patterns": {
-            "weekly_lineup_optimization": [
-                "ff_get_leagues -> ff_get_roster -> ff_get_matchup -> ff_get_waiver_wire -> ff_get_optimal_lineup"
+    return json.dumps(
+        {
+            "title": "Fantasy Football Tool Selection Guide for LLMs",
+            "description": "Strategic guidance for AI assistants on optimal tool usage patterns",
+            "workflow_priority": [
+                "1. START: ff_get_leagues - Always begin here if you don't have a league_key",
+                "2. CONTEXT: ff_get_league_info - Understand league settings and scoring",
+                "3. BASELINE: ff_get_roster - Know current lineup before making recommendations",
+                "4. COMPETITION: ff_get_matchup - Analyze weekly opponent for strategic adjustments",
+                "5. OPPORTUNITIES: ff_get_waiver_wire - Identify available upgrades",
+                "6. OPTIMIZATION: ff_get_optimal_lineup - AI-powered lineup recommendations",
             ],
-            "draft_preparation": [
-                "ff_get_leagues -> ff_get_league_info -> ff_get_draft_rankings -> ff_analyze_draft_state"
+            "tool_categories": {
+                "CORE_LEAGUE_DATA": {
+                    "description": "Essential league information and setup",
+                    "tools": {
+                        "ff_get_leagues": "Discovery: Find available leagues and extract league_key identifiers",
+                        "ff_get_league_info": "Configuration: League settings, scoring rules, roster requirements",
+                        "ff_get_standings": "Rankings: Current standings, records, points for strategy context",
+                    },
+                },
+                "PLAYER_ROSTER_ANALYSIS": {
+                    "description": "Player and roster management tools",
+                    "tools": {
+                        "ff_get_roster": "Current Lineup: Configurable roster data (basic/standard/full detail levels) for lineup decisions",
+                        "ff_get_players": "Player Search: Find specific players by name or position",
+                        "ff_get_waiver_wire": "Free Agents: Available players with advanced metrics",
+                    },
+                },
+                "MATCHUP_COMPETITION": {
+                    "description": "Head-to-head analysis and competitive intelligence",
+                    "tools": {
+                        "ff_get_matchup": "Opponent Analysis: Weekly head-to-head strategic insights",
+                        "ff_compare_teams": "Team Comparison: Direct roster and performance comparisons",
+                    },
+                },
+                "OPTIMIZATION_STRATEGY": {
+                    "description": "AI-powered decision making and strategy tools",
+                    "tools": {
+                        "ff_get_optimal_lineup": "AI Optimization: Championship-level lineup recommendations (use use_llm=true)",
+                        "ff_get_draft_rankings": "Player Tiers: Value assessment and tier-based rankings",
+                        "ff_analyze_reddit_sentiment": "Market Intelligence: Public opinion and trending players",
+                    },
+                },
+                "ADVANCED_ANALYSIS": {
+                    "description": "Deep analytics and historical insights",
+                    "tools": {
+                        "ff_get_draft_results": "Draft History: Historical patterns and team building analysis",
+                        "ff_analyze_draft_state": "Live Draft: Real-time draft strategy and recommendations",
+                    },
+                },
+                "UTILITY_MAINTENANCE": {
+                    "description": "System maintenance and troubleshooting",
+                    "tools": {
+                        "ff_refresh_token": "Authentication: Fix Yahoo API authentication issues",
+                        "ff_get_api_status": "Health Check: Verify system status and connectivity",
+                        "ff_clear_cache": "Reset: Clear cached data for fresh analysis",
+                    },
+                },
+            },
+            "strategic_usage_patterns": {
+                "weekly_lineup_optimization": [
+                    "ff_get_leagues -> ff_get_roster -> ff_get_matchup -> ff_get_waiver_wire -> ff_get_optimal_lineup"
+                ],
+                "draft_preparation": [
+                    "ff_get_leagues -> ff_get_league_info -> ff_get_draft_rankings -> ff_analyze_draft_state"
+                ],
+                "competitive_analysis": [
+                    "ff_get_league_info -> ff_get_standings -> ff_compare_teams -> ff_get_matchup"
+                ],
+                "market_research": [
+                    "ff_get_waiver_wire -> ff_analyze_reddit_sentiment -> ff_get_players"
+                ],
+            },
+            "decision_framework": {
+                "data_gathering": "Always start with league discovery and current roster state",
+                "context_building": "Understand league settings, scoring, and competitive landscape",
+                "opportunity_identification": "Use waiver wire and sentiment analysis for edge cases",
+                "optimization": "Apply AI-powered tools for championship-level recommendations",
+                "validation": "Cross-reference multiple data sources for confident decisions",
+            },
+            "best_practices": [
+                "NEVER guess league_key - always use ff_get_leagues first",
+                "ALWAYS check current roster before making lineup recommendations",
+                "USE ff_get_matchup for opponent-specific weekly strategy",
+                "LEVERAGE ff_analyze_reddit_sentiment for contrarian plays",
+                "APPLY use_llm=true in ff_get_optimal_lineup for AI analysis",
+                "COMBINE multiple tools for comprehensive decision making",
             ],
-            "competitive_analysis": [
-                "ff_get_league_info -> ff_get_standings -> ff_compare_teams -> ff_get_matchup"
-            ],
-            "market_research": [
-                "ff_get_waiver_wire -> ff_analyze_reddit_sentiment -> ff_get_players"
-            ]
-        },
-        "decision_framework": {
-            "data_gathering": "Always start with league discovery and current roster state",
-            "context_building": "Understand league settings, scoring, and competitive landscape", 
-            "opportunity_identification": "Use waiver wire and sentiment analysis for edge cases",
-            "optimization": "Apply AI-powered tools for championship-level recommendations",
-            "validation": "Cross-reference multiple data sources for confident decisions"
-        },
-        "best_practices": [
-            "NEVER guess league_key - always use ff_get_leagues first",
-            "ALWAYS check current roster before making lineup recommendations", 
-            "USE ff_get_matchup for opponent-specific weekly strategy",
-            "LEVERAGE ff_analyze_reddit_sentiment for contrarian plays",
-            "APPLY use_llm=true in ff_get_optimal_lineup for AI analysis",
-            "COMBINE multiple tools for comprehensive decision making"
-        ]
-    })
+        }
+    )
+
 
 @server.resource("meta://version")
 def get_version() -> str:  # pragma: no cover - simple accessor
@@ -1223,6 +1231,3 @@ def get_version() -> str:  # pragma: no cover - simple accessor
 
 if __name__ == "__main__":
     main()
-
-
-

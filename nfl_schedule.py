@@ -8,52 +8,45 @@ Simple opponent lookup for matchup analysis
 # Format: {team: opponent}
 WEEK_3_SCHEDULE = {
     # AFC East
-    "BUF": "JAX",    # Buffalo vs Jacksonville  
-    "MIA": "SEA",    # Miami vs Seattle
-    "NE": "NYJ",     # New England vs NY Jets
-    "NYJ": "NE",     # NY Jets vs New England
-    
-    # AFC North  
-    "BAL": "DAL",    # Baltimore vs Dallas
-    "CIN": "WAS",    # Cincinnati vs Washington
-    "CLE": "NYG",    # Cleveland vs NY Giants
-    "PIT": "LAC",    # Pittsburgh vs LA Chargers
-    
+    "BUF": "JAX",  # Buffalo vs Jacksonville
+    "MIA": "SEA",  # Miami vs Seattle
+    "NE": "NYJ",  # New England vs NY Jets
+    "NYJ": "NE",  # NY Jets vs New England
+    # AFC North
+    "BAL": "DAL",  # Baltimore vs Dallas
+    "CIN": "WAS",  # Cincinnati vs Washington
+    "CLE": "NYG",  # Cleveland vs NY Giants
+    "PIT": "LAC",  # Pittsburgh vs LA Chargers
     # AFC South
-    "HOU": "MIN",    # Houston vs Minnesota
-    "IND": "CHI",    # Indianapolis vs Chicago
-    "JAX": "BUF",    # Jacksonville vs Buffalo
-    "TEN": "GB",     # Tennessee vs Green Bay
-    
+    "HOU": "MIN",  # Houston vs Minnesota
+    "IND": "CHI",  # Indianapolis vs Chicago
+    "JAX": "BUF",  # Jacksonville vs Buffalo
+    "TEN": "GB",  # Tennessee vs Green Bay
     # AFC West
-    "DEN": "TB",     # Denver vs Tampa Bay
-    "KC": "ATL",     # Kansas City vs Atlanta
-    "LAC": "PIT",    # LA Chargers vs Pittsburgh
-    "LV": "CAR",     # Las Vegas vs Carolina
-    
+    "DEN": "TB",  # Denver vs Tampa Bay
+    "KC": "ATL",  # Kansas City vs Atlanta
+    "LAC": "PIT",  # LA Chargers vs Pittsburgh
+    "LV": "CAR",  # Las Vegas vs Carolina
     # NFC East
-    "DAL": "BAL",    # Dallas vs Baltimore
-    "NYG": "CLE",    # NY Giants vs Cleveland
-    "PHI": "NO",     # Philadelphia vs New Orleans
-    "WAS": "CIN",    # Washington vs Cincinnati
-    
+    "DAL": "BAL",  # Dallas vs Baltimore
+    "NYG": "CLE",  # NY Giants vs Cleveland
+    "PHI": "NO",  # Philadelphia vs New Orleans
+    "WAS": "CIN",  # Washington vs Cincinnati
     # NFC North
-    "CHI": "IND",    # Chicago vs Indianapolis
-    "DET": "ARI",    # Detroit vs Arizona
-    "GB": "TEN",     # Green Bay vs Tennessee
-    "MIN": "HOU",    # Minnesota vs Houston
-    
+    "CHI": "IND",  # Chicago vs Indianapolis
+    "DET": "ARI",  # Detroit vs Arizona
+    "GB": "TEN",  # Green Bay vs Tennessee
+    "MIN": "HOU",  # Minnesota vs Houston
     # NFC South
-    "ATL": "KC",     # Atlanta vs Kansas City
-    "CAR": "LV",     # Carolina vs Las Vegas
-    "NO": "PHI",     # New Orleans vs Philadelphia
-    "TB": "DEN",     # Tampa Bay vs Denver
-    
+    "ATL": "KC",  # Atlanta vs Kansas City
+    "CAR": "LV",  # Carolina vs Las Vegas
+    "NO": "PHI",  # New Orleans vs Philadelphia
+    "TB": "DEN",  # Tampa Bay vs Denver
     # NFC West
-    "ARI": "DET",    # Arizona vs Detroit
-    "LAR": "SF",     # LA Rams vs San Francisco
-    "SF": "LAR",     # San Francisco vs LA Rams
-    "SEA": "MIA",    # Seattle vs Miami
+    "ARI": "DET",  # Arizona vs Detroit
+    "LAR": "SF",  # LA Rams vs San Francisco
+    "SF": "LAR",  # San Francisco vs LA Rams
+    "SEA": "MIA",  # Seattle vs Miami
 }
 
 

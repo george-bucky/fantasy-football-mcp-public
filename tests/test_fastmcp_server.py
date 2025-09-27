@@ -20,13 +20,30 @@ class DummyResponse:
         ("ff_get_leagues", {}, "ff_get_leagues", {}),
         ("ff_get_league_info", {"league_key": "123"}, "ff_get_league_info", {"league_key": "123"}),
         ("ff_get_standings", {"league_key": "123"}, "ff_get_standings", {"league_key": "123"}),
-        ("ff_get_roster", {"league_key": "123"}, "ff_get_roster", {"league_key": "123", "include_projections": True, "include_external_data": True, "include_analysis": True, "data_level": "full"}),
+        (
+            "ff_get_roster",
+            {"league_key": "123"},
+            "ff_get_roster",
+            {
+                "league_key": "123",
+                "include_projections": True,
+                "include_external_data": True,
+                "include_analysis": True,
+                "data_level": "full",
+            },
+        ),
         ("ff_get_matchup", {"league_key": "123"}, "ff_get_matchup", {"league_key": "123"}),
         (
             "ff_get_players",
             {"league_key": "123"},
             "ff_get_players",
-            {"league_key": "123", "count": 10, "data_level": "full", "include_analysis": True, "include_external_data": True},
+            {
+                "league_key": "123",
+                "count": 10,
+                "data_level": "full",
+                "include_analysis": True,
+                "include_external_data": True,
+            },
         ),
         (
             "ff_compare_teams",
@@ -42,12 +59,24 @@ class DummyResponse:
         ),
         ("ff_get_api_status", {}, "ff_get_api_status", {}),
         ("ff_clear_cache", {}, "ff_clear_cache", {}),
-        ("ff_get_draft_results", {"league_key": "123"}, "ff_get_draft_results", {"league_key": "123"}),
+        (
+            "ff_get_draft_results",
+            {"league_key": "123"},
+            "ff_get_draft_results",
+            {"league_key": "123"},
+        ),
         (
             "ff_get_waiver_wire",
             {"league_key": "123"},
             "ff_get_waiver_wire",
-            {"league_key": "123", "sort": "rank", "count": 20, "include_projections": True, "include_external_data": True, "include_analysis": True},
+            {
+                "league_key": "123",
+                "sort": "rank",
+                "count": 20,
+                "include_projections": True,
+                "include_external_data": True,
+                "include_analysis": True,
+            },
         ),
         (
             "ff_get_draft_rankings",
@@ -75,7 +104,9 @@ class DummyResponse:
         ),
     ],
 )
-async def test_tool_wrappers_delegate_to_legacy(monkeypatch, func_name, kwargs, expected_name, expected_arguments):
+async def test_tool_wrappers_delegate_to_legacy(
+    monkeypatch, func_name, kwargs, expected_name, expected_arguments
+):
     captured: Dict[str, Any] = {}
 
     async def fake_call(name: str, arguments: Dict[str, Any]):

@@ -10,14 +10,14 @@ from .decision import (
     DecisionFactor,
     DecisionNode,
     MultiCriteriaScore,
-    DecisionExplanation
+    DecisionExplanation,
 )
 
 __all__ = [
-    'DecisionAgent',
-    'RiskToleranceProfile', 
-    'DecisionFactor',
-    'DecisionNode',
-    'MultiCriteriaScore',
-    'DecisionExplanation'
+    "DecisionAgent",
+    "RiskToleranceProfile",
+    "DecisionFactor",
+    "DecisionNode",
+    "MultiCriteriaScore",
+    "DecisionExplanation",
 ]

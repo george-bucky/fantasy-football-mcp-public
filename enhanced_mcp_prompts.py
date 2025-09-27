@@ -15,10 +15,7 @@ from enhanced_mcp_tools import enhanced_server
 
 @enhanced_server.prompt
 def lineup_optimization_analysis(
-    league_key: str, 
-    team_key: str, 
-    week: int,
-    strategy_preference: str = "balanced"
+    league_key: str, team_key: str, week: int, strategy_preference: str = "balanced"
 ) -> str:
     """Generate a comprehensive prompt for lineup optimization analysis."""
     return f"""You are a championship-level fantasy football analyst. Analyze the lineup optimization for team {team_key} in league {league_key} for Week {week}.
@@ -68,9 +65,7 @@ Provide a structured analysis with clear sections for each component above. Be s
 
 @enhanced_server.prompt
 def player_comparison_analysis(
-    league_key: str,
-    player_names: List[str],
-    comparison_context: str = "lineup_decision"
+    league_key: str, player_names: List[str], comparison_context: str = "lineup_decision"
 ) -> str:
     """Generate a prompt for detailed player comparison analysis."""
     return f"""You are analyzing {len(player_names)} players for a {comparison_context} in league {league_key}.
@@ -117,9 +112,7 @@ Provide a ranked comparison with detailed analysis for each player and a clear r
 
 @enhanced_server.prompt
 def what_if_scenario_analysis(
-    league_key: str,
-    scenario_description: str,
-    scenario_type: str = "player_substitution"
+    league_key: str, scenario_description: str, scenario_type: str = "player_substitution"
 ) -> str:
     """Generate a prompt for what-if scenario analysis."""
     return f"""You are analyzing a "what if" scenario for league {league_key}.
@@ -168,11 +161,7 @@ Provide a structured analysis with impact assessment, recommendation, and clear 
 
 
 @enhanced_server.prompt
-def weekly_strategy_planning(
-    league_key: str,
-    week: int,
-    team_key: str
-) -> str:
+def weekly_strategy_planning(league_key: str, week: int, team_key: str) -> str:
     """Generate a prompt for comprehensive weekly strategy planning."""
     return f"""You are developing a comprehensive weekly strategy for team {team_key} in league {league_key} for Week {week}.
 
@@ -229,11 +218,7 @@ Provide a comprehensive weekly strategy with clear sections for each component a
 
 
 @enhanced_server.prompt
-def trade_evaluation_analysis(
-    league_key: str,
-    trade_proposal: str,
-    team_key: str
-) -> str:
+def trade_evaluation_analysis(league_key: str, trade_proposal: str, team_key: str) -> str:
     """Generate a prompt for trade evaluation analysis."""
     return f"""You are evaluating a trade proposal for team {team_key} in league {league_key}.
 
@@ -291,6 +276,7 @@ Provide a structured trade evaluation with clear recommendation and detailed rea
 
 
 # Enhanced Resources for Client LLM Context
+
 
 @enhanced_server.resource("strategy://decision-framework")
 def get_decision_framework() -> str:
@@ -454,112 +440,114 @@ def get_weekly_planning_guide() -> str:
 @enhanced_server.resource("meta://enhanced-tool-usage")
 def get_enhanced_tool_usage_guide() -> str:
     """Provide comprehensive guide for using enhanced MCP tools."""
-    return json.dumps({
-        "title": "Enhanced Fantasy Football Tool Usage Guide",
-        "description": "Comprehensive guide for LLMs on optimal usage of enhanced fantasy football tools",
-        "tool_hierarchy": {
-            "foundation_tools": [
-                "ff_get_decision_context - Always start here for situational awareness",
-                "ff_get_roster_with_projections - Get roster data with comprehensive projections"
-            ],
-            "analysis_tools": [
-                "ff_analyze_lineup_options - Compare different lineup strategies",
-                "ff_compare_players - Evaluate specific player decisions",
-                "ff_what_if_analysis - Model scenario impacts and alternatives"
-            ],
-            "specialized_tools": [
-                "ff_get_waiver_wire - Identify available upgrades",
-                "ff_analyze_reddit_sentiment - Gauge market sentiment",
-                "ff_get_matchup - Analyze opponent and weekly context"
-            ]
-        },
-        "workflow_patterns": {
-            "lineup_optimization": [
-                "1. ff_get_decision_context (situational awareness)",
-                "2. ff_get_roster_with_projections (roster data with projections)",
-                "3. ff_analyze_lineup_options (strategy comparison)",
-                "4. ff_compare_players (specific decisions)",
-                "5. ff_what_if_analysis (scenario modeling)"
-            ],
-            "player_evaluation": [
-                "1. ff_get_roster_with_projections (player data)",
-                "2. ff_compare_players (direct comparison)",
-                "3. ff_get_decision_context (league context)",
-                "4. ff_what_if_analysis (impact assessment)"
-            ],
-            "trade_analysis": [
-                "1. ff_get_roster_with_projections (current roster)",
-                "2. ff_compare_players (trade evaluation)",
-                "3. ff_get_decision_context (team needs)",
-                "4. ff_what_if_analysis (trade impact)"
-            ]
-        },
-        "data_utilization": {
-            "enhanced_player_data": {
-                "projections": "Use consensus projections for primary decisions",
-                "matchups": "Matchup scores 70+ = favorable, 30- = difficult",
-                "trending": "High trending scores indicate market interest",
-                "injury_status": "Monitor injury probability and status",
-                "ownership": "Consider ownership for leverage opportunities",
-                "tiers": "Elite/stud players must-start regardless of matchup"
+    return json.dumps(
+        {
+            "title": "Enhanced Fantasy Football Tool Usage Guide",
+            "description": "Comprehensive guide for LLMs on optimal usage of enhanced fantasy football tools",
+            "tool_hierarchy": {
+                "foundation_tools": [
+                    "ff_get_decision_context - Always start here for situational awareness",
+                    "ff_get_roster_with_projections - Get roster data with comprehensive projections",
+                ],
+                "analysis_tools": [
+                    "ff_analyze_lineup_options - Compare different lineup strategies",
+                    "ff_compare_players - Evaluate specific player decisions",
+                    "ff_what_if_analysis - Model scenario impacts and alternatives",
+                ],
+                "specialized_tools": [
+                    "ff_get_waiver_wire - Identify available upgrades",
+                    "ff_analyze_reddit_sentiment - Gauge market sentiment",
+                    "ff_get_matchup - Analyze opponent and weekly context",
+                ],
             },
-            "contextual_factors": {
-                "league_settings": "Scoring system affects player values",
-                "opponent_analysis": "Consider opponent strength and strategy",
-                "playoff_implications": "Week importance affects strategy",
-                "weather_conditions": "Monitor weather impact on games",
-                "injury_reports": "Check practice participation and status"
-            }
-        },
-        "decision_framework": {
-            "primary_factors": {
-                "projections": "Consensus projections with confidence levels",
-                "matchups": "Opponent difficulty and opportunity assessment",
-                "player_tiers": "Elite/stud players must-start"
+            "workflow_patterns": {
+                "lineup_optimization": [
+                    "1. ff_get_decision_context (situational awareness)",
+                    "2. ff_get_roster_with_projections (roster data with projections)",
+                    "3. ff_analyze_lineup_options (strategy comparison)",
+                    "4. ff_compare_players (specific decisions)",
+                    "5. ff_what_if_analysis (scenario modeling)",
+                ],
+                "player_evaluation": [
+                    "1. ff_get_roster_with_projections (player data)",
+                    "2. ff_compare_players (direct comparison)",
+                    "3. ff_get_decision_context (league context)",
+                    "4. ff_what_if_analysis (impact assessment)",
+                ],
+                "trade_analysis": [
+                    "1. ff_get_roster_with_projections (current roster)",
+                    "2. ff_compare_players (trade evaluation)",
+                    "3. ff_get_decision_context (team needs)",
+                    "4. ff_what_if_analysis (trade impact)",
+                ],
             },
-            "secondary_factors": {
-                "trending": "Market sentiment and recent activity",
-                "injury_risk": "Current status and probability of playing",
-                "ownership": "Public ownership and leverage potential"
+            "data_utilization": {
+                "enhanced_player_data": {
+                    "projections": "Use consensus projections for primary decisions",
+                    "matchups": "Matchup scores 70+ = favorable, 30- = difficult",
+                    "trending": "High trending scores indicate market interest",
+                    "injury_status": "Monitor injury probability and status",
+                    "ownership": "Consider ownership for leverage opportunities",
+                    "tiers": "Elite/stud players must-start regardless of matchup",
+                },
+                "contextual_factors": {
+                    "league_settings": "Scoring system affects player values",
+                    "opponent_analysis": "Consider opponent strength and strategy",
+                    "playoff_implications": "Week importance affects strategy",
+                    "weather_conditions": "Monitor weather impact on games",
+                    "injury_reports": "Check practice participation and status",
+                },
             },
-            "tiebreakers": {
-                "value": "Cost vs expected production",
-                "consistency": "Floor vs ceiling projections",
-                "upside": "Breakout potential and ceiling"
-            }
-        },
-        "best_practices": [
-            "ALWAYS start with ff_get_decision_context for situational awareness",
-            "USE ff_get_roster_with_projections for comprehensive player data",
-            "COMPARE multiple strategies with ff_analyze_lineup_options",
-            "EVALUATE specific decisions with ff_compare_players",
-            "MODEL scenarios with ff_what_if_analysis",
-            "CONSIDER all data points, not just projections",
-            "BALANCE risk and reward in decision-making",
-            "ADAPT strategy based on league context and situation"
-        ],
-        "common_mistakes": [
-            "Ignoring matchup scores in favor of projections only",
-            "Not considering injury risk and backup plans",
-            "Overlooking ownership percentages for leverage",
-            "Failing to adapt strategy based on league context",
-            "Not using all available enhanced data",
-            "Making decisions without considering alternatives",
-            "Ignoring weather and game environment factors",
-            "Not planning for contingency scenarios"
-        ]
-    })
+            "decision_framework": {
+                "primary_factors": {
+                    "projections": "Consensus projections with confidence levels",
+                    "matchups": "Opponent difficulty and opportunity assessment",
+                    "player_tiers": "Elite/stud players must-start",
+                },
+                "secondary_factors": {
+                    "trending": "Market sentiment and recent activity",
+                    "injury_risk": "Current status and probability of playing",
+                    "ownership": "Public ownership and leverage potential",
+                },
+                "tiebreakers": {
+                    "value": "Cost vs expected production",
+                    "consistency": "Floor vs ceiling projections",
+                    "upside": "Breakout potential and ceiling",
+                },
+            },
+            "best_practices": [
+                "ALWAYS start with ff_get_decision_context for situational awareness",
+                "USE ff_get_roster_with_projections for comprehensive player data",
+                "COMPARE multiple strategies with ff_analyze_lineup_options",
+                "EVALUATE specific decisions with ff_compare_players",
+                "MODEL scenarios with ff_what_if_analysis",
+                "CONSIDER all data points, not just projections",
+                "BALANCE risk and reward in decision-making",
+                "ADAPT strategy based on league context and situation",
+            ],
+            "common_mistakes": [
+                "Ignoring matchup scores in favor of projections only",
+                "Not considering injury risk and backup plans",
+                "Overlooking ownership percentages for leverage",
+                "Failing to adapt strategy based on league context",
+                "Not using all available enhanced data",
+                "Making decisions without considering alternatives",
+                "Ignoring weather and game environment factors",
+                "Not planning for contingency scenarios",
+            ],
+        }
+    )
 
 
 # Export all prompts and resources
 __all__ = [
     "lineup_optimization_analysis",
-    "player_comparison_analysis", 
+    "player_comparison_analysis",
     "what_if_scenario_analysis",
     "weekly_strategy_planning",
     "trade_evaluation_analysis",
     "get_decision_framework",
     "get_player_evaluation_criteria",
     "get_weekly_planning_guide",
-    "get_enhanced_tool_usage_guide"
+    "get_enhanced_tool_usage_guide",
 ]

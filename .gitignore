@@ -45,6 +45,10 @@ yahoo_token.json
 # Test files and debug output (excluding organized test directories)
 debug_*.py
 *_debug.py
+*_enhancement.py
+*_enhanced.py
+test_*enhancement*.py
+test_enhanced_*.py
 find_*.py
 parse_*.py
 fetch_*.py

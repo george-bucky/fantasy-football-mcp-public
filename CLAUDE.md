@@ -174,13 +174,14 @@ teams[key]["team"][0]  # List of dict elements
 - Matchups: 1 minute
 - Players/stats: 15 minutes
 
-## MCP Tools (13 Available)
+## MCP Tools (18 Available)
 
 **League**: `ff_get_leagues`, `ff_get_league_info`, `ff_get_standings`
-**Team**: `ff_get_roster`, `ff_get_matchup`, `ff_get_optimal_lineup`
+**Team**: `ff_get_roster`, `ff_get_matchup`, `ff_get_optimal_lineup`, `ff_compare_teams`
 **Players**: `ff_get_players`, `ff_get_waiver_wire`, `ff_get_draft_rankings`
-**Draft**: `ff_get_draft_recommendation`, `ff_analyze_draft_state`
-**Admin**: `ff_get_draft_results`, `ff_refresh_token`
+**Draft**: `ff_get_draft_recommendation`, `ff_analyze_draft_state`, `ff_get_draft_results`
+**Analytics**: `ff_analyze_reddit_sentiment`
+**Admin**: `ff_refresh_token`, `ff_get_api_status`, `ff_clear_cache`
 
 ### Draft Tools Usage
 
@@ -209,6 +210,27 @@ teams[key]["team"][0]  # List of dict elements
 - **Aggressive**: Chase upside, target breakout candidates
 - **Balanced**: Optimal mix of safety and upside potential
 
+### Analytics Tools Usage
+
+**`ff_analyze_reddit_sentiment`** - Social sentiment analysis
+```python
+# Analyze Reddit sentiment for multiple players
+{
+  "players": ["Josh Allen", "Christian McCaffrey", "Cooper Kupp"],
+  "time_window_hours": 48  # optional, defaults to 48
+}
+```
+
+**`ff_compare_teams`** - Team comparison for trades/matchups
+```python
+# Compare two teams in the same league
+{
+  "league_key": "461.l.900001",
+  "team_key_a": "461.l.900001.t.1",
+  "team_key_b": "461.l.900001.t.2"
+}
+```
+
 ## Model Performance Metrics
 
 Target model performance (when validation suite is implemented):
@@ -234,6 +256,7 @@ Known challenges:
 - Yahoo: 1000 req/hour limit
 - Implemented: 900/hour sliding window
 - Check via `ff_get_api_status` tool
+- Clear cache via `ff_clear_cache` tool if needed
 
 **"Only showing one league"**
 - Verify YAHOO_GUID in .env

@@ -25,6 +25,7 @@ pytestmark = pytest.mark.skipif(
     reason="Set RUN_LIVE_TESTS=1 to execute live Yahoo API integration tests.",
 )
 
+
 async def _get_primary_league_and_team() -> Tuple[str, str]:
     leagues = await discover_leagues()
     if not leagues:
@@ -69,9 +70,7 @@ async def test_parse_yahoo_roster_accepts_simplified_payload():
 async def test_ff_get_roster_with_projections_returns_live_data():
     league_key, team_key = await _get_primary_league_and_team()
 
-    result = await enhanced_mcp_tools.ff_get_roster_with_projections(
-        None, league_key, team_key
-    )
+    result = await enhanced_mcp_tools.ff_get_roster_with_projections(None, league_key, team_key)
 
     assert result["status"] == "success"
     assert result["total_players"] > 0
