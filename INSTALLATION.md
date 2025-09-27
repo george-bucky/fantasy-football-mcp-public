@@ -178,7 +178,7 @@ Once installed, you'll have access to 12 tools:
 5. **ff_compare_teams** - Compare two teams' rosters
 6. **ff_get_matchup** - View matchup details
 7. **ff_get_players** - Browse available players
-8. **ff_get_optimal_lineup** - Get lineup recommendations
+8. **ff_build_lineup** - Build optimal lineup with positional constraints
 9. **ff_refresh_token** - Refresh Yahoo access token
 10. **ff_get_draft_results** - View draft results and grades
 11. **ff_get_waiver_wire** - Find top waiver wire pickups

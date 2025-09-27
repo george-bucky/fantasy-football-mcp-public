@@ -177,7 +177,7 @@ teams[key]["team"][0]  # List of dict elements
 ## MCP Tools (18 Available)
 
 **League**: `ff_get_leagues`, `ff_get_league_info`, `ff_get_standings`
-**Team**: `ff_get_roster`, `ff_get_matchup`, `ff_get_optimal_lineup`, `ff_compare_teams`
+**Team**: `ff_get_roster`, `ff_get_matchup`, `ff_build_lineup`, `ff_compare_teams`
 **Players**: `ff_get_players`, `ff_get_waiver_wire`, `ff_get_draft_rankings`
 **Draft**: `ff_get_draft_recommendation`, `ff_analyze_draft_state`, `ff_get_draft_results`
 **Analytics**: `ff_analyze_reddit_sentiment`

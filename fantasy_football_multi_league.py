@@ -1155,8 +1155,8 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
-            name="ff_get_optimal_lineup",
-            description="Get AI-optimized lineup recommendations for a league",
+            name="ff_build_lineup",
+            description="Build optimal lineup from your roster using strategy-based optimization and positional constraints",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -1913,7 +1913,7 @@ async def _handle_ff_compare_teams(arguments: dict) -> dict:
     }
 
 
-async def _handle_ff_get_optimal_lineup(arguments: dict) -> dict:
+async def _handle_ff_build_lineup(arguments: dict) -> dict:
     league_key = arguments.get("league_key")
     week = arguments.get("week")
     strategy = arguments.get("strategy", "balanced")
@@ -2119,7 +2119,7 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
 
     try:
         from lineup_optimizer import lineup_optimizer, Player
-        from sleeper_api import get_trending_adds
+        from sleeper_api import get_trending_adds, sleeper_client
     except ImportError as exc:
         result["note"] = f"Enhanced data unavailable: {exc}"
         return result
@@ -2136,6 +2136,22 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
             enhanced_players = await lineup_optimizer.enhance_with_external_data(
                 enhanced_players, week=week
             )
+
+            # Add expert advice for waiver wire analysis
+            if include_analysis:
+                for player in enhanced_players:
+                    try:
+                        expert_advice = await sleeper_client.get_expert_advice(player.name, week)
+                        player.expert_tier = expert_advice.get("tier", "Depth")
+                        player.expert_recommendation = expert_advice.get("recommendation", "Bench")
+                        player.expert_confidence = expert_advice.get("confidence", 50)
+                        player.expert_advice = expert_advice.get("advice", "No analysis available")
+                    except Exception as e:
+                        # Continue with default values if expert advice fails
+                        player.expert_tier = "Depth"
+                        player.expert_recommendation = "Monitor"
+                        player.expert_confidence = 50
+                        player.expert_advice = f"Expert analysis unavailable: {str(e)[:50]}"
 
             # Fetch and merge trending data
             trending = await get_trending_adds(count)
@@ -2191,6 +2207,11 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                         ),
                         "N/A",
                     ),
+                    # Expert advice fields
+                    "expert_tier": getattr(player, "expert_tier", None) if include_analysis else None,
+                    "expert_recommendation": getattr(player, "expert_recommendation", None) if include_analysis else None,
+                    "expert_confidence": getattr(player, "expert_confidence", None) if include_analysis else None,
+                    "expert_advice": getattr(player, "expert_advice", None) if include_analysis else None,
                 }
 
                 # Merge trending
@@ -2200,19 +2221,115 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     base["trending_count"] = trend.get("count", 0)
                     base["trending_position"] = trend.get("position")
 
-                # Add analysis if flagged
+                return base
+
+            # Analyze positional scarcity in league for context
+            position_scarcity = {}
+            if include_analysis:
+                try:
+                    # Simple scarcity analysis based on ownership and position
+                    position_counts = {}
+
+                    for p in basic_players:
+                        pos = p.get("position", "Unknown")
+                        owned = p.get("owned_pct", 0.0)
+
+                        if pos not in position_counts:
+                            position_counts[pos] = {"total": 0, "owned_sum": 0}
+
+                        position_counts[pos]["total"] += 1
+                        position_counts[pos]["owned_sum"] += owned
+
+                    # Calculate scarcity scores
+                    for pos, data in position_counts.items():
+                        avg_owned = data["owned_sum"] / data["total"] if data["total"] > 0 else 0
+                        # Higher average ownership = more scarcity
+                        scarcity_score = min(avg_owned / 10, 10)  # 0-10 scale
+                        position_scarcity[pos] = {
+                            "scarcity_score": round(scarcity_score, 1),
+                            "avg_ownership": round(avg_owned, 1),
+                            "available_count": data["total"]
+                        }
+                except Exception:
+                    # If scarcity analysis fails, continue without it
+                    pass
+
+            # Serialize enhanced players with analysis
+            enhanced_list = []
+            for player in enhanced_players:
+                if not player.is_valid():
+                    continue
+
+                # Create serialized player data
+                base = serialize_waiver_player(player)
+
+                # Add waiver-specific analysis if flagged
                 if include_analysis:
+                    # Calculate comprehensive waiver priority score
+                    expert_confidence = getattr(player, "expert_confidence", 50)
                     proj = (player.yahoo_projection or 0) + (player.sleeper_projection or 0)
                     trend_score = base.get("trending_count", 0)
                     owned = base.get("owned_pct", 0.0)
-                    base["waiver_priority"] = round((proj * 0.6 + trend_score * 0.4), 1)
+
+                    # Position scarcity bonus (0-5 points)
+                    pos_scarcity = position_scarcity.get(player.position, {}).get("scarcity_score", 0)
+                    scarcity_bonus = min(pos_scarcity * 0.5, 5)
+
+                    # Waiver-specific scoring algorithm
+                    # Base score from expert confidence (35% weight, reduced to add scarcity)
+                    confidence_score = expert_confidence * 0.35
+
+                    # Projection score (30% weight)
+                    projection_score = min(proj * 2, 30)  # Cap at 30 points
+
+                    # Ownership bonus - lower ownership = higher priority (20% weight)
+                    ownership_bonus = max(0, (50 - owned) * 0.4)  # Max 20 points for 0% owned
+
+                    # Trending bonus (10% weight)
+                    trending_bonus = min(trend_score * 1.5, 10)  # Cap at 10 points
+
+                    # Final waiver priority score
+                    waiver_priority = confidence_score + projection_score + ownership_bonus + trending_bonus + scarcity_bonus
+                    base["waiver_priority"] = round(waiver_priority, 1)
+
+                    # Enhanced analysis explanation
+                    expert_tier = getattr(player, "expert_tier", "Unknown")
+                    expert_rec = getattr(player, "expert_recommendation", "Monitor")
+
+                    # Add scarcity context to analysis
+                    scarcity_text = ""
+                    if pos_scarcity > 7:
+                        scarcity_text = f" HIGH SCARCITY at {player.position}!"
+                    elif pos_scarcity > 4:
+                        scarcity_text = f" Moderate scarcity at {player.position}."
+
                     base["analysis"] = (
-                        f"Priority based on proj ({proj:.1f}) + trending ({trend_score})"
+                        f"{expert_tier} tier player with {expert_confidence}% confidence. "
+                        f"Recommendation: {expert_rec}. Priority: {base['waiver_priority']}/100 "
+                        f"(proj: {proj:.1f}, owned: {owned:.1f}%, trending: {trend_score}){scarcity_text}"
                     )
 
-                return base
+                    # Add pickup urgency classification (adjusted for scarcity)
+                    urgency_threshold = waiver_priority + (scarcity_bonus * 2)  # Boost urgency for scarce positions
+                    if urgency_threshold >= 80:
+                        base["pickup_urgency"] = "MUST ADD - Elite waiver target"
+                    elif urgency_threshold >= 65:
+                        base["pickup_urgency"] = "High Priority - Strong pickup"
+                    elif urgency_threshold >= 50:
+                        base["pickup_urgency"] = "Moderate - Worth a claim"
+                    elif urgency_threshold >= 35:
+                        base["pickup_urgency"] = "Low Priority - Depth option"
+                    else:
+                        base["pickup_urgency"] = "Avoid - Better options available"
 
-            enhanced_list = [serialize_waiver_player(p) for p in enhanced_players if p.is_valid()]
+                    # Add position context
+                    base["position_context"] = position_scarcity.get(player.position, {
+                        "scarcity_score": 0,
+                        "avg_ownership": 0,
+                        "available_count": 0
+                    })
+
+                enhanced_list.append(base)
             # Sort by waiver_priority or projection if analysis/projections
             if include_analysis:
                 enhanced_list.sort(key=lambda x: x.get("waiver_priority", 0), reverse=True)
@@ -2232,7 +2349,27 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                             "projections": include_projections,
                             "external_data": include_external_data,
                             "analysis": include_analysis,
+                            "expert_advice": include_analysis,  # Expert advice tied to analysis flag
                         },
+                        "features": [
+                            "Yahoo ownership and change data",
+                            "Sleeper projections and rankings" if include_external_data else None,
+                            "Matchup analysis" if include_external_data else None,
+                            "Expert tier classification" if include_analysis else None,
+                            "Waiver priority scoring" if include_analysis else None,
+                            "Pickup urgency assessment" if include_analysis else None,
+                            "Positional scarcity analysis" if include_analysis else None,
+                        ],
+                        "algorithm": {
+                            "waiver_priority_weights": {
+                                "expert_confidence": "35%",
+                                "projections": "30%",
+                                "ownership_bonus": "20%",
+                                "trending_bonus": "10%",
+                                "scarcity_bonus": "5%"
+                            }
+                        } if include_analysis else None,
+                        "position_scarcity": position_scarcity if include_analysis else None,
                         "week": week or "current",
                         "trending_count": len(trending),
                     },
@@ -2323,7 +2460,7 @@ TOOL_HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
     "ff_get_matchup": _handle_ff_get_matchup,
     "ff_get_players": _handle_ff_get_players,
     "ff_compare_teams": _handle_ff_compare_teams,
-    "ff_get_optimal_lineup": _handle_ff_get_optimal_lineup,
+    "ff_build_lineup": _handle_ff_build_lineup,
     "ff_refresh_token": _handle_ff_refresh_token,
     "ff_get_api_status": _handle_ff_get_api_status,
     "ff_clear_cache": _handle_ff_clear_cache,

@@ -64,9 +64,8 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "Contrast two league rosters side-by-side to evaluate trades or matchup "
         "advantages. Provide both Yahoo team keys."
     ),
-    "ff_get_optimal_lineup": (
-        "Generate a recommended starting lineup for the authenticated team, "
-        "optionally targeting a conservative, balanced, or aggressive strategy."
+    "ff_build_lineup": (
+        "Build optimal lineup from your roster using strategy-based optimization and positional constraints."
     ),
     "ff_refresh_token": (
         "Refresh the stored Yahoo OAuth access token when API responses start "
@@ -456,14 +455,14 @@ async def ff_compare_teams(
 
 
 @server.tool(
-    name="ff_get_optimal_lineup",
+    name="ff_build_lineup",
     description=(
-        "Generate AI-supported lineup recommendations for the authenticated "
-        "team using Yahoo data and Sleeper projections."
+        "Build optimal lineup from your roster using strategy-based optimization and positional constraints. "
+        "Uses advanced analytics including matchup analysis, player projections, and situational factors."
     ),
-    meta=_tool_meta("ff_get_optimal_lineup"),
+    meta=_tool_meta("ff_build_lineup"),
 )
-async def ff_get_optimal_lineup(
+async def ff_build_lineup(
     ctx: Context,
     league_key: str,
     week: Optional[int] = None,
@@ -471,7 +470,7 @@ async def ff_get_optimal_lineup(
     debug: bool = False,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
-        "ff_get_optimal_lineup",
+        "ff_build_lineup",
         ctx=ctx,
         league_key=league_key,
         week=week,
@@ -594,70 +593,26 @@ async def ff_get_waiver_wire(
             include_analysis=include_analysis,
         )
 
-        # If expert analysis requested and we have players, enhance them
-        if include_expert_analysis and result.get("players"):
-            try:
-                from lineup_optimizer import LineupOptimizer
-                from sleeper_api import sleeper_client
+        # Check if main server provided enhanced players
+        if include_expert_analysis and result.get("enhanced_players"):
+            # Main server handled the enhancement - use enhanced data
+            if ctx:
+                await ctx.info("Using enhanced waiver wire data from main server...")
 
-                if ctx:
-                    await ctx.info("Enhancing waiver wire players with expert analysis...")
+            # Replace basic players with enhanced players for better data
+            result["players"] = result["enhanced_players"]
 
-                optimizer = LineupOptimizer()
-
-                # Convert waiver players to Player objects for enhancement
-                enhanced_players = []
-                for player_data in result["players"]:
-                    # Create a minimal roster payload for the optimizer
-                    roster_payload = {"roster": [player_data]}
-                    players = await optimizer.parse_yahoo_roster(roster_payload)
-                    if players:
-                        enhanced = await optimizer.enhance_with_external_data(players)
-                        if enhanced:
-                            enhanced_players.append(enhanced[0])
-
-                # Serialize enhanced players back to dict format
-                def serialize_waiver_player(player):
-                    return {
-                        **player.raw,  # Original Yahoo data
-                        "sleeper_id": player.sleeper_id,
-                        "sleeper_match_method": player.sleeper_match_method,
-                        "expert_tier": player.expert_tier,
-                        "expert_recommendation": player.expert_recommendation,
-                        "expert_confidence": player.expert_confidence,
-                        "expert_advice": player.expert_advice,
-                        "search_rank": player.search_rank,
-                        "risk_level": player.risk_level,
-                        "trending_score": player.trending_score,
-                        "matchup_score": player.matchup_score,
-                    }
-
-                if enhanced_players:
-                    result["players"] = [serialize_waiver_player(p) for p in enhanced_players]
-                    result["enhancement_info"] = {
-                        "expert_analysis": True,
-                        "data_sources": ["Yahoo", "Sleeper"],
-                        "features": [
-                            "Expert tiers and recommendations",
-                            "Confidence scores and risk assessment",
-                            "Sleeper rankings and trending data",
-                        ],
-                    }
-
-                    # Sort by expert confidence if using rank sort
-                    if sort == "rank":
-                        result["players"].sort(
-                            key=lambda x: x.get("expert_confidence", 0), reverse=True
-                        )
-                    elif sort == "trending":
-                        result["players"].sort(
-                            key=lambda x: x.get("trending_score", 50), reverse=True
-                        )
-
-            except Exception as e:
-                if ctx:
-                    await ctx.info(f"Expert analysis unavailable: {e}")
-                # Return original result if enhancement fails
+            # Ensure proper sorting based on request
+            if sort == "rank" and result["players"]:
+                # Sort by waiver_priority if available, else expert_confidence
+                if "waiver_priority" in result["players"][0]:
+                    result["players"].sort(key=lambda x: x.get("waiver_priority", 0), reverse=True)
+                else:
+                    result["players"].sort(key=lambda x: x.get("expert_confidence", 0), reverse=True)
+            elif sort == "trending":
+                result["players"].sort(key=lambda x: x.get("trending_score", 50), reverse=True)
+        elif include_expert_analysis and ctx:
+            await ctx.info("Expert analysis requested but not available from main server")
 
         return result
 
@@ -764,13 +719,13 @@ async def ff_analyze_reddit_sentiment(
 # ============================================================================
 
 # REMOVED: ff_get_roster_with_projections_wrapper - replaced by ff_get_roster with data_level='full'
-# REMOVED: ff_analyze_lineup_options_wrapper - complex functionality can be achieved through ff_get_optimal_lineup
+# REMOVED: ff_analyze_lineup_options_wrapper - complex functionality can be achieved through ff_build_lineup
 
 
 # REMOVED: ff_compare_players_wrapper - player comparison can be done through ff_get_players and ff_get_waiver_wire
 
 
-# REMOVED: ff_what_if_analysis_wrapper - scenario analysis can be done using ff_get_optimal_lineup with different strategies
+# REMOVED: ff_what_if_analysis_wrapper - scenario analysis can be done using ff_build_lineup with different strategies
 
 
 # REMOVED: ff_get_decision_context_wrapper - context can be gathered through ff_get_league_info, ff_get_matchup, ff_get_standings
@@ -1095,7 +1050,7 @@ __all__ = [
     "ff_get_matchup",
     "ff_get_players",
     "ff_compare_teams",
-    "ff_get_optimal_lineup",
+    "ff_build_lineup",
     "ff_refresh_token",
     "ff_get_api_status",
     "ff_clear_cache",
@@ -1141,7 +1096,7 @@ def get_tool_selection_guide() -> str:
                 "3. BASELINE: ff_get_roster - Know current lineup before making recommendations",
                 "4. COMPETITION: ff_get_matchup - Analyze weekly opponent for strategic adjustments",
                 "5. OPPORTUNITIES: ff_get_waiver_wire - Identify available upgrades",
-                "6. OPTIMIZATION: ff_get_optimal_lineup - AI-powered lineup recommendations",
+                "6. OPTIMIZATION: ff_build_lineup - AI-powered lineup construction",
             ],
             "tool_categories": {
                 "CORE_LEAGUE_DATA": {
@@ -1170,7 +1125,7 @@ def get_tool_selection_guide() -> str:
                 "OPTIMIZATION_STRATEGY": {
                     "description": "AI-powered decision making and strategy tools",
                     "tools": {
-                        "ff_get_optimal_lineup": "AI Optimization: Championship-level lineup recommendations (use use_llm=true)",
+                        "ff_build_lineup": "AI Optimization: Championship-level lineup recommendations with positional constraints",
                         "ff_get_draft_rankings": "Player Tiers: Value assessment and tier-based rankings",
                         "ff_analyze_reddit_sentiment": "Market Intelligence: Public opinion and trending players",
                     },
@@ -1193,7 +1148,7 @@ def get_tool_selection_guide() -> str:
             },
             "strategic_usage_patterns": {
                 "weekly_lineup_optimization": [
-                    "ff_get_leagues -> ff_get_roster -> ff_get_matchup -> ff_get_waiver_wire -> ff_get_optimal_lineup"
+                    "ff_get_leagues -> ff_get_roster -> ff_get_matchup -> ff_get_waiver_wire -> ff_build_lineup"
                 ],
                 "draft_preparation": [
                     "ff_get_leagues -> ff_get_league_info -> ff_get_draft_rankings -> ff_analyze_draft_state"
@@ -1217,7 +1172,7 @@ def get_tool_selection_guide() -> str:
                 "ALWAYS check current roster before making lineup recommendations",
                 "USE ff_get_matchup for opponent-specific weekly strategy",
                 "LEVERAGE ff_analyze_reddit_sentiment for contrarian plays",
-                "APPLY use_llm=true in ff_get_optimal_lineup for AI analysis",
+                "APPLY strategy parameters in ff_build_lineup for optimized construction",
                 "COMBINE multiple tools for comprehensive decision making",
             ],
         }

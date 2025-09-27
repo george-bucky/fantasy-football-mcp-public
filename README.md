@@ -27,8 +27,8 @@ local development.
   team key.
 - `ff_get_matchup` – Review matchup information for a given week.
 - `ff_compare_teams` – Compare two teams' rosters inside a league.
-- `ff_get_optimal_lineup` – Generate lineup recommendations using Yahoo data and
-  Sleeper projections.
+- `ff_build_lineup` – Build optimal lineup using strategy-based optimization and
+  positional constraints.
 
 ### Player Discovery & Draft
 - `ff_get_players` – Browse current free agents with ownership context.

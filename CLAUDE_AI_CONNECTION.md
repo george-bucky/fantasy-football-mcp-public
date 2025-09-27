@@ -88,7 +88,7 @@ wss://fantasy-football-mcp-server.onrender.com/mcp/ws
 
 ### Available MCP Tools:
 - `ff_get_leagues` - Get all your fantasy leagues
-- `ff_get_optimal_lineup` - Get AI-optimized lineup recommendations
+- `ff_build_lineup` - Build optimal lineup with strategy-based optimization
 - `ff_get_waiver_wire` - Get top waiver wire pickups
 - `ff_get_draft_recommendation` - Get draft recommendations
 - And 12 more fantasy football tools...
