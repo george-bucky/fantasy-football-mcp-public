@@ -1,136 +1,224 @@
-# Fantasy Football FastMCP Server
+# Fantasy Football MCP Server
 
-A Model Context Protocol (MCP) server for Yahoo Fantasy Football that now ships
-with a single FastMCP entry point suitable for fastmcp.cloud deployments and
-local development.
+A comprehensive Model Context Protocol (MCP) server for Yahoo Fantasy Football that provides intelligent lineup optimization, draft assistance, and league management through AI-powered tools.
 
-## Features
+## 🚀 Features
 
-- **Multi-League Support** – Automatically discovers and manages every Yahoo
-  Fantasy Football league associated with the authenticated account.
-- **Complete League Operations** – Standings, rosters, matchups, waiver wire and
-  draft tooling are all available through MCP tools.
-- **FastMCP Native** – `fastmcp_server.py` exposes each capability with
-  `@server.tool` decorators and runs over the HTTP transport by default.
-- **Token Refresh Support** – Includes a tool for refreshing Yahoo OAuth tokens
-  when access tokens expire.
-- **Caching & Rate-Limit Visibility** – Tools to inspect and clear cached Yahoo
-  responses for quick troubleshooting.
+### Core Capabilities
+- **Multi-League Support** – Automatically discovers and manages all Yahoo Fantasy Football leagues associated with your account
+- **Intelligent Lineup Optimization** – Advanced algorithms considering matchups, expert projections, and position-normalized value
+- **Draft Assistant** – Real-time draft recommendations with strategy-based analysis and VORP calculations
+- **Comprehensive Analytics** – Reddit sentiment analysis, team comparisons, and performance metrics
+- **Multiple Deployment Options** – FastMCP, traditional MCP, Docker, and cloud deployment support
 
-## Available MCP Tools
+### Advanced Analytics
+- **Position Normalization** – Smart FLEX decisions accounting for different position baselines
+- **Multi-Source Projections** – Combines Yahoo and Sleeper expert rankings with matchup analysis
+- **Strategy-Based Optimization** – Conservative, aggressive, and balanced approaches
+- **Volatility Scoring** – Floor vs ceiling analysis for consistent or boom-bust plays
+- **Live Draft Support** – Real-time recommendations during active drafts
+
+## 🛠️ Available MCP Tools
 
 ### League & Team Management
-- `ff_get_leagues` – List all leagues tied to the authenticated Yahoo account.
-- `ff_get_league_info` – Retrieve metadata and your team summary for a league.
-- `ff_get_standings` – View league standings with wins, losses and points.
-- `ff_get_roster` – Inspect roster details for the logged-in team or a specific
-  team key.
-- `ff_get_matchup` – Review matchup information for a given week.
-- `ff_compare_teams` – Compare two teams' rosters inside a league.
-- `ff_build_lineup` – Build optimal lineup using strategy-based optimization and
-  positional constraints.
+- `ff_get_leagues` – List all leagues for your authenticated Yahoo account
+- `ff_get_league_info` – Retrieve detailed league metadata and team information
+- `ff_get_standings` – View current league standings with wins, losses, and points
+- `ff_get_roster` – Inspect detailed roster information for any team
+- `ff_get_matchup` – Analyze weekly matchup details and projections
+- `ff_compare_teams` – Side-by-side team roster comparisons for trades/analysis
+- `ff_build_lineup` – Generate optimal lineups using advanced optimization algorithms
 
-### Player Discovery & Draft
-- `ff_get_players` – Browse current free agents with ownership context.
-- `ff_get_waiver_wire` – Surface top waiver targets with Yahoo stats. (Default: 30 players for comprehensive analysis)
-- `ff_get_draft_rankings` – Pull Yahoo pre-draft rankings and ADP data.
-- `ff_get_draft_results` – Review draft positions, grades and summary by team.
-- `ff_get_draft_recommendation` – Strategy-aware draft pick suggestions.
-- `ff_analyze_draft_state` – Summarize positional needs and strategy during a
-  draft.
-- `ff_analyze_reddit_sentiment` – Gather public sentiment and injury chatter
-  from Reddit for one or more players.
+### Player Discovery & Waiver Wire
+- `ff_get_players` – Browse available free agents with ownership percentages
+- `ff_get_waiver_wire` – Smart waiver wire targets with expert analysis (configurable count)
+- `ff_get_draft_rankings` – Access Yahoo's pre-draft rankings and ADP data
 
-### Operations & Maintenance
-- `ff_get_api_status` – Check cache metrics and Yahoo rate limiting state.
-- `ff_clear_cache` – Clear cached Yahoo responses (optionally by pattern).
-- `ff_refresh_token` – Refresh the Yahoo OAuth access token on demand.
+### Draft Assistant Tools
+- `ff_get_draft_recommendation` – AI-powered draft pick suggestions with strategy analysis
+- `ff_analyze_draft_state` – Real-time roster needs and positional analysis during drafts
+- `ff_get_draft_results` – Post-draft analysis with grades and team summaries
 
-## Installation
+### Advanced Analytics
+- `ff_analyze_reddit_sentiment` – Social media sentiment analysis for player buzz and injury updates
+- `ff_get_api_status` – Monitor cache performance and Yahoo API rate limiting
+- `ff_clear_cache` – Clear cached responses for fresh data (with pattern support)
+- `ff_refresh_token` – Automatically refresh Yahoo OAuth tokens
 
+## 📦 Installation
+
+### Quick Start
 ```bash
-git clone https://github.com/derekrbreese/fantasy-football-mcp.git
-cd fantasy-football-mcp
+git clone https://github.com/derekrbreese/fantasy-football-mcp-public.git
+cd fantasy-football-mcp-public
 pip install -r requirements.txt
 ```
 
-## Configuration
+### Yahoo API Setup
+1. Create a Yahoo Developer App at [developer.yahoo.com](https://developer.yahoo.com)
+2. Note your Consumer Key and Consumer Secret
+3. Complete OAuth flow using included scripts
 
-Create a `.env` file (or configure environment variables in your deployment)
-with the Yahoo credentials:
+## ⚙️ Configuration
+
+Create a `.env` file with your Yahoo API credentials:
 
 ```env
-YAHOO_CONSUMER_KEY=your_consumer_key
-YAHOO_CONSUMER_SECRET=your_consumer_secret
+YAHOO_CONSUMER_KEY=your_consumer_key_here
+YAHOO_CONSUMER_SECRET=your_consumer_secret_here
 YAHOO_ACCESS_TOKEN=your_access_token
 YAHOO_REFRESH_TOKEN=your_refresh_token
 YAHOO_GUID=your_yahoo_guid
 ```
 
-## Running Locally
+### Initial Authentication
+```bash
+# First-time setup
+python setup_yahoo_auth.py
 
-1. Ensure the dependencies are installed and environment variables are set.
-2. Start the FastMCP HTTP server:
-   ```bash
-   python fastmcp_server.py
-   ```
-3. Connect with any MCP-compatible client (e.g. Claude Desktop) using the HTTP
-   transport: `http://localhost:8000`.
+# Or manual authentication
+python reauth_yahoo.py
+```
 
-## Deploying to fastmcp.cloud
+## 🚀 Deployment Options
 
-1. Push your repository to a Git host accessible from fastmcp.cloud.
-2. Create a new service in fastmcp.cloud and point it at the repository.
-3. Set the start command to `python fastmcp_server.py`.
-4. Configure the required Yahoo environment variables in the deployment UI.
-5. Expose port `8000` (or your chosen port) for the HTTP transport.
+### Local Development (FastMCP)
+```bash
+python fastmcp_server.py
+```
+Connect via HTTP transport at `http://localhost:8000`
 
-The compatibility shims (`render_server.py`, `cloud_run_server.py`,
-`simple_mcp_server.py`, `no_auth_server.py`, and `app.py`) now delegate to
-`fastmcp_server.py`, so existing deployment scripts can continue to import those
-modules without modification.
+### Claude Code Integration (Stdio)
+```bash
+python fantasy_football_multi_league.py
+```
 
-## Testing
+### Docker Deployment
+```bash
+docker build -t fantasy-football-mcp .
+docker run -p 8080:8080 --env-file .env fantasy-football-mcp
+```
 
-Run the full automated suite with:
+### Cloud Deployment (Render/Railway/etc.)
+The server includes multiple compatibility layers for various cloud platforms:
+- `render_server.py` - Render.com deployment
+- `simple_mcp_server.py` - Generic HTTP/WebSocket server
+- `fastmcp_server.py` - FastMCP cloud deployments
+
+## 🧪 Testing
 
 ```bash
+# Run full test suite
 pytest
+
+# Test OAuth authentication
+python tests/test_oauth.py
+
+# Test MCP connection
+python tests/test_mcp_client.py
 ```
 
-The tests exercise each FastMCP tool wrapper and the HTTP runner while mocking
-out remote Yahoo API calls to keep the suite fast and deterministic.
-
-## Project Structure
+## 📁 Project Structure
 
 ```
-fantasy-football-mcp/
-├── fastmcp_server.py          # FastMCP entry point and tool definitions
-├── fantasy_football_multi_league.py  # Legacy tool implementations
-├── render_server.py / cloud_run_server.py / simple_mcp_server.py / no_auth_server.py / app.py
-│   └── Compatibility shims that re-export the FastMCP server
-├── requirements.txt           # Pinned dependencies
-├── tests/                     # Pytest suite for FastMCP integration
-├── src/                       # Supporting agents, models, and utilities
-└── config/                    # Configuration helpers
+fantasy-football-mcp-public/
+├── fastmcp_server.py              # FastMCP HTTP server implementation
+├── fantasy_football_multi_league.py  # Main MCP stdio server
+├── lineup_optimizer.py            # Advanced lineup optimization engine
+├── matchup_analyzer.py           # Defensive matchup analysis
+├── position_normalizer.py        # FLEX position value calculations
+├── src/
+│   ├── agents/                   # Specialized analysis agents
+│   ├── models/                   # Data models for players, lineups, drafts
+│   ├── strategies/              # Draft and lineup strategies
+│   └── utils/                   # Utility functions and configurations
+├── tests/                       # Comprehensive test suite
+├── utils/                       # Authentication and token management
+└── requirements.txt             # Python dependencies
 ```
 
-## Authentication Flow
+## 🔧 Advanced Configuration
 
-1. Authenticate with Yahoo once using `reauth_yahoo.py` or the included scripts.
-2. Store credentials as environment variables for the server.
-3. Use the `ff_refresh_token` tool whenever an access token expires to obtain a
-   new one automatically.
+### Strategy Weights (Balanced Default)
+```python
+{
+    "yahoo": 0.40,     # Yahoo expert projections
+    "sleeper": 0.40,   # Sleeper expert rankings
+    "matchup": 0.10,   # Defensive matchup analysis
+    "trending": 0.05,  # Player trending data
+    "momentum": 0.05   # Recent performance
+}
+```
 
-## Troubleshooting
+### Draft Strategies
+- **Conservative**: Prioritize proven players, minimize risk
+- **Aggressive**: Target high-upside breakout candidates
+- **Balanced**: Optimal mix of safety and ceiling potential
 
-- **Only one league showing** – Verify `YAHOO_GUID` and ensure leagues are
-  active in the current season.
-- **Authentication errors** – Confirm tokens and consumer keys are correct and
-  refresh tokens have not been revoked.
-- **Stale results** – Use `ff_clear_cache` or inspect `ff_get_api_status` for
-  cache hit rates and rate limiting signals.
+### Position Scoring Baselines
+- RB: ~11 points (standard scoring)
+- WR: ~10 points (standard scoring)
+- TE: ~7 points (standard scoring)
+- FLEX calculations include position scarcity adjustments
 
-## License
+## 📊 Performance Metrics
 
-MIT
+The optimization engine targets:
+- **85%+** accuracy on start/sit decisions
+- **+2.0** points per optimal decision on average
+- **90%+** lineup efficiency vs. manual selection
+- **Position-normalized FLEX** decisions to avoid TE traps
+
+## 🔍 Troubleshooting
+
+### Common Issues
+
+**Authentication Errors**
+```bash
+# Refresh expired tokens (expire hourly)
+python refresh_yahoo_token.py
+
+# Full re-authentication if refresh fails
+python reauth_yahoo.py
+```
+
+**Only One League Showing**
+- Verify `YAHOO_GUID` matches your Yahoo account
+- Ensure leagues are active for current season
+- Check team ownership detection in logs
+
+**Rate Limiting**
+- Yahoo allows 1000 requests/hour
+- Server implements 900/hour safety limit
+- Use `ff_get_api_status` to monitor usage
+- Clear cache with `ff_clear_cache` if needed
+
+**Stale Data**
+- Cache TTLs: Leagues (1hr), Standings (5min), Players (15min)
+- Force refresh with `ff_clear_cache` tool
+- Check last update times in `ff_get_api_status`
+
+## 🤝 Contributing
+
+This is the public version of the Fantasy Football MCP Server. For contributing:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- Yahoo Fantasy Sports API for comprehensive league data
+- Sleeper API for expert rankings and defensive analysis
+- Reddit API for player sentiment analysis
+- Model Context Protocol (MCP) framework
+
+---
+
+**Note**: This server requires active Yahoo Fantasy Football leagues and valid API credentials. Ensure you have proper authorization before accessing league data.
