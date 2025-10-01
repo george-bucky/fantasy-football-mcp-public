@@ -9,6 +9,7 @@ from datetime import datetime, date
 
 class Platform(Enum):
     """Supported fantasy platforms"""
+
     DRAFTKINGS = "draftkings"
     FANDUEL = "fanduel"
     YAHOO = "yahoo"
@@ -29,7 +30,7 @@ DEFENSIVE_POSITIONS = ["DST"]
 # Position Hierarchies for different contexts
 POSITION_PRIORITY = {
     "cash_games": ["QB", "RB", "WR", "TE", "K", "DST"],
-    "tournaments": ["QB", "WR", "RB", "TE", "K", "DST"]
+    "tournaments": ["QB", "WR", "RB", "TE", "K", "DST"],
 }
 
 # Roster Configurations by Platform
@@ -39,35 +40,83 @@ ROSTER_POSITIONS: Dict[Platform, Dict[str, Any]] = {
         "salary_cap": 50000,
         "flex_eligible": ["RB", "WR", "TE"],
         "max_players_per_team": 8,
-        "roster_size": 9
+        "roster_size": 9,
     },
     Platform.FANDUEL: {
         "positions": ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "K", "DST"],
         "salary_cap": 60000,
         "flex_eligible": [],
         "max_players_per_team": 4,
-        "roster_size": 9
+        "roster_size": 9,
     },
     Platform.YAHOO: {
-        "positions": ["QB", "WR", "WR", "RB", "TE", "FLEX", "K", "DST", "BN", "BN", "BN", "BN", "BN", "BN"],
+        "positions": [
+            "QB",
+            "WR",
+            "WR",
+            "RB",
+            "TE",
+            "FLEX",
+            "K",
+            "DST",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+        ],
         "salary_cap": None,  # Season-long, no salary cap
         "flex_eligible": ["RB", "WR", "TE"],
         "max_players_per_team": None,
-        "roster_size": 16
+        "roster_size": 16,
     },
     Platform.ESPN: {
-        "positions": ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "DST", "K", "BN", "BN", "BN", "BN", "BN", "BN", "BN"],
+        "positions": [
+            "QB",
+            "RB",
+            "RB",
+            "WR",
+            "WR",
+            "TE",
+            "FLEX",
+            "DST",
+            "K",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+        ],
         "salary_cap": None,  # Season-long, no salary cap
         "flex_eligible": ["RB", "WR", "TE"],
         "max_players_per_team": None,
-        "roster_size": 16
+        "roster_size": 16,
     },
     Platform.SLEEPER: {
-        "positions": ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "K", "DST", "BN", "BN", "BN", "BN", "BN", "BN"],
+        "positions": [
+            "QB",
+            "RB",
+            "RB",
+            "WR",
+            "WR",
+            "TE",
+            "FLEX",
+            "K",
+            "DST",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+            "BN",
+        ],
         "salary_cap": None,  # Season-long, no salary cap
         "flex_eligible": ["RB", "WR", "TE"],
         "max_players_per_team": None,
-        "roster_size": 15
+        "roster_size": 15,
     },
     Platform.SUPERDRAFT: {
         "positions": ["QB", "RB", "WR", "WR", "TE", "FLEX"],
@@ -75,8 +124,8 @@ ROSTER_POSITIONS: Dict[Platform, Dict[str, Any]] = {
         "flex_eligible": ["RB", "WR", "TE"],
         "max_players_per_team": 6,
         "roster_size": 6,
-        "multiplier_cap": 5.0
-    }
+        "multiplier_cap": 5.0,
+    },
 }
 
 # NFL Teams with abbreviations and full names
@@ -112,7 +161,7 @@ NFL_TEAMS = {
     "SEA": {"name": "Seattle Seahawks", "conference": "NFC", "division": "West"},
     "TB": {"name": "Tampa Bay Buccaneers", "conference": "NFC", "division": "South"},
     "TEN": {"name": "Tennessee Titans", "conference": "AFC", "division": "South"},
-    "WAS": {"name": "Washington Commanders", "conference": "NFC", "division": "East"}
+    "WAS": {"name": "Washington Commanders", "conference": "NFC", "division": "East"},
 }
 
 # Team Lists
@@ -130,7 +179,7 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "two_point": 2,
             "completions": 0,
             "300_yard_bonus": 3,
-            "400_yard_bonus": 0
+            "400_yard_bonus": 0,
         },
         "rushing": {
             "yards_per_point": 10,  # 1 point per 10 yards
@@ -138,7 +187,7 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_lost": -1,
             "two_point": 2,
             "100_yard_bonus": 3,
-            "200_yard_bonus": 0
+            "200_yard_bonus": 0,
         },
         "receiving": {
             "yards_per_point": 10,
@@ -147,15 +196,9 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_lost": -1,
             "two_point": 2,
             "100_yard_bonus": 3,
-            "200_yard_bonus": 0
+            "200_yard_bonus": 0,
         },
-        "kicking": {
-            "pat": 1,
-            "fg_0_39": 3,
-            "fg_40_49": 4,
-            "fg_50_plus": 5,
-            "fg_miss": -1
-        },
+        "kicking": {"pat": 1, "fg_0_39": 3, "fg_40_49": 4, "fg_50_plus": 5, "fg_miss": -1},
         "defense": {
             "points_allowed_0": 10,
             "points_allowed_1_6": 7,
@@ -170,8 +213,8 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "safety": 2,
             "td": 6,
             "blocked_kick": 2,
-            "yards_allowed_bonus": 0
-        }
+            "yards_allowed_bonus": 0,
+        },
     },
     Platform.FANDUEL: {
         "passing": {
@@ -182,7 +225,7 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "two_point": 2,
             "completions": 0.5,  # Half point per completion
             "300_yard_bonus": 0,
-            "400_yard_bonus": 0
+            "400_yard_bonus": 0,
         },
         "rushing": {
             "yards_per_point": 10,
@@ -190,7 +233,7 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_lost": -1,
             "two_point": 2,
             "100_yard_bonus": 0,
-            "200_yard_bonus": 0
+            "200_yard_bonus": 0,
         },
         "receiving": {
             "yards_per_point": 10,
@@ -199,15 +242,9 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_lost": -1,
             "two_point": 2,
             "100_yard_bonus": 0,
-            "200_yard_bonus": 0
+            "200_yard_bonus": 0,
         },
-        "kicking": {
-            "pat": 1,
-            "fg_0_39": 3,
-            "fg_40_49": 4,
-            "fg_50_plus": 5,
-            "fg_miss": 0
-        },
+        "kicking": {"pat": 1, "fg_0_39": 3, "fg_40_49": 4, "fg_50_plus": 5, "fg_miss": 0},
         "defense": {
             "points_allowed_0": 10,
             "points_allowed_1_6": 7,
@@ -221,8 +258,8 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_recovery": 2,
             "safety": 2,
             "td": 6,
-            "blocked_kick": 2
-        }
+            "blocked_kick": 2,
+        },
     },
     Platform.YAHOO: {
         "passing": {
@@ -233,7 +270,7 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "two_point": 2,
             "completions": 0,
             "300_yard_bonus": 0,
-            "400_yard_bonus": 0
+            "400_yard_bonus": 0,
         },
         "rushing": {
             "yards_per_point": 10,
@@ -241,7 +278,7 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_lost": -1,
             "two_point": 2,
             "100_yard_bonus": 0,
-            "200_yard_bonus": 0
+            "200_yard_bonus": 0,
         },
         "receiving": {
             "yards_per_point": 10,
@@ -250,15 +287,9 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_lost": -1,
             "two_point": 2,
             "100_yard_bonus": 0,
-            "200_yard_bonus": 0
+            "200_yard_bonus": 0,
         },
-        "kicking": {
-            "pat": 1,
-            "fg_0_39": 3,
-            "fg_40_49": 4,
-            "fg_50_plus": 5,
-            "fg_miss": -1
-        },
+        "kicking": {"pat": 1, "fg_0_39": 3, "fg_40_49": 4, "fg_50_plus": 5, "fg_miss": -1},
         "defense": {
             "points_allowed_0": 10,
             "points_allowed_1_6": 7,
@@ -272,9 +303,9 @@ SCORING_SYSTEMS: Dict[Platform, Dict[str, Any]] = {
             "fumble_recovery": 2,
             "safety": 2,
             "td": 6,
-            "blocked_kick": 2
-        }
-    }
+            "blocked_kick": 2,
+        },
+    },
 }
 
 # Season Structure
@@ -284,7 +315,7 @@ REGULAR_SEASON_WEEKS = list(range(1, 15))  # Weeks 1-14
 
 # Season Dates (2024 season - update annually)
 SEASON_START_DATE = date(2024, 9, 5)  # Thursday Night Football Week 1
-SEASON_END_DATE = date(2025, 1, 8)    # End of Week 18
+SEASON_END_DATE = date(2025, 1, 8)  # End of Week 18
 PLAYOFF_START_DATE = date(2024, 12, 21)  # Start of Week 16 (common playoff start)
 
 # Week Date Ranges (approximate - update annually)
@@ -306,7 +337,7 @@ WEEK_DATES = {
     15: {"start": date(2024, 12, 12), "end": date(2024, 12, 16)},
     16: {"start": date(2024, 12, 19), "end": date(2024, 12, 23)},
     17: {"start": date(2024, 12, 26), "end": date(2024, 12, 30)},
-    18: {"start": date(2025, 1, 2), "end": date(2025, 1, 8)}
+    18: {"start": date(2025, 1, 2), "end": date(2025, 1, 8)},
 }
 
 # Game Slate Information
@@ -317,17 +348,17 @@ SLATE_TYPES = {
     "primetime": {"start_day": "Sunday", "games": "sunday_night"},
     "monday": {"start_day": "Monday", "games": "monday_night"},
     "thursday": {"start_day": "Thursday", "games": "thursday_night"},
-    "showdown": {"start_day": "varies", "games": "single_game"}
+    "showdown": {"start_day": "varies", "games": "single_game"},
 }
 
 # Positional Scarcity Factors (for value calculations)
 POSITION_SCARCITY = {
-    "QB": 1.0,    # Baseline
-    "RB": 1.3,    # More scarce
-    "WR": 1.1,    # Slightly scarce
-    "TE": 1.5,    # Most scarce
-    "K": 0.8,     # Less important
-    "DST": 0.9    # Less important
+    "QB": 1.0,  # Baseline
+    "RB": 1.3,  # More scarce
+    "WR": 1.1,  # Slightly scarce
+    "TE": 1.5,  # Most scarce
+    "K": 0.8,  # Less important
+    "DST": 0.9,  # Less important
 }
 
 # Tournament vs Cash Game Constants
@@ -335,17 +366,17 @@ GAME_TYPES = {
     "cash": {
         "description": "Head-to-head, 50/50s, Double-ups",
         "ownership_threshold": 30,  # High ownership is okay
-        "ceiling_weight": 0.3,      # Focus on floor
+        "ceiling_weight": 0.3,  # Focus on floor
         "floor_weight": 0.7,
-        "correlation_preference": "positive"
+        "correlation_preference": "positive",
     },
     "tournament": {
         "description": "GPPs, Tournaments",
         "ownership_threshold": 15,  # Avoid high ownership
-        "ceiling_weight": 0.7,      # Focus on ceiling
+        "ceiling_weight": 0.7,  # Focus on ceiling
         "floor_weight": 0.3,
-        "correlation_preference": "contrarian"
-    }
+        "correlation_preference": "contrarian",
+    },
 }
 
 # Stack Configurations
@@ -354,32 +385,22 @@ STACK_TYPES = {
     "qb_te": {"positions": ["QB", "TE"], "min_correlation": 0.5},
     "qb_wr_wr": {"positions": ["QB", "WR", "WR"], "min_correlation": 0.4},
     "rb_dst": {"positions": ["RB", "DST"], "min_correlation": -0.3, "type": "contrarian"},
-    "bring_back": {"description": "Opposing player to primary stack"}
+    "bring_back": {"description": "Opposing player to primary stack"},
 }
 
 # Weather Impact Thresholds
 WEATHER_THRESHOLDS = {
-    "wind_speed": {
-        "moderate": 15,  # mph
-        "severe": 25
-    },
-    "precipitation": {
-        "light": 0.1,    # inches
-        "moderate": 0.25,
-        "heavy": 0.5
-    },
-    "temperature": {
-        "cold": 32,      # fahrenheit
-        "very_cold": 20
-    }
+    "wind_speed": {"moderate": 15, "severe": 25},  # mph
+    "precipitation": {"light": 0.1, "moderate": 0.25, "heavy": 0.5},  # inches
+    "temperature": {"cold": 32, "very_cold": 20},  # fahrenheit
 }
 
 # DFS Optimization Constants
 OPTIMIZATION_SETTINGS = {
-    "max_exposure": 0.30,        # Maximum exposure to any single player
-    "min_salary_used": 0.98,     # Minimum salary utilization
-    "correlation_boost": 1.15,   # Boost for correlated players
-    "contrarian_boost": 1.10,    # Boost for low-owned players
-    "injury_discount": 0.85,     # Discount for questionable players
-    "backup_discount": 0.70,     # Discount for backup players
+    "max_exposure": 0.30,  # Maximum exposure to any single player
+    "min_salary_used": 0.98,  # Minimum salary utilization
+    "correlation_boost": 1.15,  # Boost for correlated players
+    "contrarian_boost": 1.10,  # Boost for low-owned players
+    "injury_discount": 0.85,  # Discount for questionable players
+    "backup_discount": 0.70,  # Discount for backup players
 }

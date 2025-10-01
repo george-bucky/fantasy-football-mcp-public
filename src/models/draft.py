@@ -16,6 +16,7 @@ from .player import Player, Position
 
 class DraftStrategy(str, Enum):
     """Available draft strategies."""
+
     CONSERVATIVE = "conservative"
     AGGRESSIVE = "aggressive"
     BALANCED = "balanced"
@@ -23,25 +24,28 @@ class DraftStrategy(str, Enum):
 
 class PositionalNeed(str, Enum):
     """Positional need levels for roster construction."""
-    CRITICAL = "critical"      # Zero players at position
-    HIGH = "high"             # Below optimal roster construction
-    MEDIUM = "medium"         # At optimal level
-    LOW = "low"               # Above optimal level
-    SATURATED = "saturated"   # Excess players
+
+    CRITICAL = "critical"  # Zero players at position
+    HIGH = "high"  # Below optimal roster construction
+    MEDIUM = "medium"  # At optimal level
+    LOW = "low"  # Above optimal level
+    SATURATED = "saturated"  # Excess players
 
 
 class DraftTier(int, Enum):
     """Player tiers for draft evaluation."""
-    ELITE = 1      # Tier 1 - Elite players
-    STUD = 2       # Tier 2 - Stud players
-    SOLID = 3      # Tier 3 - Solid players
-    FLEX = 4       # Tier 4 - Flex/depth players
-    BENCH = 5      # Tier 5 - Bench/flyer players
+
+    ELITE = 1  # Tier 1 - Elite players
+    STUD = 2  # Tier 2 - Stud players
+    SOLID = 3  # Tier 3 - Solid players
+    FLEX = 4  # Tier 4 - Flex/depth players
+    BENCH = 5  # Tier 5 - Bench/flyer players
 
 
 @dataclass
 class DraftPosition:
     """Represents a draft position and round information."""
+
     overall_pick: int
     round_number: int
     pick_in_round: int
@@ -52,6 +56,7 @@ class DraftPosition:
 @dataclass
 class RosterNeed:
     """Represents positional needs for roster construction."""
+
     position: Position
     need_level: PositionalNeed
     current_count: int
@@ -63,6 +68,7 @@ class RosterNeed:
 @dataclass
 class PlayerEvaluation:
     """Complete evaluation of a player for draft purposes."""
+
     player: Player
     overall_score: float
     vorp_score: float
@@ -82,6 +88,7 @@ class PlayerEvaluation:
 @dataclass
 class OpportunityCost:
     """Analysis of opportunity cost for waiting vs taking a player."""
+
     player: Player
     survival_probability: float
     cost_of_waiting: float
@@ -92,6 +99,7 @@ class OpportunityCost:
 @dataclass
 class PositionalRun:
     """Detection and analysis of positional runs."""
+
     position: Position
     recent_picks: int
     is_hot_run: bool
@@ -101,11 +109,12 @@ class PositionalRun:
 
 class DraftRecommendation(BaseModel):
     """Main recommendation object returned by draft evaluator."""
+
     player: Dict[str, Any]  # Player dict to avoid circular imports
     overall_score: float = Field(..., description="Combined evaluation score (0-100)")
     rank: int = Field(..., description="Ranking among available players")
     tier: DraftTier = Field(..., description="Player tier classification")
-    
+
     # Score breakdowns
     vorp_score: float = Field(..., description="Value Over Replacement Player score")
     scarcity_score: float = Field(..., description="Positional scarcity score")
@@ -113,56 +122,76 @@ class DraftRecommendation(BaseModel):
     bye_week_score: float = Field(..., description="Bye week distribution score")
     risk_score: float = Field(..., description="Injury/performance risk score")
     upside_score: float = Field(..., description="Ceiling/upside potential score")
-    
+
     # Contextual information
     projected_points: Optional[float] = Field(None, description="Season projection")
     adp: Optional[float] = Field(None, description="Average Draft Position")
     position_rank: Optional[int] = Field(None, description="Rank within position")
-    
+
     # Analysis
     reasoning: str = Field(..., description="Human-readable explanation")
     opportunity_cost: Optional[Dict[str, Any]] = Field(None, description="Wait vs take analysis")
     positional_context: Optional[str] = Field(None, description="Position-specific insights")
-    
+
     class Config:
         use_enum_values = True
 
 
 class DraftState(BaseModel):
     """Current state of the draft and roster."""
+
     league_key: str = Field(..., description="Yahoo league identifier")
     draft_position: DraftPosition = Field(..., description="Current draft position")
-    current_roster: List[Dict[str, Any]] = Field(default_factory=list, description="Currently drafted players")
-    available_players: List[Dict[str, Any]] = Field(default_factory=list, description="Remaining available players")
-    
+    current_roster: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Currently drafted players"
+    )
+    available_players: List[Dict[str, Any]] = Field(
+        default_factory=list, description="Remaining available players"
+    )
+
     # Roster analysis
-    roster_needs: List[RosterNeed] = Field(default_factory=list, description="Positional needs assessment")
-    bye_week_distribution: Dict[int, int] = Field(default_factory=dict, description="Bye weeks by count")
-    
+    roster_needs: List[RosterNeed] = Field(
+        default_factory=list, description="Positional needs assessment"
+    )
+    bye_week_distribution: Dict[int, int] = Field(
+        default_factory=dict, description="Bye weeks by count"
+    )
+
     # Draft context
     total_rounds: int = Field(default=16, description="Total draft rounds")
     picks_remaining: int = Field(..., description="Remaining picks for user")
-    strategy: DraftStrategy = Field(default=DraftStrategy.BALANCED, description="Selected draft strategy")
-    
+    strategy: DraftStrategy = Field(
+        default=DraftStrategy.BALANCED, description="Selected draft strategy"
+    )
+
     # Analysis flags
-    positional_runs: List[PositionalRun] = Field(default_factory=list, description="Detected positional runs")
+    positional_runs: List[PositionalRun] = Field(
+        default_factory=list, description="Detected positional runs"
+    )
     draft_phase: str = Field(..., description="early, middle, or late draft phase")
 
 
 class DraftAnalysis(BaseModel):
     """Comprehensive analysis of the current draft situation."""
+
     draft_state: DraftState
-    top_recommendations: List[DraftRecommendation] = Field(..., description="Top N recommended picks")
-    
+    top_recommendations: List[DraftRecommendation] = Field(
+        ..., description="Top N recommended picks"
+    )
+
     # Strategic insights
     key_insights: List[str] = Field(default_factory=list, description="Important strategic notes")
-    positional_priorities: Dict[str, float] = Field(default_factory=dict, description="Position priority scores")
+    positional_priorities: Dict[str, float] = Field(
+        default_factory=dict, description="Position priority scores"
+    )
     risk_factors: List[str] = Field(default_factory=list, description="Potential concerns")
-    
+
     # Context
     analysis_timestamp: datetime = Field(default_factory=datetime.now)
-    strategy_weights: Dict[str, float] = Field(default_factory=dict, description="Applied strategy weights")
-    
+    strategy_weights: Dict[str, float] = Field(
+        default_factory=dict, description="Applied strategy weights"
+    )
+
     class Config:
         use_enum_values = True
 
@@ -170,13 +199,14 @@ class DraftAnalysis(BaseModel):
 @dataclass
 class StrategyWeights:
     """Weights for different factors in draft evaluation."""
+
     vorp: float = 0.30
-    scarcity: float = 0.25  
+    scarcity: float = 0.25
     need: float = 0.20
     bye_week: float = 0.10
     risk: float = 0.10
     upside: float = 0.05
-    
+
     def __post_init__(self):
         """Validate weights sum to 1.0."""
         total = sum([self.vorp, self.scarcity, self.need, self.bye_week, self.risk, self.upside])
@@ -194,18 +224,18 @@ STRATEGY_WEIGHTS = {
     ),
     DraftStrategy.BALANCED: StrategyWeights(
         vorp=0.30, scarcity=0.25, need=0.20, bye_week=0.10, risk=0.10, upside=0.05
-    )
+    ),
 }
 
 
 # Position requirements for standard roster construction
 STANDARD_ROSTER_REQUIREMENTS = {
     Position.QB: {"starters": 1, "optimal_total": 2, "max_useful": 3},
-    Position.RB: {"starters": 2, "optimal_total": 5, "max_useful": 7}, 
+    Position.RB: {"starters": 2, "optimal_total": 5, "max_useful": 7},
     Position.WR: {"starters": 2, "optimal_total": 5, "max_useful": 7},
     Position.TE: {"starters": 1, "optimal_total": 2, "max_useful": 3},
     Position.K: {"starters": 1, "optimal_total": 1, "max_useful": 2},
-    Position.DEF: {"starters": 1, "optimal_total": 1, "max_useful": 2}
+    Position.DEF: {"starters": 1, "optimal_total": 1, "max_useful": 2},
 }
 
 # Flex position can be filled by RB/WR/TE
@@ -217,16 +247,16 @@ POSITION_INJURY_RISK = {
     Position.RB: 1.5,  # Higher injury risk
     Position.WR: 1.2,
     Position.TE: 1.1,
-    Position.K: 0.5,   # Lower injury risk
-    Position.DEF: 0.5
+    Position.K: 0.5,  # Lower injury risk
+    Position.DEF: 0.5,
 }
 
-# Age-based risk adjustments  
+# Age-based risk adjustments
 AGE_RISK_THRESHOLDS = {
     Position.QB: 35,
     Position.RB: 30,
     Position.WR: 32,
     Position.TE: 32,
     Position.K: 40,
-    Position.DEF: None  # Not applicable
+    Position.DEF: None,  # Not applicable
 }

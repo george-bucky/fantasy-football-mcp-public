@@ -1,79 +1,89 @@
-# Installation Guide
+# Fantasy Football MCP Server - Installation Guide
 
 ## Prerequisites
 
-- Python 3.9 or higher
+- Python 3.8 or higher
 - Claude Desktop application
-- Yahoo Fantasy Sports account
-- Git
+- Yahoo Fantasy Sports account with active leagues
+- Git (for cloning the repository)
 
-## Step 1: Clone Repository
+## Step 1: Clone the Repository
 
 ```bash
 git clone https://github.com/derekrbreese/fantasy-football-mcp-public.git
 cd fantasy-football-mcp-public
 ```
 
-## Step 2: Install Dependencies
+## Step 2: Install Python Dependencies
 
 ```bash
-# Create virtual environment (recommended)
+pip install -r requirements.txt
+```
+
+Or if you prefer using a virtual environment:
+
+```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install requirements
 pip install -r requirements.txt
 ```
 
 ## Step 3: Yahoo API Setup
 
-### Create Yahoo Developer App
+### 3.1 Create a Yahoo Developer App
 
-**📖 For detailed instructions with screenshots and troubleshooting, see [YAHOO_SETUP.md](YAHOO_SETUP.md)**
-
-Quick steps:
 1. Go to https://developer.yahoo.com/apps/
-2. Create an app with type "Installed Application"
-3. Set redirect URI: `http://localhost:8000/callback`
-4. Enable "Fantasy Sports - Read" permission
-5. Save your **Client ID** and **Client Secret**
+2. Click "Create an App"
+3. Fill in the application details:
+   - **Application Name**: Fantasy Football MCP (or your choice)
+   - **Application Type**: Web Application
+   - **Redirect URI(s)**: `http://localhost:8000/callback`
+   - **API Permissions**: Fantasy Sports (Read)
+4. Click "Create App"
+5. Save your **Client ID (Consumer Key)** and **Client Secret (Consumer Secret)**
 
-### Configure Environment
+### 3.2 Initial Authentication
 
-1. Copy `.env.example` to `.env`:
+Run the authentication script to get your tokens:
+
 ```bash
-cp .env.example .env
-```
-
-2. Edit `.env` with your Yahoo credentials:
-```env
-YAHOO_CLIENT_ID=your_client_id_here
-YAHOO_CLIENT_SECRET=your_client_secret_here
-```
-
-### Authenticate
-
-Run the authentication script:
-```bash
-python utils/setup_yahoo_auth.py
+python reauth_yahoo.py
 ```
 
 This will:
 1. Open your browser for Yahoo login
-2. Generate access and refresh tokens
-3. Update your `.env` file
+2. Ask you to authorize the app
+3. Automatically save your tokens to `.env` file
+4. Display your team information to confirm it's working
 
-## Step 4: Configure Claude Desktop
+## Step 4: Environment Configuration
 
-### Find Config File Location
+The `.env` file should be automatically created after authentication. Verify it contains:
+
+```env
+# Yahoo API Credentials
+YAHOO_CONSUMER_KEY=your_consumer_key_here
+YAHOO_CONSUMER_SECRET=your_consumer_secret_here
+YAHOO_ACCESS_TOKEN=your_access_token_here
+YAHOO_REFRESH_TOKEN=your_refresh_token_here
+YAHOO_GUID=your_yahoo_guid_here
+```
+
+**Note**: Since this is a private repository, the `.env` file is tracked for backup purposes.
+
+## Step 5: Claude Desktop Configuration
+
+### 5.1 Locate Claude Desktop Config
+
+The configuration file location depends on your operating system:
 
 - **macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
 - **Linux**: `~/.config/Claude/claude_desktop_config.json`
 
-### Add MCP Server Configuration
+### 5.2 Add MCP Server Configuration
 
-Edit the config file and add:
+Add the following to your `claude_desktop_config.json`:
 
 ```json
 {
@@ -85,9 +95,9 @@ Edit the config file and add:
       ],
       "env": {
         "YAHOO_ACCESS_TOKEN": "your_access_token",
-        "YAHOO_REFRESH_TOKEN": "your_refresh_token",
         "YAHOO_CONSUMER_KEY": "your_consumer_key",
         "YAHOO_CONSUMER_SECRET": "your_consumer_secret",
+        "YAHOO_REFRESH_TOKEN": "your_refresh_token",
         "YAHOO_GUID": "your_yahoo_guid"
       }
     }
@@ -95,77 +105,146 @@ Edit the config file and add:
 }
 ```
 
-### Add MCP Server Configuration (Virtual Environment)
-Edit the config file and add:
+**Important**: 
+- Replace `/absolute/path/to/` with the actual path to your installation
+- Copy the credentials from your `.env` file
+- If you have other MCP servers configured, add this as an additional entry
 
-```json
-{
-  "mcpServers": {
-    "fantasy-football": {
-      "command": "/absolute/path/to/fantasy-football-mcp-public/.venv/bin/python",
-      "args": [
-        "/absolute/path/to/fantasy_football_multi_league.py"
-      ],
-      "env": {
-        "YAHOO_ACCESS_TOKEN": "your_access_token",
-        "YAHOO_REFRESH_TOKEN": "your_refresh_token",
-        "YAHOO_CONSUMER_KEY": "your_consumer_key",
-        "YAHOO_CONSUMER_SECRET": "your_consumer_secret",
-        "YAHOO_GUID": "your_yahoo_guid"
-      }
-    }
-  }
-}
-```
+### 5.3 Alternative: Use the Provided Config
 
-### Get Your Credentials
+You can also copy the provided config template:
 
-After running `setup_yahoo_auth.py`, find your credentials in `.env`:
-- YAHOO_ACCESS_TOKEN
-- YAHOO_REFRESH_TOKEN
-- YAHOO_CONSUMER_KEY (same as CLIENT_ID)
-- YAHOO_CONSUMER_SECRET (same as CLIENT_SECRET)
-- YAHOO_GUID (your Yahoo user ID)
-
-## Step 5: Verify Installation
-
-### Run Verification Script
-
-Check your setup is correct:
 ```bash
-python utils/verify_setup.py
+cp claude_desktop_config.json ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```
 
-This will verify:
-- ✅ .env file configuration
-- ✅ Credential format
-- ✅ Python dependencies
-- ✅ Claude Desktop configuration
+Then edit it to update the file paths and credentials.
 
-### Test in Claude Desktop
+## Step 6: Test the Installation
 
-1. Restart Claude Desktop
-2. Look for "fantasy-football" in the MCP tools list
-3. Test with: "Show me my fantasy football leagues"
+### 6.1 Test Python Server Directly
+
+```bash
+python test_multi_league_server.py
+```
+
+Expected output:
+- Should find all your active leagues
+- Should identify your team in each league
+
+### 6.2 Restart Claude Desktop
+
+After updating the configuration:
+1. Completely quit Claude Desktop
+2. Restart Claude Desktop
+3. The MCP tools should now be available
+
+### 6.3 Verify in Claude Desktop
+
+Ask Claude: "Use the fantasy football tools to show me my leagues"
+
+Claude should be able to use the `ff_get_leagues` tool and show your active leagues.
+
+## Step 7: Token Management
+
+### Automatic Token Refresh
+
+The server includes automatic token refresh capability. You can also manually refresh:
+
+**Through Claude Desktop**: 
+- Ask Claude to "refresh my Yahoo token"
+
+**Through Command Line**:
+```bash
+python refresh_yahoo_token.py
+```
+
+### Full Re-authentication
+
+If tokens are completely expired (after ~60 days):
+
+```bash
+python reauth_yahoo.py
+```
+
+## Available MCP Tools
+
+Once installed, you'll have access to 12 tools:
+
+1. **ff_get_leagues** - List all your fantasy football leagues
+2. **ff_get_league_info** - Get detailed league information with your team name
+3. **ff_get_standings** - View current standings
+4. **ff_get_roster** - Get a team roster with team name (accepts optional `team_key`)
+5. **ff_compare_teams** - Compare two teams' rosters
+6. **ff_get_matchup** - View matchup details
+7. **ff_get_players** - Browse available players
+8. **ff_build_lineup** - Build optimal lineup with positional constraints
+9. **ff_refresh_token** - Refresh Yahoo access token
+10. **ff_get_draft_results** - View draft results and grades
+11. **ff_get_waiver_wire** - Find top waiver wire pickups
+12. **ff_get_draft_rankings** - Get pre-draft player rankings
 
 ## Troubleshooting
 
-### Token Expiration
-Yahoo tokens expire hourly. The server auto-refreshes, but you can manually refresh:
+### "Failed to connect to MCP server"
+- Verify Python path in Claude Desktop config
+- Ensure all Python dependencies are installed
+- Check that file paths are absolute, not relative
+
+### "Token expired" errors
+- Run `python refresh_yahoo_token.py`
+- Restart Claude Desktop after refreshing
+
+### "No leagues found"
+- Verify you have active leagues for the current season
+- Check that YAHOO_GUID is set correctly in `.env`
+- Ensure your Yahoo account has fantasy leagues
+
+### "Cannot find team"
+- Make sure YAHOO_GUID is set in both `.env` and Claude config
+- Verify you're a member of the leagues
+
+### Python Import Errors
+- Ensure all requirements are installed: `pip install -r requirements.txt`
+- If using virtual environment, make sure it's activated
+
+## Testing Your Installation
+
+Run the test suite to verify everything is working:
+
 ```bash
-python utils/refresh_token.py
+# Test league discovery
+python test_all_leagues.py
+
+# Test team name retrieval
+python test_team_names.py  
+
+# Test waiver wire and rankings
+python test_waiver_draft.py
 ```
 
-### Connection Issues
-- Verify Python path is correct in Claude config
-- Check all environment variables are set
-- Ensure `.env` file is in the project root
+## Updating
 
-### No Leagues Showing
-- Verify YAHOO_GUID is set correctly
-- Ensure you have active leagues for current season
-- Check token is valid
+To get the latest updates:
+
+```bash
+git pull origin main
+pip install -r requirements.txt --upgrade
+```
+
+Then restart Claude Desktop.
 
 ## Support
 
-For issues, please check the [GitHub repository](https://github.com/derekrbreese/fantasy-football-mcp-public/issues).
+For issues or questions:
+1. Check the [GitHub repository](https://github.com/derekrbreese/fantasy-football-mcp)
+2. Review the CLAUDE.md file for development details
+3. Ensure your Yahoo tokens are current
+
+## Security Notes
+
+- Never share your Yahoo API credentials
+- The `.env` file contains sensitive tokens
+- This repository should remain private
+- Tokens expire after 1 hour (auto-refresh available)
+- Refresh tokens last ~60 days if used regularly

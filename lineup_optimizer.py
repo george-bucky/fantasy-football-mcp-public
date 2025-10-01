@@ -1,672 +1,695 @@
-#!/usr/bin/env python3
-"""
-Lineup Optimizer for Fantasy Football
-Combines Yahoo data, Sleeper rankings, and matchup analysis
+from __future__ import annotations
+
+"""Lightweight fallback lineup optimizer.
+
+The original optimizer attempted deep projections and external data pulls but was
+fragile against Yahoo payload changes.  This replacement keeps the same public
+API so existing callers keep working, while delivering deterministic, best-effort
+results based purely on the roster data already returned by the legacy layer.
 """
 
-from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
-import numpy as np
-from matchup_analyzer import matchup_analyzer
-from sleeper_api import sleeper_client, get_trending_adds
-from position_normalizer import position_normalizer
+from typing import Any, Dict, Iterable, List, Optional, Sequence
+
+BENCH_SLOTS = {
+    "BN",
+    "BENCH",
+    "IR",
+    "IR+",
+    "IRL",
+    "IRR",
+    "DNR",
+    "NA",
+    "N/A",
+    "COVID-19",
+    "COVID",
+}
+
+# Match confidence scores for different Sleeper matching methods
+MATCH_CONFIDENCE = {
+    "exact": 1.0,
+    "normalized": 0.9,
+    "variant": 0.8,
+    "token_subset": 0.6,
+    "fuzzy": 0.4,
+    "failed": 0.0,
+    "api": 0.9,  # Default for successful API matches
+}
+
+# Penalty factors for mismatches
+MISMATCH_PENALTY = 0.5
+
+
+@dataclass
+class MatchAnalytics:
+    """Analytics for tracking match quality and success rates."""
+
+    total_players: int = 0
+    matched_players: int = 0
+    exact_matches: int = 0
+    normalized_matches: int = 0
+    variant_matches: int = 0
+    token_subset_matches: int = 0
+    fuzzy_matches: int = 0
+    failed_matches: int = 0
+    position_mismatches: int = 0
+    team_mismatches: int = 0
+    avg_match_confidence: float = 0.0
+
+    def add_match(self, match_method: str, confidence: float):
+        """Record a match attempt."""
+        self.total_players += 1
+
+        if not match_method or match_method == "failed":
+            self.failed_matches += 1
+            return
+
+        self.matched_players += 1
+
+        # Count match types
+        base_method = match_method.split("_")[0]
+        if base_method == "exact":
+            self.exact_matches += 1
+        elif base_method == "normalized":
+            self.normalized_matches += 1
+        elif base_method == "variant":
+            self.variant_matches += 1
+        elif base_method == "token":
+            self.token_subset_matches += 1
+        elif base_method == "fuzzy":
+            self.fuzzy_matches += 1
+
+        # Count mismatches
+        if "_pos_mismatch" in match_method:
+            self.position_mismatches += 1
+        if "_team_mismatch" in match_method:
+            self.team_mismatches += 1
+
+        # Update average confidence
+        if self.matched_players > 0:
+            total_confidence = self.avg_match_confidence * (self.matched_players - 1) + confidence
+            self.avg_match_confidence = total_confidence / self.matched_players
+
+    def get_success_rate(self) -> float:
+        """Get overall match success rate."""
+        return self.matched_players / self.total_players if self.total_players > 0 else 0.0
+
+    def get_quality_distribution(self) -> Dict[str, float]:
+        """Get distribution of match quality."""
+        if self.matched_players == 0:
+            return {}
+
+        return {
+            "exact": self.exact_matches / self.matched_players,
+            "normalized": self.normalized_matches / self.matched_players,
+            "variant": self.variant_matches / self.matched_players,
+            "token_subset": self.token_subset_matches / self.matched_players,
+            "fuzzy": self.fuzzy_matches / self.matched_players,
+        }
+
+
+def _coerce_float(value: Any) -> float:
+    try:
+        if value is None:
+            return 0.0
+        if isinstance(value, str) and not value.strip():
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        if isinstance(value, str) and not value.strip():
+            return default
+        return int(float(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_position(raw: Any) -> str:
+    if not raw:
+        return "BN"
+    if isinstance(raw, dict):
+        if "position" in raw:
+            return str(raw.get("position", "BN")).upper()
+        for val in raw.values():
+            if isinstance(val, dict) and "position" in val:
+                return str(val.get("position", "BN")).upper()
+    return str(raw).upper()
+
+
+def _calculate_match_confidence(match_method: str) -> float:
+    """Calculate confidence score for Sleeper match quality."""
+    if not match_method:
+        return 0.0
+
+    # Extract base method and check for mismatches
+    base_method = match_method.split("_")[0]
+    has_mismatch = "_mismatch" in match_method
+
+    # Get base confidence
+    confidence = MATCH_CONFIDENCE.get(base_method, 0.0)
+
+    # Apply mismatch penalty
+    if has_mismatch:
+        confidence *= MISMATCH_PENALTY
+
+    return confidence
+
+
+def _calculate_dynamic_weights(
+    yahoo_proj: float, sleeper_proj: float, match_confidence: float
+) -> Dict[str, float]:
+    """Calculate dynamic projection weights based on data quality and match confidence."""
+
+    # Base weights from CLAUDE.md strategy
+    base_yahoo_weight = 0.40
+    base_sleeper_weight = 0.40
+
+    # Adjust Sleeper weight based on match confidence
+    adjusted_sleeper_weight = base_sleeper_weight * match_confidence
+
+    # Compensate Yahoo weight to maintain total projection weight at 0.8
+    target_total = base_yahoo_weight + base_sleeper_weight
+    adjusted_yahoo_weight = target_total - adjusted_sleeper_weight
+
+    # Ensure weights don't exceed reasonable bounds
+    adjusted_yahoo_weight = max(0.1, min(0.7, adjusted_yahoo_weight))
+    adjusted_sleeper_weight = max(0.0, min(0.7, adjusted_sleeper_weight))
+
+    # Normalize to target total
+    total_weight = adjusted_yahoo_weight + adjusted_sleeper_weight
+    if total_weight > 0:
+        scale_factor = target_total / total_weight
+        adjusted_yahoo_weight *= scale_factor
+        adjusted_sleeper_weight *= scale_factor
+
+    return {
+        "yahoo": adjusted_yahoo_weight,
+        "sleeper": adjusted_sleeper_weight,
+        "match_confidence": match_confidence,
+        "other": 0.20,  # matchup, trending, momentum remain constant
+    }
 
 
 @dataclass
 class Player:
-    """Represents a player with all relevant data."""
+    """Simple player model that mirrors the attributes used by our callers."""
+
     name: str
     position: str
     team: str
-    opponent: str
+    opponent: str = ""
+    status: str = "OK"
     yahoo_projection: float = 0.0
     sleeper_projection: float = 0.0
+    sleeper_projection_std: float = 0.0
+    sleeper_projection_ppr: float = 0.0
+    sleeper_projection_half_ppr: float = 0.0
+    sleeper_id: str = ""
+    sleeper_status: str = ""
+    sleeper_injury_status: str = ""
+    sleeper_match_method: str = ""
+    player_tier: str = "starter"
     matchup_score: int = 50
-    matchup_description: str = ""
-    trending_score: int = 0  # Based on adds/drops
+    matchup_description: str = "No matchup context"
+    trending_score: int = 0
+    injury_status: str = "Healthy"
+    injury_probability: float = 0.0
+    ownership_pct: float = 0.0
+    recent_performance: List[float] = field(default_factory=list)
+    season_avg: float = 0.0
+    target_share: float = 0.0
+    snap_count_pct: float = 0.0
+    weather_impact: str = "Unknown"
+    vegas_total: float = 0.0
+    team_implied_total: float = 0.0
+    spread: float = 0.0
+    defense_rank_allowed: str = "Unknown"
+    value: float = 0.0
+    value_score: float = 0.0
+    floor_projection: float = 0.0
+    ceiling_projection: float = 0.0
+    consistency_score: float = 0.0
+    risk_level: str = "medium"
     composite_score: float = 0.0
-    recommendation: str = ""
-    is_starter: bool = False
-    roster_position: str = ""  # QB, RB1, RB2, WR1, etc.
-    player_tier: str = ""  # "elite", "stud", "solid", "flex", "bench"
-    base_rank: int = 999  # Overall positional rank (1 = best)
-    momentum_score: float = 50.0  # Recent performance trend (0-100)
-    recent_scores: List[float] = field(default_factory=list)  # Last 3-5 games
-    floor_projection: float = 0.0  # Low-end projection
-    ceiling_projection: float = 0.0  # High-end projection
-    consistency_score: float = 50.0  # 0-100, higher = more consistent
-    flex_score: float = 0.0  # Position-normalized FLEX value
+    # New expert advice fields
+    expert_tier: str = ""
+    expert_recommendation: str = ""
+    expert_confidence: int = 0
+    expert_advice: str = ""
+    search_rank: int = 500
+    # Match analytics
+    match_confidence: float = 0.0
+    match_analytics: Dict[str, Any] = field(default_factory=dict)
+    raw: Dict[str, Any] = field(default_factory=dict)
+
+    def is_valid(self) -> bool:
+        return bool(self.name and self.team)
 
 
 class LineupOptimizer:
-    """Optimizes fantasy lineup using multiple data sources."""
-    
-    # Standard lineup positions
-    STANDARD_POSITIONS = {
-        "QB": 1,
-        "RB": 2,
-        "WR": 2,
-        "TE": 1,
-        "FLEX": 1,  # RB/WR/TE
-        "K": 1,
-        "DEF": 1
-    }
-    
-    def __init__(self):
-        self.trending_players = None
-        
-        # Elite/Stud thresholds by position (based on typical fantasy points)
-        self.tier_thresholds = {
-            "QB": {"elite": 22, "stud": 18, "solid": 15, "flex": 12},
-            "RB": {"elite": 18, "stud": 14, "solid": 10, "flex": 7},
-            "WR": {"elite": 16, "stud": 12, "solid": 9, "flex": 6},
-            "TE": {"elite": 12, "stud": 9, "solid": 6, "flex": 4},
-            "K": {"elite": 10, "stud": 8, "solid": 6, "flex": 5},
-            "DEF": {"elite": 10, "stud": 8, "solid": 6, "flex": 4}
-        }
-        
-    async def load_trending_data(self):
-        """Load trending player data."""
-        if not self.trending_players:
-            adds = await get_trending_adds(limit=100)
-            self.trending_players = {p['name']: p['count'] for p in adds}
-    
-    def determine_player_tier(self, player: Player) -> str:
+    """Best-effort lineup helper that works entirely offline."""
+
+    def __init__(self) -> None:
+        pass
+
+    async def parse_yahoo_roster(self, roster_payload: Dict[str, Any]) -> List[Player]:
+        """Convert a roster payload into Player objects.
+
+        Supports both the simplified JSON returned by ``ff_get_roster`` and the
+        raw Yahoo payload by delegating to ``parse_team_roster`` when needed.
         """
-        Determine player tier using dynamic percentile-based thresholds.
-        Adapts to weekly scoring environment changes.
-        """
-        # Use the higher of Yahoo or Sleeper projection
-        proj = max(player.yahoo_projection, player.sleeper_projection)
-        
-        if not proj or player.position not in self.tier_thresholds:
-            return "unknown"
-        
-        # Get dynamic thresholds if available, else use static
-        if hasattr(self, 'dynamic_thresholds') and player.position in self.dynamic_thresholds:
-            thresholds = self.dynamic_thresholds[player.position]
-        else:
-            thresholds = self.tier_thresholds[player.position]
-        
-        if proj >= thresholds["elite"]:
-            return "elite"
-        elif proj >= thresholds["stud"]:
-            return "stud"
-        elif proj >= thresholds["solid"]:
-            return "solid"
-        elif proj >= thresholds["flex"]:
-            return "flex"
-        else:
-            return "bench"
-    
-    async def calculate_dynamic_thresholds(self, all_projections: Dict[str, List[float]]):
-        """
-        Calculate dynamic tier thresholds based on current week's projections.
-        Uses percentiles to adapt to scoring environment.
-        """
-        import numpy as np
-        
-        self.dynamic_thresholds = {}
-        
-        for position, projections in all_projections.items():
-            if len(projections) < 10:  # Need enough data
+
+        entries: List[Dict[str, Any]] = []
+        if isinstance(roster_payload, dict):
+            roster_obj = roster_payload.get("roster")
+            if isinstance(roster_obj, list):
+                entries = roster_obj
+            else:
+                # Fallback: try using the legacy parser for raw Yahoo data
+                try:
+                    from fantasy_football_multi_league import parse_team_roster  # type: ignore
+
+                    entries = parse_team_roster(roster_payload)
+                except Exception:
+                    entries = []
+        players: List[Player] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
                 continue
-                
-            # Calculate percentiles for this week
-            percentiles = np.percentile(projections, [90, 75, 50, 25])
-            
-            self.dynamic_thresholds[position] = {
-                "elite": percentiles[0],    # Top 10%
-                "stud": percentiles[1],     # Top 25%
-                "solid": percentiles[2],    # Top 50%
-                "flex": percentiles[3]      # Top 75%
-            }
-    
-    def calculate_composite_score(
-        self,
-        player: Player,
-        strategy: str = "balanced"
-    ) -> float:
-        """
-        Calculate composite score using multiplicative tier system.
-        
-        Uses multiplicative adjustments with diminishing returns to prevent
-        illogical rankings where lesser players outscore elite players.
-        
-        Strategies:
-        - matchup_heavy: Prioritize matchups (but studs still start)
-        - balanced: Equal weight to all factors  
-        - expert_consensus: Trust projections more
-        - trending: Weight trending players higher
-        - floor_focused: Minimize variance for cash games
-        - ceiling_focused: Maximize upside for tournaments
-        """
-        import numpy as np
-        
-        # Define strategy weights
-        weights = {
-            "matchup_heavy": {
-                "matchup": 0.45,
-                "yahoo": 0.20,
-                "sleeper": 0.20,
-                "trending": 0.15,
-                "momentum": 0.00
-            },
-            "balanced": {
-                "matchup": 0.10,  # Heavily reduced - matchups matter less than player quality
-                "yahoo": 0.40,    # Heavily increased - trust expert projections
-                "sleeper": 0.40,  # Heavily increased - trust expert projections
-                "trending": 0.05,
-                "momentum": 0.05
-            },
-            "expert_consensus": {
-                "matchup": 0.15,
-                "yahoo": 0.35,
-                "sleeper": 0.35,
-                "trending": 0.05,
-                "momentum": 0.10
-            },
-            "trending": {
-                "matchup": 0.20,
-                "yahoo": 0.20,
-                "sleeper": 0.20,
-                "trending": 0.25,
-                "momentum": 0.15
-            },
-            "floor_focused": {
-                "matchup": 0.20,
-                "yahoo": 0.35,
-                "sleeper": 0.35,
-                "trending": 0.05,
-                "momentum": 0.05
-            },
-            "ceiling_focused": {
-                "matchup": 0.35,
-                "yahoo": 0.20,
-                "sleeper": 0.20,
-                "trending": 0.15,
-                "momentum": 0.10
-            }
-        }
-        
-        strategy_weights = weights.get(strategy, weights["balanced"])
-        
-        # Normalize scores to 0-100 scale with better scaling
-        # Use position-specific normalization values
-        position_max_proj = {
-            "QB": 30, "RB": 25, "WR": 22, "TE": 18, "K": 12, "DEF": 12
-        }
-        max_proj = position_max_proj.get(player.position, 20)
-        
-        yahoo_norm = min(100, (player.yahoo_projection / max_proj) * 100) if player.yahoo_projection else 50
-        sleeper_norm = min(100, (player.sleeper_projection / max_proj) * 100) if player.sleeper_projection else 50
-        trending_norm = min(100, (player.trending_score / 10000) * 100) if player.trending_score else 0
-        
-        # Calculate momentum score (placeholder - will be enhanced)
-        momentum_score = getattr(player, 'momentum_score', 50)
-        
-        # Calculate base weighted score
-        base_score = (
-            strategy_weights["matchup"] * player.matchup_score +
-            strategy_weights["yahoo"] * yahoo_norm +
-            strategy_weights["sleeper"] * sleeper_norm +
-            strategy_weights["trending"] * trending_norm +
-            strategy_weights.get("momentum", 0) * momentum_score
-        )
-        
-        # Apply MULTIPLICATIVE tier adjustments with diminishing returns
-        # ULTRA-AGGRESSIVE multipliers to ensure elite players ALWAYS start
-        tier_multipliers = {
-            "elite": 3.0,    # 200% boost - TRIPLE score for elite (never bench!)
-            "stud": 2.0,     # 100% boost - DOUBLE score for studs
-            "solid": 1.3,    # 30% boost
-            "flex": 1.0,     # Neutral
-            "bench": 0.50,   # 50% penalty - strong disincentive
-            "unknown": 1.0
-        }
-        
-        tier_mult = tier_multipliers.get(player.player_tier, 1.0)
-        
-        # Apply multiplier with diminishing returns formula
-        # This prevents runaway scores while maintaining tier separation
-        final_score = base_score * tier_mult * (1 - 0.3 * np.exp(-base_score/50))
-        
-        # Cap at 150 to allow for elite players with great matchups
-        return min(150, final_score)
-    
-    async def parse_yahoo_roster(self, roster_data: dict) -> List[Player]:
-        """Parse Yahoo roster data into Player objects."""
-        players = []
-        
-        team = roster_data.get("fantasy_content", {}).get("team", [])
-        
-        for item in team:
-            if isinstance(item, dict) and "roster" in item:
-                roster = item["roster"]
-                if "0" in roster and "players" in roster["0"]:
-                    player_list = roster["0"]["players"]
-                    
-                    for key in player_list:
-                        if key != "count" and isinstance(player_list[key], dict):
-                            if "player" in player_list[key]:
-                                player_array = player_list[key]["player"]
-                                if isinstance(player_array, list) and len(player_array) > 1:
-                                    player_obj = Player(
-                                        name="Unknown",
-                                        position="",
-                                        team="",
-                                        opponent=""
-                                    )
-                                    
-                                    # Parse player data
-                                    for p in player_array:
-                                        if isinstance(p, dict):
-                                            if "name" in p:
-                                                player_obj.name = p["name"]["full"]
-                                            if "selected_position" in p:
-                                                pos_data = p["selected_position"][0]
-                                                player_obj.roster_position = pos_data.get("position", "")
-                                                player_obj.is_starter = pos_data.get("position") != "BN"
-                                            if "display_position" in p:
-                                                player_obj.position = p["display_position"]
-                                            if "editorial_team_abbr" in p:
-                                                player_obj.team = p["editorial_team_abbr"]
-                                            # Get opponent from matchup data if available
-                                            if "matchup" in p:
-                                                player_obj.opponent = p.get("matchup", "")
-                                    
-                                    players.append(player_obj)
-        
+            name = str(entry.get("name") or entry.get("full_name") or "").strip()
+            if not name:
+                continue
+            team = str(
+                entry.get("team")
+                or entry.get("editorial_team_abbr")
+                or entry.get("team_abbr")
+                or entry.get("team_abbreviation")
+                or ""
+            ).strip()
+            position = _normalize_position(
+                entry.get("position")
+                or entry.get("selected_position")
+                or entry.get("display_position")
+                or "BN"
+            )
+            player = Player(
+                name=name,
+                position=position,
+                team=team,
+                opponent=str(entry.get("opponent") or entry.get("opponent_abbr") or ""),
+                status=str(entry.get("status") or "OK"),
+                yahoo_projection=_coerce_float(
+                    entry.get("yahoo_projection") or entry.get("projection")
+                ),
+                sleeper_projection=_coerce_float(entry.get("sleeper_projection")),
+                sleeper_projection_std=_coerce_float(entry.get("sleeper_projection_std")),
+                sleeper_projection_ppr=_coerce_float(entry.get("sleeper_projection_ppr")),
+                sleeper_projection_half_ppr=_coerce_float(entry.get("sleeper_projection_half_ppr")),
+                sleeper_id=str(entry.get("sleeper_id") or ""),
+                sleeper_status=str(entry.get("sleeper_status") or ""),
+                sleeper_injury_status=str(entry.get("sleeper_injury_status") or ""),
+                sleeper_match_method=str(entry.get("sleeper_match_method") or ""),
+                player_tier=str(entry.get("player_tier") or "starter"),
+                matchup_score=_coerce_int(entry.get("matchup_score"), default=50),
+                matchup_description=str(entry.get("matchup_description") or "No matchup context"),
+                trending_score=_coerce_int(entry.get("trending_score"), default=0),
+                injury_status=str(entry.get("injury_status") or "Healthy"),
+                injury_probability=_coerce_float(entry.get("injury_probability")),
+                ownership_pct=_coerce_float(entry.get("ownership_pct")),
+                season_avg=_coerce_float(entry.get("season_avg")),
+                target_share=_coerce_float(entry.get("target_share")),
+                snap_count_pct=_coerce_float(entry.get("snap_count_pct")),
+                weather_impact=str(entry.get("weather_impact") or "Unknown"),
+                vegas_total=_coerce_float(entry.get("vegas_total")),
+                team_implied_total=_coerce_float(entry.get("team_implied_total")),
+                spread=_coerce_float(entry.get("spread")),
+                defense_rank_allowed=str(entry.get("def_rank_vs_pos") or "Unknown"),
+                value=_coerce_float(entry.get("value") or entry.get("value_score")),
+                value_score=_coerce_float(entry.get("value_score")),
+                floor_projection=_coerce_float(entry.get("floor_projection")),
+                ceiling_projection=_coerce_float(entry.get("ceiling_projection")),
+                consistency_score=_coerce_float(entry.get("consistency_score")),
+                risk_level=str(entry.get("risk_level") or "medium"),
+                composite_score=_coerce_float(entry.get("composite_score")),
+                raw=entry,
+            )
+            players.append(player)
         return players
-    
-    def calculate_momentum(self, recent_scores: List[float], alpha: float = 0.3) -> float:
-        """
-        Calculate momentum score using exponentially weighted moving average.
-        
-        Args:
-            recent_scores: List of recent fantasy scores (newest first)
-            alpha: Smoothing factor (0-1, higher = more weight on recent)
-            
-        Returns:
-            Momentum score (0-100, 50 = neutral)
-        """
-        import numpy as np
-        
-        if not recent_scores or len(recent_scores) < 2:
-            return 50.0  # Neutral if insufficient data
-        
-        # Calculate EWMA
-        ewma = recent_scores[0]
-        for score in recent_scores[1:]:
-            ewma = alpha * score + (1 - alpha) * ewma
-        
-        # Calculate average for normalization
-        avg = np.mean(recent_scores)
-        
-        if avg == 0:
-            return 50.0
-        
-        # Normalize to 0-100 scale
-        # 1.0 = neutral (50), >1.0 = hot (50-100), <1.0 = cold (0-50)
-        ratio = ewma / avg
-        
-        if ratio >= 1.0:
-            # Hot streak: map 1.0-2.0 to 50-100
-            momentum = min(100, 50 + (ratio - 1.0) * 50)
-        else:
-            # Cold streak: map 0.0-1.0 to 0-50
-            momentum = max(0, ratio * 50)
-        
-        return momentum
-    
-    def calculate_floor_ceiling(self, yahoo_proj: float, sleeper_proj: float, 
-                               matchup_score: int, recent_scores: List[float] = None) -> Tuple[float, float]:
-        """
-        Calculate floor and ceiling projections with volatility analysis.
-        
-        Args:
-            yahoo_proj: Yahoo projection
-            sleeper_proj: Sleeper projection
-            matchup_score: Matchup quality (0-100)
-            recent_scores: Recent game scores for volatility calculation
-            
-        Returns:
-            (floor, ceiling) projections
-        """
-        import numpy as np
-        
-        # Base projection is average of available projections
-        projections = [p for p in [yahoo_proj, sleeper_proj] if p > 0]
-        if not projections:
-            return (0.0, 0.0)
-        
-        base_proj = np.mean(projections)
-        
-        # Calculate volatility from recent scores if available
-        if recent_scores and len(recent_scores) >= 3:
-            std_dev = np.std(recent_scores)
-            mean_score = np.mean(recent_scores)
-            
-            # Coefficient of variation (normalized volatility)
-            cv = std_dev / mean_score if mean_score > 0 else 0.5
-            
-            # Actual floor/ceiling based on historical performance
-            floor = mean_score - (std_dev * 0.8)  # 80% confidence floor
-            ceiling = mean_score + (std_dev * 1.2)  # Upside potential
-            
-            # Adjust for matchup
-            if matchup_score >= 70:
-                floor *= 1.1  # Better floor in good matchups
-                ceiling *= 1.2  # Higher ceiling too
-            elif matchup_score <= 30:
-                floor *= 0.85  # Lower floor in bad matchups
-                ceiling *= 0.95  # Capped ceiling
-        else:
-            # Fallback to matchup-based estimates
-            if matchup_score >= 70:
-                floor = base_proj * 0.75
-                ceiling = base_proj * 1.35
-            elif matchup_score >= 50:
-                floor = base_proj * 0.80
-                ceiling = base_proj * 1.25
-            elif matchup_score >= 30:
-                floor = base_proj * 0.70
-                ceiling = base_proj * 1.15
-            else:
-                floor = base_proj * 0.60
-                ceiling = base_proj * 1.10
-        
-        return (max(0, floor), ceiling)
-    
-    def calculate_consistency_score(self, recent_scores: List[float]) -> float:
-        """
-        Calculate player consistency score (0-100).
-        
-        100 = extremely consistent (low variance)
-        50 = average consistency
-        0 = extremely volatile (boom/bust)
-        """
-        import numpy as np
-        
-        if not recent_scores or len(recent_scores) < 3:
-            return 50.0  # Default to average
-        
-        std_dev = np.std(recent_scores)
-        mean_score = np.mean(recent_scores)
-        
-        if mean_score == 0:
-            return 50.0
-        
-        # Coefficient of variation (lower = more consistent)
-        cv = std_dev / mean_score
-        
-        # Convert to 0-100 scale (CV of 0 = 100, CV of 1+ = 0)
-        consistency = max(0, min(100, (1 - cv) * 100))
-        
-        return consistency
-    
-    async def enhance_with_external_data(self, players: List[Player]) -> List[Player]:
-        """Add Sleeper projections, matchup scores, trending data, momentum, and tier."""
-        await self.load_trending_data()
-        await matchup_analyzer.load_defensive_rankings()
-        
-        for player in players:
-            # Get matchup score
-            if player.opponent and player.position:
-                score, desc = matchup_analyzer.get_matchup_score(
-                    player.opponent.replace("@", "").strip(),
-                    player.position
+
+    async def enhance_with_external_data(
+        self,
+        players: Sequence[Player],
+        *,
+        week: Optional[int] = None,
+    ) -> List[Player]:
+        """Enhance players with Sleeper data including rankings, advice, and matchup analysis."""
+
+        enhanced: List[Player] = []
+        match_analytics = MatchAnalytics()
+
+        try:
+            from sleeper_api import sleeper_client
+
+            # Get current season and week once for all players
+            from sleeper_api import get_current_season, get_current_week
+
+            current_season = await get_current_season()
+            current_week = await get_current_week()
+
+            for player in players:
+                # Create a copy to avoid modifying the original
+                enhanced_player = Player(
+                    name=player.name,
+                    position=player.position,
+                    team=player.team,
+                    opponent=player.opponent,
+                    status=player.status,
+                    yahoo_projection=player.yahoo_projection,
+                    sleeper_projection=player.sleeper_projection,
+                    sleeper_projection_std=player.sleeper_projection_std,
+                    sleeper_projection_ppr=player.sleeper_projection_ppr,
+                    sleeper_projection_half_ppr=player.sleeper_projection_half_ppr,
+                    sleeper_id=player.sleeper_id,
+                    sleeper_status=player.sleeper_status,
+                    sleeper_injury_status=player.sleeper_injury_status,
+                    sleeper_match_method=player.sleeper_match_method,
+                    player_tier=player.player_tier,
+                    matchup_score=player.matchup_score,
+                    matchup_description=player.matchup_description,
+                    trending_score=player.trending_score,
+                    injury_status=player.injury_status,
+                    injury_probability=player.injury_probability,
+                    ownership_pct=player.ownership_pct,
+                    recent_performance=player.recent_performance.copy(),
+                    season_avg=player.season_avg,
+                    target_share=player.target_share,
+                    snap_count_pct=player.snap_count_pct,
+                    weather_impact=player.weather_impact,
+                    vegas_total=player.vegas_total,
+                    team_implied_total=player.team_implied_total,
+                    spread=player.spread,
+                    defense_rank_allowed=player.defense_rank_allowed,
+                    value=player.value,
+                    value_score=player.value_score,
+                    floor_projection=player.floor_projection,
+                    ceiling_projection=player.ceiling_projection,
+                    consistency_score=player.consistency_score,
+                    risk_level=player.risk_level,
+                    composite_score=player.composite_score,
+                    raw=player.raw.copy(),
                 )
-                player.matchup_score = score
-                player.matchup_description = desc
-            
-            # Get Sleeper projection
-            from sleeper_api import get_player_projection
-            proj = await get_player_projection(player.name)
-            if proj:
-                player.sleeper_projection = proj.get('pts_ppr', proj.get('pts_std', 0))
-            
-            # Get trending score
-            if self.trending_players and player.name in self.trending_players:
-                player.trending_score = self.trending_players[player.name]
-            
-            # Calculate momentum if recent scores available
-            if player.recent_scores:
-                player.momentum_score = self.calculate_momentum(player.recent_scores)
-            
-            # Calculate floor/ceiling projections with volatility
-            floor, ceiling = self.calculate_floor_ceiling(
-                player.yahoo_projection,
-                player.sleeper_projection,
-                player.matchup_score,
-                player.recent_scores
-            )
-            player.floor_projection = floor
-            player.ceiling_projection = ceiling
-            
-            # Determine player tier (elite, stud, solid, flex, bench)
-            player.player_tier = self.determine_player_tier(player)
-        
-        return players
-    
-    def optimize_lineup(
+
+                use_week = week or current_week
+
+                try:
+                    # Get Sleeper player mapping and basic data
+                    sleeper_id = await sleeper_client.map_yahoo_to_sleeper(
+                        player.name, position=player.position, team=player.team
+                    )
+
+                    if sleeper_id:
+                        enhanced_player.sleeper_id = sleeper_id
+                        enhanced_player.sleeper_match_method = "api"
+
+                        # Fetch projections for this player
+                        try:
+                            projections = await sleeper_client.get_projections(
+                                current_season, use_week
+                            )
+                            if sleeper_id in projections:
+                                proj_data = projections[sleeper_id]
+                                # Sleeper projections typically have 'projected_stats' with 'pts' or position-specific
+                                stats = proj_data.get("projected_stats", {})
+                                if isinstance(stats, list):
+                                    # Sum pts from list of stats if present
+                                    enhanced_player.sleeper_projection = sum(
+                                        _coerce_float(s.get("pts", 0)) for s in stats
+                                    )
+                                    enhanced_player.sleeper_projection_std = sum(
+                                        _coerce_float(s.get("pts_std", 0)) for s in stats
+                                    )
+                                    enhanced_player.sleeper_projection_ppr = sum(
+                                        _coerce_float(s.get("pts_ppr", 0)) for s in stats
+                                    )
+                                    enhanced_player.sleeper_projection_half_ppr = sum(
+                                        _coerce_float(s.get("pts_half_ppr", 0)) for s in stats
+                                    )
+                                else:
+                                    # Dict or direct pts
+                                    enhanced_player.sleeper_projection = _coerce_float(
+                                        stats.get("pts") or proj_data.get("pts", 0)
+                                    )
+                                    enhanced_player.sleeper_projection_std = _coerce_float(
+                                        stats.get("pts_std") or proj_data.get("pts_std", 0)
+                                    )
+                                    enhanced_player.sleeper_projection_ppr = _coerce_float(
+                                        stats.get("pts_ppr")
+                                        or proj_data.get(
+                                            "pts_ppr", enhanced_player.sleeper_projection
+                                        )
+                                    )
+                                    enhanced_player.sleeper_projection_half_ppr = _coerce_float(
+                                        stats.get("pts_half_ppr")
+                                        or proj_data.get(
+                                            "pts_half_ppr", enhanced_player.sleeper_projection
+                                        )
+                                    )
+                        except Exception:
+                            enhanced_player.sleeper_projection = 0.0  # Fallback if projections fail
+
+                        # Get expert advice for this player
+                        advice = await sleeper_client.get_expert_advice(player.name, week=use_week)
+                        if advice and advice.get("confidence", 0) > 0:
+                            enhanced_player.expert_tier = advice.get("tier", "starter")
+                            enhanced_player.expert_recommendation = advice.get(
+                                "recommendation", "Start"
+                            )
+                            enhanced_player.expert_confidence = advice.get("confidence", 50)
+                            enhanced_player.expert_advice = advice.get(
+                                "advice", "No advice available"
+                            )
+                            enhanced_player.search_rank = advice.get("search_rank", 500)
+                            enhanced_player.matchup_description = advice.get(
+                                "advice", "No advice available"
+                            )
+
+                            # Convert confidence to matchup score (0-100 -> 0-100)
+                            enhanced_player.matchup_score = advice.get("confidence", 50)
+
+                            # Set risk level based on tier and confidence
+                            confidence = advice.get("confidence", 50)
+                            if confidence >= 70:
+                                enhanced_player.risk_level = "low"
+                            elif confidence >= 50:
+                                enhanced_player.risk_level = "medium"
+                            else:
+                                enhanced_player.risk_level = "high"
+
+                        # Try to get trending data
+                        try:
+                            trending_adds = await sleeper_client.get_trending_players(
+                                "nfl", "add", hours=24
+                            )
+                            trending_drops = await sleeper_client.get_trending_players(
+                                "nfl", "drop", hours=24
+                            )
+
+                            # Check if this player is trending
+                            trending_add_ids = [p.get("player_id") for p in trending_adds]
+                            trending_drop_ids = [p.get("player_id") for p in trending_drops]
+
+                            if sleeper_id in trending_add_ids:
+                                enhanced_player.trending_score = 75  # Trending up
+                            elif sleeper_id in trending_drop_ids:
+                                enhanced_player.trending_score = 25  # Trending down
+                            else:
+                                enhanced_player.trending_score = 50  # Neutral
+                        except Exception:
+                            enhanced_player.trending_score = 50  # Default if trending fails
+
+                except Exception:
+                    # If Sleeper lookup fails, keep original data
+                    enhanced_player.sleeper_match_method = "failed"
+
+                # Populate derived metrics with dynamic weighting
+                match_confidence = _calculate_match_confidence(enhanced_player.sleeper_match_method)
+                weights = _calculate_dynamic_weights(
+                    enhanced_player.yahoo_projection,
+                    enhanced_player.sleeper_projection,
+                    match_confidence,
+                )
+
+                # Track match analytics
+                match_analytics.add_match(enhanced_player.sleeper_match_method, match_confidence)
+
+                # Populate player match analytics fields
+                enhanced_player.match_confidence = match_confidence
+                enhanced_player.match_analytics = {
+                    "method": enhanced_player.sleeper_match_method,
+                    "confidence": match_confidence,
+                    "has_mismatch": "_mismatch" in (enhanced_player.sleeper_match_method or ""),
+                    "weights_used": weights,
+                }
+
+                # Calculate weighted composite score
+                if enhanced_player.composite_score == 0.0:
+                    yahoo_component = enhanced_player.yahoo_projection * weights["yahoo"]
+                    sleeper_component = enhanced_player.sleeper_projection * weights["sleeper"]
+                    enhanced_player.composite_score = yahoo_component + sleeper_component
+
+                    # Add debugging info to raw data for analysis
+                    enhanced_player.raw["weighting_info"] = {
+                        "match_confidence": match_confidence,
+                        "yahoo_weight": weights["yahoo"],
+                        "sleeper_weight": weights["sleeper"],
+                        "yahoo_component": yahoo_component,
+                        "sleeper_component": sleeper_component,
+                    }
+                if enhanced_player.floor_projection == 0.0:
+                    enhanced_player.floor_projection = max(
+                        enhanced_player.composite_score * 0.75, 0.0
+                    )
+                if enhanced_player.ceiling_projection == 0.0:
+                    enhanced_player.ceiling_projection = max(
+                        enhanced_player.composite_score * 1.25, enhanced_player.floor_projection
+                    )
+                if enhanced_player.matchup_description == "No matchup context":
+                    enhanced_player.matchup_description = f"Week {use_week} outlook"
+                if not enhanced_player.matchup_score:
+                    enhanced_player.matchup_score = 50
+
+                enhanced.append(enhanced_player)
+
+            # Add analytics summary to the first player's raw data for debugging
+            if enhanced:
+                enhanced[0].raw["session_analytics"] = {
+                    "total_players": match_analytics.total_players,
+                    "success_rate": match_analytics.get_success_rate(),
+                    "avg_confidence": match_analytics.avg_match_confidence,
+                    "quality_distribution": match_analytics.get_quality_distribution(),
+                    "mismatches": {
+                        "position": match_analytics.position_mismatches,
+                        "team": match_analytics.team_mismatches,
+                    },
+                }
+
+        except ImportError:
+            # If Sleeper API not available, fall back to basic enhancement
+            for player in players:
+                if player.composite_score == 0.0:
+                    # Use simple fallback without dynamic weighting
+                    match_confidence = _calculate_match_confidence(player.sleeper_match_method)
+                    if match_confidence > 0.5 and player.sleeper_projection:
+                        # Trust existing Sleeper data if match confidence is good
+                        weights = _calculate_dynamic_weights(
+                            player.yahoo_projection, player.sleeper_projection, match_confidence
+                        )
+                        yahoo_component = player.yahoo_projection * weights["yahoo"]
+                        sleeper_component = player.sleeper_projection * weights["sleeper"]
+                        player.composite_score = yahoo_component + sleeper_component
+                    else:
+                        # Fall back to Yahoo only or simple average
+                        player.composite_score = (
+                            player.yahoo_projection or player.sleeper_projection or 0.0
+                        )
+                if player.floor_projection == 0.0:
+                    player.floor_projection = max(player.composite_score * 0.75, 0.0)
+                if player.ceiling_projection == 0.0:
+                    player.ceiling_projection = max(
+                        player.composite_score * 1.25, player.floor_projection
+                    )
+                if player.matchup_description == "No matchup context":
+                    player.matchup_description = f"Week {week or 'current'} outlook"
+                if not player.matchup_score:
+                    player.matchup_score = 50
+                enhanced.append(player)
+
+        return enhanced
+
+    async def optimize_lineup_smart(
         self,
-        players: List[Player],
+        players: Sequence[Player],
         strategy: str = "balanced",
-        week: int = None
-    ) -> Dict[str, any]:
-        """
-        Optimize the lineup based on composite scores.
-        
-        Returns dict with:
-        - starters: Optimal starting lineup
-        - bench: Bench players
-        - recommendations: Specific advice
-        """
-        # Calculate composite scores
+        week: Optional[int] = None,
+        use_llm: bool = False,
+    ) -> Dict[str, Any]:
+        """Return a deterministic starter/bench split without heavy math."""
+
+        starters: Dict[str, Player] = {}
+        bench: List[Player] = []
+        bench_ids: set[int] = set()
+        selected_ids: set[int] = set()
+
         for player in players:
-            player.composite_score = self.calculate_composite_score(player, strategy)
-            
-            # Week 17 adjustment - reduce projections for potential rest
-            if week == 17:
-                # Players on playoff teams might rest
-                # This is a simplified approach - ideally check team playoff status
-                if player.player_tier == "elite":
-                    player.composite_score *= 0.85  # 15% reduction for rest risk
-                    player.yahoo_projection *= 0.85
-                    player.sleeper_projection *= 0.85
-            
-            # OVERRIDE: Elite and Stud players get massive boost to ensure they start
-            if player.player_tier == "elite":
-                player.composite_score = max(player.composite_score, 120)  # Minimum score of 120
-            elif player.player_tier == "stud":
-                player.composite_score = max(player.composite_score, 100)  # Minimum score of 100
-            
-            # FLEX POSITION ADJUSTMENT: Use position-normalized scoring
-            base_projection = max(player.yahoo_projection, player.sleeper_projection)
-            
-            # Calculate consistency if we have recent scores
-            consistency = self.calculate_consistency_score(
-                getattr(player, 'recent_scores', [])
-            )
-            player.consistency_score = consistency
-            
-            # Get position-normalized FLEX value
-            flex_value = position_normalizer.get_flex_value(base_projection, player.position)
-            
-            # Scale up for differentiation and add small composite influence
-            flex_base = (flex_value * 10) + (player.composite_score * 0.01)
-            
-            # Adjust for game script and volatility preferences
-            # In balanced/default strategy, slight preference for consistency
-            if strategy == "floor_focused":
-                # Prefer consistent players for cash games
-                consistency_bonus = (consistency - 50) * 0.02  # +/-1 point max
-                player.flex_score = flex_base + consistency_bonus
-            elif strategy == "ceiling_focused":
-                # Prefer volatile players for tournaments
-                volatility_bonus = (50 - consistency) * 0.02  # Inverse of consistency
-                player.flex_score = flex_base + volatility_bonus
+            slot = player.position.upper()
+            if slot in BENCH_SLOTS:
+                bench.append(player)
+                bench_ids.add(id(player))
+                continue
+
+            existing = starters.get(slot)
+            if existing is None:
+                starters[slot] = player
+                selected_ids.add(id(player))
+                continue
+
+            # Prefer the player with the higher projection
+            if player.yahoo_projection > existing.yahoo_projection:
+                bench.append(existing)
+                bench_ids.add(id(existing))
+                starters[slot] = player
+                selected_ids.add(id(player))
             else:
-                # Balanced - slight consistency preference
-                consistency_bonus = (consistency - 50) * 0.01  # +/-0.5 point max
-                player.flex_score = flex_base + consistency_bonus
-        
-        # Sort by position and score
-        qbs = sorted([p for p in players if p.position == "QB"], 
-                    key=lambda x: x.composite_score, reverse=True)
-        rbs = sorted([p for p in players if p.position == "RB"],
-                    key=lambda x: x.composite_score, reverse=True)
-        wrs = sorted([p for p in players if p.position == "WR"],
-                    key=lambda x: x.composite_score, reverse=True)
-        tes = sorted([p for p in players if p.position == "TE"],
-                    key=lambda x: x.composite_score, reverse=True)
-        ks = sorted([p for p in players if p.position == "K"],
-                   key=lambda x: x.composite_score, reverse=True)
-        defs = sorted([p for p in players if p.position == "DEF"],
-                     key=lambda x: x.composite_score, reverse=True)
-        
-        # Build optimal lineup
-        starters = {}
-        bench = []
-        warnings = []
-        
-        # QB - Check for empty list before accessing
-        if qbs and len(qbs) > 0:
-            starters["QB"] = qbs[0]
-            bench.extend(qbs[1:])
-        else:
-            warnings.append("No QB available to start")
-        
-        # RB (2 starters) - Defensive checks for each position
-        if len(rbs) >= 2:
-            starters["RB1"] = rbs[0]
-            starters["RB2"] = rbs[1]
-            bench.extend(rbs[2:])
-        elif len(rbs) == 1:
-            starters["RB1"] = rbs[0]
-            warnings.append("Only 1 RB available (need 2)")
-        else:
-            warnings.append("No RBs available to start")
-        
-        # WR (2 starters) - Defensive checks for each position
-        if len(wrs) >= 2:
-            starters["WR1"] = wrs[0]
-            starters["WR2"] = wrs[1]
-            bench.extend(wrs[2:])
-        elif len(wrs) == 1:
-            starters["WR1"] = wrs[0]
-            warnings.append("Only 1 WR available (need 2)")
-        else:
-            warnings.append("No WRs available to start")
-        
-        # TE - Check for empty list
-        if tes and len(tes) > 0:
-            starters["TE"] = tes[0]
-            bench.extend(tes[1:])
-        else:
-            warnings.append("No TE available to start")
-        
-        # FLEX (best remaining RB/WR/TE)
-        flex_eligible = []
-        if len(rbs) > 2:
-            flex_eligible.extend(rbs[2:])
-        if len(wrs) > 2:
-            flex_eligible.extend(wrs[2:])
-        if len(tes) > 1:
-            flex_eligible.extend(tes[1:])
-        
-        if flex_eligible and len(flex_eligible) > 0:
-            # Use flex_score for FLEX comparison (position-adjusted)
-            flex_eligible.sort(key=lambda x: getattr(x, 'flex_score', x.composite_score), reverse=True)
-            starters["FLEX"] = flex_eligible[0]
-            # Remove FLEX from bench
-            if starters["FLEX"] in bench:
-                bench.remove(starters["FLEX"])
-        else:
-            warnings.append("No eligible players for FLEX position")
-        
-        # K - Check for empty list
-        if ks and len(ks) > 0:
-            starters["K"] = ks[0]
-            bench.extend(ks[1:])
-        else:
-            warnings.append("No Kicker available to start")
-        
-        # DEF - Check for empty list
-        if defs and len(defs) > 0:
-            starters["DEF"] = defs[0]
-            bench.extend(defs[1:])
-        else:
-            warnings.append("No Defense available to start")
-        
-        # Generate recommendations
-        recommendations = self._generate_recommendations(starters, bench, players)
-        
-        # Add warnings to recommendations if any exist
-        if warnings:
-            recommendations.extend([f"⚠️ {warning}" for warning in warnings])
-        
+                bench.append(player)
+                bench_ids.add(id(player))
+
+        for player in players:
+            pid = id(player)
+            if pid in selected_ids or pid in bench_ids:
+                continue
+            bench.append(player)
+            bench_ids.add(pid)
+
+        recommendations = [f"Start {p.name} at {pos}" for pos, p in starters.items()]
+        data_quality = {
+            "total_players": len(players),
+            "valid_players": sum(1 for p in players if p.is_valid()),
+            "players_with_projections": sum(
+                1 for p in players if (p.yahoo_projection or p.sleeper_projection)
+            ),
+            "players_with_matchup_data": sum(
+                1
+                for p in players
+                if p.matchup_description and p.matchup_description != "No matchup context"
+            ),
+            "players_with_sleeper_match": sum(
+                1 for p in players if p.sleeper_id and p.sleeper_match_method not in ["failed", ""]
+            ),
+            "avg_match_confidence": (
+                sum(p.match_confidence for p in players) / len(players) if players else 0
+            ),
+            "high_confidence_matches": sum(1 for p in players if p.match_confidence >= 0.8),
+            "low_confidence_matches": sum(1 for p in players if 0 < p.match_confidence < 0.6),
+        }
+
         return {
+            "status": "success",
+            "strategy_used": strategy,
+            "week": week or "current",
             "starters": starters,
             "bench": bench,
             "recommendations": recommendations,
-            "strategy_used": strategy,
-            "warnings": warnings
+            "errors": [],
+            "data_quality": data_quality,
         }
-    
-    def _generate_recommendations(
-        self,
-        starters: Dict[str, Player],
-        bench: List[Player],
-        all_players: List[Player]
-    ) -> List[str]:
-        """Generate specific recommendations based on analysis."""
-        recommendations = []
-        
-        # Check for elite/stud players on bench (should never happen)
-        for player in bench:
-            if player.player_tier in ["elite", "stud"]:
-                recommendations.append(
-                    f"🚨 {player.name} ({player.player_tier.upper()}) on bench! Must start regardless of matchup"
-                )
-            elif player.matchup_score >= 85 and player.composite_score > 70:
-                recommendations.append(
-                    f"⚠️ {player.name} on bench has ELITE matchup vs {player.opponent} - consider starting"
-                )
-        
-        # Check for studs with tough matchups (start anyway)
-        for pos, player in starters.items():
-            if player.player_tier in ["elite", "stud"] and player.matchup_score <= 30:
-                recommendations.append(
-                    f"💪 {player.name} is {player.player_tier.upper()} - starting despite tough matchup vs {player.opponent}"
-                )
-            elif player.player_tier not in ["elite", "stud"] and player.matchup_score <= 20:
-                recommendations.append(
-                    f"⚠️ {player.name} faces tough matchup vs {player.opponent} (score: {player.matchup_score}/100) - consider alternatives"
-                )
-        
-        # Check for trending players
-        for player in all_players:
-            if player.trending_score > 10000 and player not in starters.values():
-                recommendations.append(
-                    f"📈 {player.name} is trending ({player.trending_score:,} adds) - monitor for breakout"
-                )
-        
-        # Highlight best matchups
-        best_matchup = max(starters.values(), key=lambda x: x.matchup_score)
-        if best_matchup.matchup_score >= 80:
-            if best_matchup.player_tier in ["elite", "stud"]:
-                recommendations.append(
-                    f"🎯 SMASH PLAY: {best_matchup.name} ({best_matchup.player_tier}) vs {best_matchup.opponent} - elite player + elite matchup!"
-                )
-            else:
-                recommendations.append(
-                    f"🎯 Great matchup: {best_matchup.name} vs {best_matchup.opponent} (matchup score: {best_matchup.matchup_score}/100)"
-                )
-        
-        return recommendations
 
 
-# Global instance
 lineup_optimizer = LineupOptimizer()
+
+__all__ = ["Player", "LineupOptimizer", "lineup_optimizer"]

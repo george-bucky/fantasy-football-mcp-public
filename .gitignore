@@ -1,13 +1,8 @@
-# Claude-specific files
-.claude/
-*.claude
-claude_desktop_config.json
-
-# Environment variables - NEVER commit these!
+# Environment variables
 .env
 .env.*
-!.env.example
-*.env
+.env.local
+.env.*.local
 
 # Python
 __pycache__/
@@ -17,6 +12,7 @@ __pycache__/
 .Python
 env/
 venv/
+.venv/
 ENV/
 build/
 dist/
@@ -35,26 +31,44 @@ dist/
 logs/
 *.log
 
-# Authentication and tokens
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Auth and tokens
 .auth/
-.tokens/
 token.json
 yahoo_token.json
 *.token
-*_token.json
-refresh_token.txt
-access_token.txt
 
-# Test files and debug output
-test_*.py
+# Test files and debug output (excluding organized test directories)
 debug_*.py
-*_test.py
 *_debug.py
+*_enhancement.py
+*_enhanced.py
+test_*enhancement*.py
+test_enhanced_*.py
 find_*.py
 parse_*.py
+fetch_*.py
+get_*.py
+simple_*.py
+standalone_*.py
+mcp_server_test*.py
 exchange_code.py
-demo_usage.py
 quick_validation.py
+
+# Temporary and analysis files
+temp/
+*_analysis.py
+*_summary.py
+cleanup_*.py
+
+# Keep organized test directories
+!tests/
+!examples/
 
 # JSON test data
 all_leagues_raw.json
@@ -90,3 +104,39 @@ tests_and_validation/data/*.json
 tests_and_validation/data/*.png
 tests_and_validation/data/*.csv
 tests_and_validation/data/*.html
+
+# Personal/development directories
+.claude/
+.qoder/
+.devcontainer/
+.vscode/settings.json
+
+# Git hooks and personal scripts
+.githooks/
+hooks/
+
+# Personal notes and private docs
+PERSONAL_*.md
+PRIVATE_*.md
+TODO_*.md
+
+# Runtime and deployment artifacts
+*.pid
+*.lock
+deployment_log.txt
+nohup.out
+
+# IDE and editor files
+.vscode/launch.json
+.vscode/tasks.json
+*.sublime-*
+.idea/workspace.xml
+
+# Claude config backups
+claude_desktop_config*.json
+claude_config*.json
+
+# OAuth and session files
+oauth_state.json
+session_*.json
+callback_*.html
