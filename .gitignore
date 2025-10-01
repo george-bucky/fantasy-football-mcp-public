@@ -1,5 +1,6 @@
 # Environment variables
-# Note: .env is tracked in this private repository
+.env
+.env.*
 .env.local
 .env.*.local
 
@@ -103,3 +104,18 @@ tests_and_validation/data/*.json
 tests_and_validation/data/*.png
 tests_and_validation/data/*.csv
 tests_and_validation/data/*.html
+
+# Personal/development directories
+.claude/
+.qoder/
+.devcontainer/
+.vscode/settings.json
+
+# Git hooks and personal scripts
+.githooks/
+hooks/
+
+# Personal notes and private docs
+PERSONAL_*.md
+PRIVATE_*.md
+TODO_*.md
