@@ -40,7 +40,7 @@ async def test_fix():
 
         # Test with enhanced mode
         print("🧠 Testing Enhanced Mode:")
-        result = await ff_get_roster(ctx=ctx, league_key="461.l.900001", data_level="full")
+        result = await ff_get_roster(ctx=ctx, league_key="nfl.l.XXXXXX", data_level="full")
 
         if isinstance(result, dict) and "status" in result:
             if result["status"] == "success":

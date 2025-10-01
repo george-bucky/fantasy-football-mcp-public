@@ -10,8 +10,8 @@
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/derekrbreese/fantasy-football-mcp.git
-cd fantasy-football-mcp
+git clone https://github.com/derekrbreese/fantasy-football-mcp-public.git
+cd fantasy-football-mcp-public
 ```
 
 ## Step 2: Install Python Dependencies

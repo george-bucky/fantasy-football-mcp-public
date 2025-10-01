@@ -38,7 +38,7 @@ async def test_enhanced_direct():
         ctx = MockContext()
 
         print("🧠 Calling enhanced tool directly...")
-        result = await ff_get_roster_with_projections(ctx=ctx, league_key="461.l.900001")
+        result = await ff_get_roster_with_projections(ctx=ctx, league_key="nfl.l.XXXXXX")
 
         print(f"✅ Enhanced tool succeeded!")
         print(f"   Type: {type(result)}")
@@ -73,7 +73,7 @@ async def test_fastmcp_import():
 
         print("🧠 Calling through FastMCP import...")
         result = await _ff_get_roster_with_projections(
-            ctx=ctx, league_key="461.l.900001", team_key=None, week=None
+            ctx=ctx, league_key="nfl.l.XXXXXX", team_key=None, week=None
         )
 
         print(f"✅ FastMCP import call succeeded!")

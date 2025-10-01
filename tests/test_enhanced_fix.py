@@ -38,7 +38,7 @@ async def test_enhanced_fix():
         ctx = MockContext()
 
         print("🧠 Testing Enhanced Roster Tool:")
-        result = await ff_get_roster_with_projections(ctx=ctx, league_key="461.l.900001")
+        result = await ff_get_roster_with_projections(ctx=ctx, league_key="nfl.l.XXXXXX")
 
         if isinstance(result, dict) and "status" in result:
             if result["status"] == "success":

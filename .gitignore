@@ -119,3 +119,24 @@ hooks/
 PERSONAL_*.md
 PRIVATE_*.md
 TODO_*.md
+
+# Runtime and deployment artifacts
+*.pid
+*.lock
+deployment_log.txt
+nohup.out
+
+# IDE and editor files
+.vscode/launch.json
+.vscode/tasks.json
+*.sublime-*
+.idea/workspace.xml
+
+# Claude config backups
+claude_desktop_config*.json
+claude_config*.json
+
+# OAuth and session files
+oauth_state.json
+session_*.json
+callback_*.html

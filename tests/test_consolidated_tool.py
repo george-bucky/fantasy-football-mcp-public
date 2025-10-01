@@ -159,7 +159,7 @@ async def test_backward_compatibility():
 
         # Test legacy tool
         print("📜 Testing legacy ff_get_roster_with_projections...")
-        result = await call_tool("ff_get_roster_with_projections", {"league_key": "461.l.900001"})
+        result = await call_tool("ff_get_roster_with_projections", {"league_key": "nfl.l.XXXXXX"})
 
         if result:
             data = json.loads(result[0].text)

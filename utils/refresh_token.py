@@ -85,7 +85,7 @@ if response.status_code == 200:
             print("✓ Updated claude_desktop_config.json")
 
     # Also update the main Claude config
-    main_config_path = "/home/derek/.config/Claude/claude_desktop_config.json"
+    main_config_path = os.path.expanduser("~/.config/Claude/claude_desktop_config.json")
     if os.path.exists(main_config_path):
         with open(main_config_path, "r") as f:
             config = json.load(f)

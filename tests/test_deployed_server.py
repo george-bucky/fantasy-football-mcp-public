@@ -69,7 +69,7 @@ async def test_fantasy_football_server():
     print("=" * 50)
 
     # Your deployed FastMCP URL
-    server_url = "https://ideal-blush-lemming.fastmcp.app/mcp"
+    server_url = "https://your-app-name.fastmcp.app/mcp"
     client = FastMCPClient(server_url)
 
     # Test 1: List available tools
@@ -91,7 +91,7 @@ async def test_fantasy_football_server():
         print(f"🎯 Using league key: {league_key}")
     else:
         print("❌ No leagues found - using a test league key")
-        league_key = "461.l.900001"  # Your test league from local debug
+        league_key = "nfl.l.XXXXXX"  # Replace with your test league key
 
     # Test 3: Test the optimal lineup tool
     print(f"\n🔍 Step 3: Testing ff_get_optimal_lineup with league {league_key}...")

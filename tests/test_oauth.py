@@ -10,7 +10,7 @@ import sys
 from urllib.parse import urlencode, parse_qs, urlparse
 
 
-def test_oauth_flow(base_url="https://fantasy-football-mcp-server.onrender.com"):
+def test_oauth_flow(base_url="https://your-app-name.onrender.com"):
     """Test the OAuth flow to identify issues"""
 
     print(f"🔍 Testing OAuth flow for: {base_url}")

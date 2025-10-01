@@ -46,7 +46,7 @@ async def test_fastmcp_direct():
 
             # Call the FastMCP function directly
             result = await fastmcp_server.ff_get_roster(
-                ctx=ctx, league_key="461.l.900001", data_level=level
+                ctx=ctx, league_key="nfl.l.XXXXXX", data_level=level
             )
 
             if isinstance(result, dict):

@@ -10,12 +10,12 @@ Use ONE of these URLs when adding the server to Claude.ai:
 
 ### Option 1: HTTP/JSON-RPC (Recommended)
 ```
-https://fantasy-football-mcp-server.onrender.com/mcp
+https://your-app-name.onrender.com/mcp
 ```
 
 ### Option 2: Server-Sent Events
 ```
-https://fantasy-football-mcp-server.onrender.com/mcp/sse
+https://your-app-name.onrender.com/mcp/sse
 ```
 
 ### Option 3: WebSocket
@@ -29,7 +29,7 @@ wss://fantasy-football-mcp-server.onrender.com/mcp/ws
 
 1. Go to Settings → Developer → MCP Servers
 2. Click "Add Server"
-3. Enter the server URL: `https://fantasy-football-mcp-server.onrender.com/mcp`
+3. Enter the server URL: `https://your-app-name.onrender.com/mcp`
 4. Claude.ai will automatically:
    - Discover OAuth endpoints
    - Initiate authorization flow
@@ -50,19 +50,19 @@ wss://fantasy-football-mcp-server.onrender.com/mcp/ws
 
 1. **Check Server Status**:
    ```bash
-   curl https://fantasy-football-mcp-server.onrender.com/health
+   curl https://your-app-name.onrender.com/health
    ```
 
 2. **Verify MCP Endpoint**:
    ```bash
-   curl -X POST https://fantasy-football-mcp-server.onrender.com/mcp \
+   curl -X POST https://your-app-name.onrender.com/mcp \
      -H "Content-Type: application/json" \
      -d '{"method":"initialize","params":{},"id":1}'
    ```
 
 3. **Check OAuth Discovery** (must work with /mcp prefix):
    ```bash
-   curl https://fantasy-football-mcp-server.onrender.com/mcp/.well-known/oauth-authorization-server
+   curl https://your-app-name.onrender.com/mcp/.well-known/oauth-authorization-server
    ```
 
 ### Common Issues:
@@ -98,7 +98,7 @@ wss://fantasy-football-mcp-server.onrender.com/mcp/ws
 Watch server logs during connection:
 ```bash
 # If deployed on Render:
-render logs fantasy-football-mcp-server --tail
+render logs your-app-name --tail
 
 # If running locally:
 python simple_mcp_server.py
@@ -113,6 +113,6 @@ Look for:
 ## Current Status
 
 Server is deployed and running at:
-https://fantasy-football-mcp-server.onrender.com
+https://your-app-name.onrender.com
 
 Last tested: Working with all MCP protocol methods
