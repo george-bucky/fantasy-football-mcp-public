@@ -19,6 +19,11 @@ dist/
 *.egg-info/
 .pytest_cache/
 
+# Tests (excluded from public repository)
+tests/
+test_*.py
+*_test.py
+
 # IDE
 .vscode/
 .idea/
@@ -43,32 +48,19 @@ token.json
 yahoo_token.json
 *.token
 
-# Test files and debug output (excluding organized test directories)
+# Development and debug files
 debug_*.py
 *_debug.py
 *_enhancement.py
 *_enhanced.py
-test_*enhancement*.py
-test_enhanced_*.py
-find_*.py
-parse_*.py
-fetch_*.py
-get_*.py
-simple_*.py
-standalone_*.py
-mcp_server_test*.py
-exchange_code.py
-quick_validation.py
+check_deployment.py
+enhanced_mcp_*.py
 
 # Temporary and analysis files
 temp/
 *_analysis.py
 *_summary.py
 cleanup_*.py
-
-# Keep organized test directories
-!tests/
-!examples/
 
 # JSON test data
 all_leagues_raw.json
@@ -87,9 +79,19 @@ mcp_config*.json
 *.old
 tmp/
 
-# Documentation drafts
+# Development documentation
+CLAUDE.md
+CONTRIBUTING.md
 FIX_*.md
 CACHE_MANAGER_README.md
+CLAUDE_AI_CONNECTION.md
+REDDIT_SETUP.md
+YAHOO_SETUP.md
+ROSTER_CONSOLIDATION.md
+
+# Deployment scripts
+deploy_to_*.sh
+run_local_mcp.sh
 
 # macOS
 .DS_Store
@@ -98,18 +100,10 @@ CACHE_MANAGER_README.md
 Thumbs.db
 ehthumbs.db
 
-# Validation data cache
-tests_and_validation/data/*.parquet
-tests_and_validation/data/*.json
-tests_and_validation/data/*.png
-tests_and_validation/data/*.csv
-tests_and_validation/data/*.html
-
 # Personal/development directories
 .claude/
 .qoder/
 .devcontainer/
-.vscode/settings.json
 
 # Git hooks and personal scripts
 .githooks/
@@ -125,16 +119,6 @@ TODO_*.md
 *.lock
 deployment_log.txt
 nohup.out
-
-# IDE and editor files
-.vscode/launch.json
-.vscode/tasks.json
-*.sublime-*
-.idea/workspace.xml
-
-# Claude config backups
-claude_desktop_config*.json
-claude_config*.json
 
 # OAuth and session files
 oauth_state.json
