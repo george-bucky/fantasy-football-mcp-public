@@ -1,21 +1,20 @@
 # Fantasy Football FastMCP Server
 
-A Model Context Protocol (MCP) server for Yahoo Fantasy Football that now ships
-with a single FastMCP entry point suitable for fastmcp.cloud deployments and
-local development.
+A production-ready Model Context Protocol (MCP) server for Yahoo Fantasy Football
+with advanced lineup optimization, multi-league support, and comprehensive analytics.
 
 ## Features
 
-- **Multi-League Support** – Automatically discovers and manages every Yahoo
-  Fantasy Football league associated with the authenticated account.
-- **Complete League Operations** – Standings, rosters, matchups, waiver wire and
-  draft tooling are all available through MCP tools.
-- **FastMCP Native** – `fastmcp_server.py` exposes each capability with
-  `@server.tool` decorators and runs over the HTTP transport by default.
-- **Token Refresh Support** – Includes a tool for refreshing Yahoo OAuth tokens
-  when access tokens expire.
-- **Caching & Rate-Limit Visibility** – Tools to inspect and clear cached Yahoo
-  responses for quick troubleshooting.
+- **Multi-League Support** – Automatically discovers and manages all Yahoo Fantasy
+  Football leagues for the authenticated account
+- **Advanced Lineup Optimization** – Sophisticated algorithm with position
+  normalization, matchup analysis, and strategy-based recommendations
+- **Complete League Operations** – Standings, rosters, matchups, waiver wire,
+  draft tools, and Reddit sentiment analysis
+- **FastMCP Native** – Single entry point (`fastmcp_server.py`) with HTTP/SSE
+  transport for Claude Desktop and fastmcp.cloud
+- **Production Ready** – Rate limiting, caching, automatic token refresh, and
+  comprehensive error handling
 
 ## Available MCP Tools
 
@@ -69,26 +68,50 @@ YAHOO_GUID=your_yahoo_guid
 
 ## Running Locally
 
-1. Ensure the dependencies are installed and environment variables are set.
-2. Start the FastMCP HTTP server:
-   ```bash
-   python fastmcp_server.py
-   ```
-3. Connect with any MCP-compatible client (e.g. Claude Desktop) using the HTTP
-   transport: `http://localhost:8000`.
+### Option 1: Direct Python (for development)
+```bash
+python fastmcp_server.py
+```
 
-## Deploying to fastmcp.cloud
+### Option 2: Claude Desktop Integration
+Add to `~/.claude/config.json`:
+```json
+{
+  "mcpServers": {
+    "fantasy-football": {
+      "command": "python",
+      "args": ["/path/to/fantasy-football-mcp-server/fastmcp_server.py"]
+    }
+  }
+}
+```
 
-1. Push your repository to a Git host accessible from fastmcp.cloud.
-2. Create a new service in fastmcp.cloud and point it at the repository.
-3. Set the start command to `python fastmcp_server.py`.
-4. Configure the required Yahoo environment variables in the deployment UI.
-5. Expose port `8000` (or your chosen port) for the HTTP transport.
+### Option 3: Using the helper script
+```bash
+./run_local_mcp.sh
+```
 
-The compatibility shims (`render_server.py`, `cloud_run_server.py`,
-`simple_mcp_server.py`, `no_auth_server.py`, and `app.py`) now delegate to
-`fastmcp_server.py`, so existing deployment scripts can continue to import those
-modules without modification.
+## Deployment
+
+### Render (Recommended)
+```bash
+./deploy_to_render.sh
+```
+
+The server auto-deploys from the `main` branch. Configure environment variables
+in the Render dashboard.
+
+### fastmcp.cloud
+1. Connect your GitHub repository
+2. Set start command: `python fastmcp_server.py`
+3. Configure Yahoo environment variables
+4. Deploy
+
+### Docker
+```bash
+docker build -t fantasy-football-mcp .
+docker run -p 8080:8080 --env-file .env fantasy-football-mcp
+```
 
 ## Testing
 
@@ -105,14 +128,22 @@ out remote Yahoo API calls to keep the suite fast and deterministic.
 
 ```
 fantasy-football-mcp/
-├── fastmcp_server.py          # FastMCP entry point and tool definitions
-├── fantasy_football_multi_league.py  # Legacy tool implementations
-├── render_server.py / cloud_run_server.py / simple_mcp_server.py / no_auth_server.py / app.py
-│   └── Compatibility shims that re-export the FastMCP server
-├── requirements.txt           # Pinned dependencies
-├── tests/                     # Pytest suite for FastMCP integration
-├── src/                       # Supporting agents, models, and utilities
-└── config/                    # Configuration helpers
+├── fastmcp_server.py                    # Main FastMCP server entry point
+├── fantasy_football_multi_league.py     # Core tool implementations
+├── lineup_optimizer.py                  # Advanced lineup optimization engine
+├── matchup_analyzer.py                  # Defensive matchup analysis
+├── position_normalizer.py               # Position-based value calculations
+├── sleeper_api.py                       # Sleeper API integration
+├── yahoo_api_utils.py                   # Rate limiting and caching
+├── requirements.txt                     # Python dependencies
+├── src/                                 # Supporting modules
+│   ├── agents/                          # Optimization and analysis agents
+│   ├── models/                          # Data models and schemas
+│   ├── strategies/                      # Draft and lineup strategies
+│   └── utils/                           # Utility functions
+├── tests/                               # Test suite
+├── config/                              # Configuration management
+└── utils/                               # Authentication scripts
 ```
 
 ## Authentication Flow

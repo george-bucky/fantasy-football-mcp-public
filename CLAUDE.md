@@ -15,17 +15,14 @@ Supports multiple deployment strategies:
 
 ### Running & Testing
 ```bash
-# Main MCP server (local stdio mode)
-python fantasy_football_multi_league.py
+# Main FastMCP server (HTTP/SSE mode)
+python fastmcp_server.py
 
 # Run local MCP server with environment variables
 ./run_local_mcp.sh
 
-# Test OAuth authentication flow
-python test_oauth.py
-
-# Test MCP connection
-python test_connection.py
+# Deploy to Render
+./deploy_to_render.sh
 ```
 
 ### Token Management
@@ -98,25 +95,23 @@ docker run -p 8080:8080 --env-file .env fantasy-football-mcp
 - **Statistical framework**: Value Over Replacement Player calculations and positional scarcity
 - **Edge case handling**: Early/mid/late draft phases, positional runs, opportunity cost
 
-## Server Implementations
+## Server Architecture
 
-### Main MCP Server (`fantasy_football_multi_league.py`)
-- **Mode**: stdio (for Claude Code CLI)
-- **Protocol**: Standard MCP JSON-RPC
-- **Authentication**: Direct Yahoo API with tokens from environment
-- **Use case**: Local Claude Code integration
+### FastMCP Server (`fastmcp_server.py`)
+- **Primary entry point** for all deployments (local, Render, fastmcp.cloud, Docker)
+- **Mode**: HTTP/SSE with FastMCP framework
+- **Protocol**: MCP 2.0 compliant with tool decorators
+- **Authentication**: Yahoo API OAuth via environment variables
+- **Use cases**:
+  - Local development: `python fastmcp_server.py`
+  - Claude Desktop: stdio mode via `~/.claude/config.json`
+  - Production: Render/Docker/fastmcp.cloud deployments
 
-### Render Server (`render_server.py`)
-- **Mode**: HTTP/SSE for Claude.ai
-- **OAuth**: Flexible validation for Claude.ai compatibility
-- **Storage**: File-based token persistence
-- **Features**: Consent page, debug logging, relaxed client validation
-
-### Simple MCP Server (`simple_mcp_server.py`)
-- **Mode**: HTTP/WebSocket/SSE for Claude.ai
-- **OAuth**: SimpleScraper-style with PKCE support
-- **Features**: Dynamic client registration, no client auth required
-- **Endpoints**: `/mcp`, `/mcp/ws`, `/mcp/sse`, `/register`, `/authorize`, `/token`
+### Core Implementation (`fantasy_football_multi_league.py`)
+- **Role**: Tool logic and Yahoo API integration
+- **Functions**: 35 functions across leagues, rosters, players, draft, admin
+- **Dependencies**: Wraps yahoo_api_utils, lineup_optimizer, sleeper_api
+- **Note**: Currently 2,675 lines - refactor planned to modular structure
 
 ## Critical Configuration
 
@@ -137,21 +132,22 @@ CORS_ORIGINS=*
 RENDER_EXTERNAL_URL=https://fantasy-football-mcp-server.onrender.com
 ```
 
-### Claude Code Configuration (~/.claude.json)
+### Claude Desktop Configuration (~/.claude/config.json)
 ```json
 {
-  "fantasy-football": {
-    "type": "stdio",
-    "command": "python",
-    "args": [
-      "/path/to/fantasy-football-mcp/fantasy_football_multi_league.py"
-    ],
-    "env": {
-      "YAHOO_ACCESS_TOKEN": "...",
-      "YAHOO_CONSUMER_KEY": "...",
-      "YAHOO_CONSUMER_SECRET": "...",
-      "YAHOO_REFRESH_TOKEN": "...",
-      "YAHOO_GUID": "your_redacted_value"
+  "mcpServers": {
+    "fantasy-football": {
+      "command": "python",
+      "args": [
+        "/path/to/fantasy-football-mcp/fastmcp_server.py"
+      ],
+      "env": {
+        "YAHOO_ACCESS_TOKEN": "...",
+        "YAHOO_CONSUMER_KEY": "...",
+        "YAHOO_CONSUMER_SECRET": "...",
+        "YAHOO_REFRESH_TOKEN": "...",
+        "YAHOO_GUID": "your_redacted_value"
+      }
     }
   }
 }

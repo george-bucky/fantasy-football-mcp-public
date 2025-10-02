@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Deploy Fantasy Football MCP Server to Render
-# This script deploys the updated OAuth-compatible server
+# This script deploys the FastMCP server
 
 set -e
 
@@ -15,34 +15,17 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Check if we're in the right directory
-if [ ! -f "render_server.py" ]; then
-    echo "❌ Error: render_server.py not found. Please run this from the project root."
+if [ ! -f "fastmcp_server.py" ]; then
+    echo "❌ Error: fastmcp_server.py not found. Please run this from the project root."
     exit 1
 fi
 
-# Check if .env file exists
+# Check if .env file exists (optional, for local testing)
 if [ ! -f ".env" ]; then
-    echo "⚠️  Warning: .env file not found. Using .env.render as template..."
-    cp .env.render .env
-    echo "📝 Please edit .env with your Yahoo API credentials"
+    echo "⚠️  Warning: .env file not found. Ensure environment variables are set in Render dashboard."
 fi
 
 echo -e "${BLUE}📦 Preparing deployment...${NC}"
-
-# Ensure render_server.py is executable
-chmod +x render_server.py
-
-# Create a deployment message
-DEPLOY_MSG="Deploy OAuth-compatible server for Claude.ai integration"
-COMMIT_MSG="feat: Add flexible OAuth for Claude.ai compatibility
-
-- Relaxed client_id and redirect_uri validation
-- Added consent page for debugging
-- File-based token storage for persistence
-- Enhanced logging for OAuth debugging
-
-🤖 Generated with Claude Code
-Co-Authored-By: Claude <noreply@anthropic.com>"
 
 # Check git status
 echo -e "${BLUE}📋 Checking git status...${NC}"
@@ -50,11 +33,24 @@ git status --short
 
 # Stage changes
 echo -e "${BLUE}📝 Staging changes...${NC}"
-git add render_server.py render.yaml test_oauth.py .env.render deploy_to_render.sh
+git add .
 
 # Commit if there are changes
 if ! git diff --cached --quiet; then
     echo -e "${BLUE}💾 Committing changes...${NC}"
+    echo "Enter commit message (or press Enter for default):"
+    read -r CUSTOM_MSG
+    if [ -z "$CUSTOM_MSG" ]; then
+        COMMIT_MSG="chore: Deploy FastMCP server updates
+
+🤖 Generated with Claude Code
+Co-Authored-By: Claude <noreply@anthropic.com>"
+    else
+        COMMIT_MSG="$CUSTOM_MSG
+
+🤖 Generated with Claude Code
+Co-Authored-By: Claude <noreply@anthropic.com>"
+    fi
     git commit -m "$COMMIT_MSG"
 else
     echo -e "${YELLOW}ℹ️  No changes to commit${NC}"
@@ -69,20 +65,14 @@ echo -e "${GREEN}✅ Deployment initiated!${NC}"
 echo ""
 echo "📝 Next steps:"
 echo "1. Check deployment status at: https://dashboard.render.com"
-echo "2. View logs to monitor OAuth attempts from Claude.ai"
-echo "3. Update environment variables on Render dashboard:"
-echo "   - Set DEBUG=true for detailed OAuth logs"
-echo "   - Ensure ALLOWED_CLIENT_IDS includes '*' initially"
-echo "   - Ensure ALLOWED_REDIRECT_URIS includes Claude.ai URLs"
+echo "2. Ensure environment variables are set in Render dashboard:"
+echo "   - YAHOO_CONSUMER_KEY"
+echo "   - YAHOO_CONSUMER_SECRET"
+echo "   - YAHOO_ACCESS_TOKEN"
+echo "   - YAHOO_REFRESH_TOKEN"
+echo "   - YAHOO_GUID"
 echo ""
-echo "4. Test OAuth flow:"
-echo "   python test_oauth.py"
-echo ""
-echo "5. In Claude.ai, connect using:"
-echo "   URL: https://fantasy-football-mcp-server.onrender.com"
-echo ""
-echo "6. Monitor logs for actual client_id and redirect_uri from Claude.ai"
-echo "   Then update environment variables to be more restrictive"
-echo ""
-echo "🔍 To view deployment logs:"
+echo "3. Monitor logs:"
 echo "   render logs fantasy-football-mcp-server -o text"
+echo ""
+echo "4. Service URL: https://fantasy-football-mcp-server.onrender.com"
