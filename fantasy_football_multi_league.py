@@ -445,7 +445,6 @@ async def get_all_teams_info(league_key: str) -> list[dict]:
         return []
 
 
-
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List available fantasy football tools."""
@@ -1687,10 +1686,18 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                         "N/A",
                     ),
                     # Expert advice fields
-                    "expert_tier": getattr(player, "expert_tier", None) if include_analysis else None,
-                    "expert_recommendation": getattr(player, "expert_recommendation", None) if include_analysis else None,
-                    "expert_confidence": getattr(player, "expert_confidence", None) if include_analysis else None,
-                    "expert_advice": getattr(player, "expert_advice", None) if include_analysis else None,
+                    "expert_tier": (
+                        getattr(player, "expert_tier", None) if include_analysis else None
+                    ),
+                    "expert_recommendation": (
+                        getattr(player, "expert_recommendation", None) if include_analysis else None
+                    ),
+                    "expert_confidence": (
+                        getattr(player, "expert_confidence", None) if include_analysis else None
+                    ),
+                    "expert_advice": (
+                        getattr(player, "expert_advice", None) if include_analysis else None
+                    ),
                 }
 
                 # Merge trending
@@ -1727,7 +1734,7 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                         position_scarcity[pos] = {
                             "scarcity_score": round(scarcity_score, 1),
                             "avg_ownership": round(avg_owned, 1),
-                            "available_count": data["total"]
+                            "available_count": data["total"],
                         }
                 except Exception:
                     # If scarcity analysis fails, continue without it
@@ -1751,7 +1758,9 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     owned = base.get("owned_pct", 0.0)
 
                     # Position scarcity bonus (0-5 points)
-                    pos_scarcity = position_scarcity.get(player.position, {}).get("scarcity_score", 0)
+                    pos_scarcity = position_scarcity.get(player.position, {}).get(
+                        "scarcity_score", 0
+                    )
                     scarcity_bonus = min(pos_scarcity * 0.5, 5)
 
                     # Waiver-specific scoring algorithm
@@ -1768,7 +1777,13 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     trending_bonus = min(trend_score * 1.5, 10)  # Cap at 10 points
 
                     # Final waiver priority score
-                    waiver_priority = confidence_score + projection_score + ownership_bonus + trending_bonus + scarcity_bonus
+                    waiver_priority = (
+                        confidence_score
+                        + projection_score
+                        + ownership_bonus
+                        + trending_bonus
+                        + scarcity_bonus
+                    )
                     base["waiver_priority"] = round(waiver_priority, 1)
 
                     # Enhanced analysis explanation
@@ -1789,7 +1804,9 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     )
 
                     # Add pickup urgency classification (adjusted for scarcity)
-                    urgency_threshold = waiver_priority + (scarcity_bonus * 2)  # Boost urgency for scarce positions
+                    urgency_threshold = waiver_priority + (
+                        scarcity_bonus * 2
+                    )  # Boost urgency for scarce positions
                     if urgency_threshold >= 80:
                         base["pickup_urgency"] = "MUST ADD - Elite waiver target"
                     elif urgency_threshold >= 65:
@@ -1802,11 +1819,10 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                         base["pickup_urgency"] = "Avoid - Better options available"
 
                     # Add position context
-                    base["position_context"] = position_scarcity.get(player.position, {
-                        "scarcity_score": 0,
-                        "avg_ownership": 0,
-                        "available_count": 0
-                    })
+                    base["position_context"] = position_scarcity.get(
+                        player.position,
+                        {"scarcity_score": 0, "avg_ownership": 0, "available_count": 0},
+                    )
 
                 enhanced_list.append(base)
             # Sort by waiver_priority or projection if analysis/projections
@@ -1839,15 +1855,19 @@ async def _handle_ff_get_waiver_wire(arguments: dict) -> dict:
                             "Pickup urgency assessment" if include_analysis else None,
                             "Positional scarcity analysis" if include_analysis else None,
                         ],
-                        "algorithm": {
-                            "waiver_priority_weights": {
-                                "expert_confidence": "35%",
-                                "projections": "30%",
-                                "ownership_bonus": "20%",
-                                "trending_bonus": "10%",
-                                "scarcity_bonus": "5%"
+                        "algorithm": (
+                            {
+                                "waiver_priority_weights": {
+                                    "expert_confidence": "35%",
+                                    "projections": "30%",
+                                    "ownership_bonus": "20%",
+                                    "trending_bonus": "10%",
+                                    "scarcity_bonus": "5%",
+                                }
                             }
-                        } if include_analysis else None,
+                            if include_analysis
+                            else None
+                        ),
                         "position_scarcity": position_scarcity if include_analysis else None,
                         "week": week or "current",
                         "trending_count": len(trending),
