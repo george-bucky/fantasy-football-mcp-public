@@ -252,13 +252,33 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
     Returns:
         Dict with waiver wire players and optional analysis
     """
+    # Validate required parameters
     if not arguments.get("league_key"):
-        return {"error": "league_key is required"}
+        return {
+            "status": "error",
+            "error": "league_key is required",
+            "message": "Please provide a league_key parameter"
+        }
 
     league_key: str = arguments.get("league_key")  # type: ignore
+    
+    # Get and validate optional parameters with proper defaults
     position = arguments.get("position", "all")
+    if position is None:
+        position = "all"
+    
     sort = arguments.get("sort", "rank")
+    if sort not in ["rank", "points", "owned", "trending"]:
+        sort = "rank"
+    
     count = arguments.get("count", 30)
+    try:
+        count = int(count)
+        if count < 1:
+            count = 30
+    except (ValueError, TypeError):
+        count = 30
+    
     week = arguments.get("week")
     team_key = arguments.get("team_key")
     include_analysis = arguments.get("include_analysis", False)
@@ -269,8 +289,13 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
     basic_players = await get_waiver_wire_players(league_key, position, sort, count)
     if not basic_players:
         return {
+            "status": "success",
             "league_key": league_key,
-            "message": "No available players found or error retrieving data",
+            "position": position,
+            "sort": sort,
+            "total_players": 0,
+            "players": [],
+            "message": "No available players found matching the criteria",
         }
 
     result = {

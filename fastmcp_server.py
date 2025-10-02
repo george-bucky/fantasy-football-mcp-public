@@ -547,6 +547,8 @@ async def ff_get_waiver_wire(
     position: Optional[str] = None,
     sort: Literal["rank", "points", "owned", "trending"] = "rank",
     count: int = 30,
+    week: Optional[int] = None,
+    team_key: Optional[str] = None,
     include_expert_analysis: bool = True,
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
@@ -555,9 +557,11 @@ async def ff_get_waiver_wire(
 
     Args:
         league_key: League identifier
-        position: Filter by position (QB, RB, WR, TE, etc.)
+        position: Filter by position (QB, RB, WR, TE, etc.) - defaults to "all"
         sort: Sort method - "rank" (expert), "points" (season), "owned" (popularity), "trending" (hot pickups)
         count: Number of players to return
+        week: Week for projections (optional, defaults to current)
+        team_key: Team key for context (optional)
         include_expert_analysis: Include tiers, recommendations, and confidence scores
         data_level: Data detail level ("basic", "standard", "full")
     """
@@ -565,6 +569,10 @@ async def ff_get_waiver_wire(
     # Default to enhanced mode for better waiver analysis, but basic mode if expert analysis disabled
     if data_level is None:
         data_level = "full" if include_expert_analysis else "basic"
+
+    # Handle position default - convert None to "all"
+    if position is None:
+        position = "all"
 
     try:
         # Map data_level to legacy parameters for backward compatibility
@@ -588,6 +596,8 @@ async def ff_get_waiver_wire(
             position=position,
             sort=sort,
             count=count,
+            week=week,
+            team_key=team_key,
             include_projections=include_projections,
             include_external_data=include_external_data,
             include_analysis=include_analysis,
