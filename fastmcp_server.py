@@ -35,16 +35,17 @@ server = FastMCP(
 
 _TOOL_PROMPTS: Dict[str, str] = {
     "ff_get_leagues": (
-        "List the Yahoo fantasy football leagues available to the connected "
-        "manager so you can collect league_key identifiers before other calls."
+        "🏈 LEAGUE DISCOVERY - List all Yahoo fantasy leagues for the user. "
+        "Takes NO parameters. Use FIRST to get league_key values. "
+        "For player searches use ff_get_players or ff_get_waiver_wire."
     ),
     "ff_get_league_info": (
-        "Summarize configuration, scoring, and team context for a specific "
-        "Yahoo league when you already know the league_key."
+        "📋 Get league configuration and settings. "
+        "Parameters: league_key only. Returns scoring type and your team summary."
     ),
     "ff_get_standings": (
-        "Check the current rankings, records, and points totals for every team "
-        "in a league to answer questions about standings."
+        "🏆 Get current league standings. "
+        "Parameters: league_key only. Returns ranks, records, points for all teams."
     ),
     "ff_get_roster": (
         "Get roster data with configurable detail levels. Use data_level='basic' for "
@@ -52,8 +53,8 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "comprehensive analysis with external data sources and enhanced insights."
     ),
     "ff_get_matchup": (
-        "Look up the opponent, projected points, and matchup details for a "
-        "given week in the authenticated manager's league schedule."
+        "🆚 Get weekly matchup for your team. "
+        "Parameters: league_key (required), week (optional). Returns opponent and projections."
     ),
     "ff_get_players": (
         "Research free agents or player pools for waiver pickups by filtering "
@@ -68,12 +69,11 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "Build optimal lineup from your roster using strategy-based optimization and positional constraints."
     ),
     "ff_refresh_token": (
-        "Refresh the stored Yahoo OAuth access token when API responses start "
-        "failing with authentication errors."
+        "🔑 Refresh Yahoo OAuth token. " "NO parameters. Use when API returns 401 errors."
     ),
     "ff_get_api_status": (
-        "Diagnose API availability by checking rate-limit usage, cache status, "
-        "and other service health metrics."
+        "📊 Check API health and rate limits. "
+        "NO parameters. Returns cache metrics and throttling status."
     ),
     "ff_clear_cache": (
         "Clear cached Yahoo responses to force the next call to fetch fresh "
@@ -203,33 +203,54 @@ async def _call_legacy_tool(
 @server.tool(
     name="ff_get_leagues",
     description=(
-        "Discover all Yahoo fantasy football leagues linked to the current "
-        "credentials. Use this before other calls to obtain league keys."
+        "🏈 LEAGUE DISCOVERY - Get list of your Yahoo fantasy leagues. "
+        "NO parameters required (no position/count/sort). "
+        "Use this FIRST to get league_key values. "
+        "For player searches use ff_get_players or ff_get_waiver_wire."
     ),
     meta=_tool_meta("ff_get_leagues"),
 )
 async def ff_get_leagues(ctx: Context) -> Dict[str, Any]:
+    """
+    Discover all Yahoo fantasy football leagues for the authenticated user.
+
+    ⚠️ IMPORTANT: This tool takes NO search parameters!
+    - NO position, count, sort, week, or team_key parameters
+    - This is for LEAGUE DISCOVERY only, not player searches
+
+    For player searches use:
+    - ff_get_players → Search available players by position
+    - ff_get_waiver_wire → Waiver wire analysis with rankings
+    - ff_get_roster → Get YOUR team's current roster
+
+    Returns:
+        Dict with total_leagues count and list of league summaries
+    """
     return await _call_legacy_tool("ff_get_leagues", ctx=ctx)
 
 
 @server.tool(
     name="ff_get_league_info",
     description=(
-        "Retrieve metadata about a single Yahoo league including scoring "
-        "settings, season, and your team summary. Requires a league_key."
+        "📋 Get league configuration and settings. "
+        "Parameters: league_key (required only). "
+        "Returns scoring type, roster requirements, and your team summary."
     ),
     meta=_tool_meta("ff_get_league_info"),
 )
 async def ff_get_league_info(
     ctx: Context,
     league_key: str,
-    week: Optional[int] = None,
-    team_key: Optional[str] = None,
-    data_level: Optional[str] = None,
-    include_analysis: Optional[bool] = None,
-    include_projections: Optional[bool] = None,
-    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    """
+    Retrieve metadata about a single Yahoo league.
+
+    Args:
+        league_key: League identifier (required)
+
+    Returns:
+        Dict with league settings, scoring type, and your team info
+    """
     return await _call_legacy_tool(
         "ff_get_league_info",
         ctx=ctx,
@@ -259,15 +280,15 @@ async def ff_get_roster(
 ) -> Dict[str, Any]:
     """
     Get YOUR TEAM'S roster with configurable detail levels.
-    
+
     ⚠️ IMPORTANT: This tool ONLY gets YOUR roster, not available players.
     - To search available players by position → use ff_get_players
     - For waiver wire pickups with rankings → use ff_get_waiver_wire
-    
+
     This tool does NOT accept: position, count, sort, include_expert_analysis
 
     Args:
-        league_key: League identifier  
+        league_key: League identifier
         team_key: Team identifier (optional, defaults to authenticated user's team)
         week: Week number for projections (optional, defaults to current week)
         include_projections: Include Yahoo and/or Sleeper projections
@@ -336,29 +357,34 @@ async def ff_get_roster(
 @server.tool(
     name="ff_get_standings",
     description=(
-        "Return the current standings table for a Yahoo league showing ranks, "
-        "records, and points for each team."
+        "🏆 Get current league standings and team records. "
+        "Parameters: league_key (required only). "
+        "Returns rank, wins, losses, points for/against for all teams."
     ),
     meta=_tool_meta("ff_get_standings"),
 )
 async def ff_get_standings(
     ctx: Context,
     league_key: str,
-    week: Optional[int] = None,
-    team_key: Optional[str] = None,
-    data_level: Optional[str] = None,
-    include_analysis: Optional[bool] = None,
-    include_projections: Optional[bool] = None,
-    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    """
+    Return the current standings table for a Yahoo league.
+
+    Args:
+        league_key: League identifier (required)
+
+    Returns:
+        Dict with sorted standings showing ranks, records, and points
+    """
     return await _call_legacy_tool("ff_get_standings", ctx=ctx, league_key=league_key)
 
 
 @server.tool(
     name="ff_get_matchup",
     description=(
-        "Retrieve matchup information for the authenticated team in a given "
-        "week. Provide week to inspect historical or future matchups."
+        "🆚 Get weekly matchup for your team. "
+        "Parameters: league_key (required), week (optional, defaults to current). "
+        "Returns opponent info and projected scores."
     ),
     meta=_tool_meta("ff_get_matchup"),
 )
@@ -366,12 +392,17 @@ async def ff_get_matchup(
     ctx: Context,
     league_key: str,
     week: Optional[int] = None,
-    team_key: Optional[str] = None,
-    data_level: Optional[str] = None,
-    include_analysis: Optional[bool] = None,
-    include_projections: Optional[bool] = None,
-    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    """
+    Retrieve matchup information for the authenticated team.
+
+    Args:
+        league_key: League identifier (required)
+        week: Week number (optional, defaults to current week)
+
+    Returns:
+        Dict with matchup data including opponent and projections
+    """
     return await _call_legacy_tool(
         "ff_get_matchup",
         ctx=ctx,
@@ -490,12 +521,21 @@ async def ff_build_lineup(
 @server.tool(
     name="ff_refresh_token",
     description=(
-        "Refresh the Yahoo OAuth access token using the configured refresh "
-        "credentials. Use when API calls return 401 errors."
+        "🔑 Refresh Yahoo OAuth token. "
+        "NO parameters required. "
+        "Use when API calls return 401 authentication errors."
     ),
     meta=_tool_meta("ff_refresh_token"),
 )
 async def ff_refresh_token(ctx: Context) -> Dict[str, Any]:
+    """
+    Refresh the Yahoo OAuth access token.
+
+    ⚠️ Takes NO parameters - automatic token refresh only
+
+    Returns:
+        Dict with token refresh status
+    """
     if ctx is not None:
         await ctx.info("Refreshing Yahoo OAuth token")
     return await _legacy_refresh_token()
@@ -504,12 +544,21 @@ async def ff_refresh_token(ctx: Context) -> Dict[str, Any]:
 @server.tool(
     name="ff_get_api_status",
     description=(
-        "Inspect rate limiter and cache metrics for troubleshooting API "
-        "throttling or stale data issues."
+        "📊 Check API health and rate limits. "
+        "NO parameters required. "
+        "Returns cache metrics and API throttling status."
     ),
     meta=_tool_meta("ff_get_api_status"),
 )
 async def ff_get_api_status(ctx: Context) -> Dict[str, Any]:
+    """
+    Inspect rate limiter and cache metrics for troubleshooting.
+
+    ⚠️ Takes NO parameters - system diagnostic tool only
+
+    Returns:
+        Dict with API status, rate limits, and cache metrics
+    """
     return await _call_legacy_tool("ff_get_api_status", ctx=ctx)
 
 
@@ -627,7 +676,9 @@ async def ff_get_waiver_wire(
                 if "waiver_priority" in result["players"][0]:
                     result["players"].sort(key=lambda x: x.get("waiver_priority", 0), reverse=True)
                 else:
-                    result["players"].sort(key=lambda x: x.get("expert_confidence", 0), reverse=True)
+                    result["players"].sort(
+                        key=lambda x: x.get("expert_confidence", 0), reverse=True
+                    )
             elif sort == "trending":
                 result["players"].sort(key=lambda x: x.get("trending_score", 50), reverse=True)
         elif include_expert_analysis and ctx:
