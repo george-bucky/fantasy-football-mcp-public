@@ -240,9 +240,10 @@ async def ff_get_league_info(
 @server.tool(
     name="ff_get_roster",
     description=(
-        "Get roster data with configurable detail levels. Supports basic roster info, "
-        "Yahoo projections, and comprehensive multi-source analysis including Sleeper, "
-        "matchup data, and trending information for intelligent lineup decisions."
+        "⚠️ Get YOUR TEAM'S current roster (YOUR players only). "
+        "DO NOT use this to search for available players! "
+        "Parameters: league_key, team_key, week, data_level, include_projections, include_external_data, include_analysis. "
+        "For available players use ff_get_players or ff_get_waiver_wire."
     ),
     meta=_tool_meta("ff_get_roster"),
 )
@@ -257,10 +258,16 @@ async def ff_get_roster(
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
     """
-    Consolidated roster tool with configurable detail levels.
+    Get YOUR TEAM'S roster with configurable detail levels.
+    
+    ⚠️ IMPORTANT: This tool ONLY gets YOUR roster, not available players.
+    - To search available players by position → use ff_get_players
+    - For waiver wire pickups with rankings → use ff_get_waiver_wire
+    
+    This tool does NOT accept: position, count, sort, include_expert_analysis
 
     Args:
-        league_key: League identifier
+        league_key: League identifier  
         team_key: Team identifier (optional, defaults to authenticated user's team)
         week: Week number for projections (optional, defaults to current week)
         include_projections: Include Yahoo and/or Sleeper projections
@@ -376,9 +383,10 @@ async def ff_get_matchup(
 @server.tool(
     name="ff_get_players",
     description=(
-        "Search for specific players with enhanced analysis including expert tiers, "
-        "recommendations, and Sleeper rankings. Find players by name or position "
-        "with comprehensive data for lineup decisions and waiver research."
+        "🔍 Search AVAILABLE players by position with count limit. "
+        "Use this to find free agents by position (QB, RB, WR, TE). "
+        "Parameters: league_key, position, count, week. "
+        "For YOUR roster use ff_get_roster. For waiver analysis use ff_get_waiver_wire."
     ),
     meta=_tool_meta("ff_get_players"),
 )
@@ -535,9 +543,10 @@ async def ff_get_draft_results(ctx: Context, league_key: str) -> Dict[str, Any]:
 @server.tool(
     name="ff_get_waiver_wire",
     description=(
-        "Discover top waiver wire pickups with expert analysis, tiers, and "
-        "recommendations. Enhanced with Sleeper rankings, trending data, and "
-        "start/sit advice to identify the best available free agents."
+        "📊 Get waiver wire pickups with RANKINGS, SORTING, and expert analysis. "
+        "Use this for waiver priority decisions with sort options (rank/points/owned/trending). "
+        "Parameters: league_key, position, sort, count, include_expert_analysis. "
+        "For YOUR roster use ff_get_roster. For simple player search use ff_get_players."
     ),
     meta=_tool_meta("ff_get_waiver_wire"),
 )
