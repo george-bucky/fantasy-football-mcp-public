@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-Fantasy Football MCP (Model Context Protocol) server integrating Yahoo Fantasy Sports API with advanced lineup optimization. Uses Sleeper API for expert rankings, defensive matchup analysis, and position-normalized FLEX decisions. Production server: `fantasy_football_multi_league.py`.
+Fantasy Football MCP (Model Context Protocol) server integrating Yahoo Fantasy Sports API with advanced lineup optimization. Uses Sleeper API for expert rankings, defensive matchup analysis, and position-normalized FLEX decisions. Production server: `fantasy_football_multi_league.py` (1,155 lines - down from 2,675).
+
+**Architecture**: Fully modularized with domain-driven handler organization. Core logic extracted to `src/api/`, `src/parsers/`, `src/services/`, and `src/handlers/`. Main file is now minimal orchestration layer only.
 
 Supports multiple deployment strategies:
 - **Local MCP** for Claude Code (stdio mode)
@@ -54,6 +56,28 @@ docker run -p 8080:8080 --env-file .env fantasy-football-mcp
 ```
 
 ## Architecture
+
+### Handler Organization (Phase 2b Complete)
+
+All MCP tool handlers are now extracted into domain-organized modules under `src/handlers/`:
+
+**Handler Modules**:
+- `admin_handlers.py` - Token refresh, API status, cache management (51 lines)
+- `league_handlers.py` - League discovery, info, standings, teams (181 lines)
+- `roster_handlers.py` - Roster retrieval with enhanced data (212 lines)
+- `matchup_handlers.py` - Matchups, lineup optimization, team comparison (205 lines)
+- `player_handlers.py` - Player search, waiver wire analysis (572 lines)
+- `draft_handlers.py` - Draft recommendations, rankings, state analysis (128 lines)
+- `analytics_handlers.py` - Reddit sentiment analysis (23 lines)
+
+**Dependency Injection Pattern**: Handlers receive dependencies via injection functions in `src/handlers/__init__.py`. This allows clean separation while maintaining access to Yahoo API, parsers, and helper functions.
+
+**Main File**: `fantasy_football_multi_league.py` is now 1,155 lines (down from 2,675), containing only:
+- Server initialization
+- Helper functions (discover_leagues, get_user_team_info, etc.)
+- Tool definitions
+- Handler dependency injection
+- MCP server protocol implementation
 
 ### Core Optimization System
 
@@ -108,10 +132,11 @@ docker run -p 8080:8080 --env-file .env fantasy-football-mcp
   - Production: Render/Docker/fastmcp.cloud deployments
 
 ### Core Implementation (`fantasy_football_multi_league.py`)
-- **Role**: Tool logic and Yahoo API integration
-- **Functions**: 35 functions across leagues, rosters, players, draft, admin
-- **Dependencies**: Wraps yahoo_api_utils, lineup_optimizer, sleeper_api
-- **Note**: Currently 2,675 lines - refactor planned to modular structure
+- **Role**: MCP server orchestration and protocol implementation
+- **Size**: 1,155 lines (down from 2,675 after Phase 2b refactoring)
+- **Functions**: Helper functions (discover_leagues, get_user_team_info, etc.)
+- **Dependencies**: Coordinates between handlers, API layer, parsers, and services
+- **Status**: ✅ Fully modularized - all handlers extracted to domain modules
 
 ## Critical Configuration
 
