@@ -252,6 +252,97 @@ teams[key]["team"][0]  # List of dict elements
 }
 ```
 
+## MCP Prompts & Resources
+
+The server exposes **13 prompt templates** and **10 resource guides** to help LLMs provide better fantasy football advice.
+
+### Available Prompts (Pre-built Templates)
+
+**Roster & Team Management:**
+- `analyze_roster_strengths` - Evaluate roster depth, strengths, weaknesses
+- `trade_evaluation` - Assess trade fairness and team fit
+- `trade_proposal_generation` - Generate fair trade proposals between teams
+
+**Weekly Strategy:**
+- `start_sit_decision` - Start/sit recommendations with confidence levels
+- `matchup_analysis` - Head-to-head matchup breakdowns
+- `weekly_game_plan` - Complete weekly strategy and action plan
+
+**Season Planning:**
+- `bye_week_planning` - Multi-week bye week management strategy
+- `playoff_preparation` - Championship preparation and roster optimization
+- `season_long_strategy_check` - Overall season assessment and path to playoffs
+
+**Player Management:**
+- `waiver_wire_priority` - FAAB bids and waiver priority recommendations
+- `injury_replacement_strategy` - Comprehensive injury replacement plans
+- `streaming_dst_kicker` - Weekly streaming recommendations for DST/K
+
+**Draft:**
+- `draft_strategy_advice` - Pre-draft strategy based on league settings
+
+### Available Resources (Reference Data)
+
+**Configuration & Rules:**
+- `config://scoring` - Standard/PPR scoring rules and point values
+- `config://positions` - Position requirements and roster construction
+- `config://strategies` - Draft strategies (Conservative, Balanced, Aggressive, Zero RB, etc.)
+
+**Strategy Guides:**
+- `guide://tool-selection` - Comprehensive tool usage guide for LLMs
+- `guide://weekly-strategy` - Week-by-week strategic guidance (Early season → Playoffs)
+- `guide://common-mistakes` - Common fantasy football mistakes to avoid
+- `guide://playoff-strategies` - Championship preparation and playoff tactics
+- `guide://dynasty-keeper` - Dynasty and keeper league strategies
+
+**Data References:**
+- `data://injury-status` - Injury designation meanings (Q, D, O, IR, etc.)
+- `guide://advanced-stats` - Advanced metrics glossary (YPRR, target share, snap %, etc.)
+
+### Using Prompts in Practice
+
+Prompts provide pre-structured templates for common fantasy football questions:
+
+```python
+# Example: Get a start/sit recommendation prompt
+prompt = start_sit_decision(
+    league_key="461.l.900001",
+    position="RB",
+    player_names=["Derrick Henry", "Najee Harris", "James Conner"],
+    week=5
+)
+# Returns a structured prompt asking for projections, matchup analysis,
+# recent trends, injury status, etc. with clear output format
+```
+
+### Using Resources in Practice
+
+Resources provide contextual knowledge that LLMs can reference:
+
+```python
+# Example: Access scoring rules for context
+scoring = get_scoring_rules()
+# Returns comprehensive scoring breakdown including PPR impact
+
+# Example: Get playoff strategies
+playoff_guide = get_playoff_strategies()
+# Returns detailed playoff preparation checklist and strategies
+```
+
+### Benefits for LLMs
+
+**Prompts enable:**
+- Consistent output formatting across similar queries
+- Comprehensive analysis checklists
+- Confidence scoring and reasoning frameworks
+- Multi-factor decision making
+
+**Resources provide:**
+- Domain knowledge without training data
+- League-specific rule references
+- Strategic frameworks and best practices
+- Common pitfall awareness
+
 ## Model Performance Metrics
 
 Target model performance (when validation suite is implemented):

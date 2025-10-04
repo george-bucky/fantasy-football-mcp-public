@@ -15,7 +15,7 @@ import os
 import re
 
 # Import caching from our yahoo utils
-from yahoo_api_utils import ResponseCache
+from src.api.yahoo_utils import ResponseCache
 
 
 class SleeperAPI:

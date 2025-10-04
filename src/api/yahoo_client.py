@@ -5,7 +5,7 @@ import socket
 from typing import Dict
 
 import aiohttp
-from yahoo_api_utils import rate_limiter, response_cache
+from src.api.yahoo_utils import rate_limiter, response_cache
 
 # Module-level token cache
 _YAHOO_ACCESS_TOKEN = os.getenv("YAHOO_ACCESS_TOKEN")

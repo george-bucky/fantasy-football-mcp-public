@@ -3,7 +3,7 @@
 from typing import Dict
 
 from src.api import refresh_yahoo_token
-from yahoo_api_utils import rate_limiter, response_cache
+from src.api.yahoo_utils import rate_limiter, response_cache
 
 
 async def handle_ff_refresh_token(arguments: Dict) -> Dict:

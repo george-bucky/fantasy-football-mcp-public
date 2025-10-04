@@ -19,7 +19,7 @@ from src.parsers import parse_team_roster, parse_yahoo_free_agent_players
 from src.services import analyze_reddit_sentiment
 
 # Import rate limiting and caching utilities
-from yahoo_api_utils import rate_limiter, response_cache
+from src.api.yahoo_utils import rate_limiter, response_cache
 
 # Import all handlers from the handlers module
 from src.handlers import (
