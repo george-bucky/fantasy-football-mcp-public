@@ -154,9 +154,13 @@ class SleeperAPI:
         return normalized
 
     def _build_normalized_index(self, players: Dict[str, Dict]) -> None:
-        """Build a mapping of normalized full names -> player_id for fast lookup."""
+        """Build a mapping of normalized full names -> player_id for fast lookup.
+        When multiple players have the same normalized name, prefer active + better rank."""
         idx: Dict[str, str] = {}
         variants: Dict[str, List[str]] = {}
+
+        # Group players by normalized name for disambiguation
+        name_groups: Dict[str, List[tuple]] = {}
         for pid, pdata in players.items():
             first = pdata.get("first_name", "")
             last = pdata.get("last_name", "")
@@ -164,27 +168,66 @@ class SleeperAPI:
             if not full:
                 continue
             norm = self._normalize_name(full)
-            if norm and norm not in idx:
-                idx[norm] = pid
-                # Store variant forms
-                if first and last:
-                    # Initial + last (original)
-                    initial_form = f"{first[0]} {last}".lower()
-                    variants.setdefault(norm, []).append(self._normalize_name(initial_form))
+            if norm:
+                name_groups.setdefault(norm, []).append((pid, pdata))
 
-                    # Concatenated initials + last (new: e.g., "jk dobbins")
-                    initials = "".join([f[0] for f in first.split() if f and len(f) > 0])
-                    if len(initials) > 1:
-                        concat_form = f"{initials} {last}".lower()
-                        variants.setdefault(norm, []).append(self._normalize_name(concat_form))
+        # For each normalized name, pick the best player
+        for norm, player_list in name_groups.items():
+            # Sort by active (True first) then search_rank (lower better)
+            best_pid, best_pdata = sorted(
+                player_list,
+                key=lambda x: (0 if x[1].get('active', False) else 1, x[1].get('search_rank') or 9999999)
+            )[0]
 
-                    # Full first without middle + last
-                    first_no_middle = " ".join([part for part in first.split() if len(part) > 1])
-                    if first_no_middle:
-                        full_no_middle = f"{first_no_middle} {last}".lower()
-                        variants.setdefault(norm, []).append(self._normalize_name(full_no_middle))
+            idx[norm] = best_pid
+
+            # Store variant forms for the best player
+            first = best_pdata.get("first_name", "")
+            last = best_pdata.get("last_name", "")
+            if first and last:
+                # Initial + last (original)
+                initial_form = f"{first[0]} {last}".lower()
+                variants.setdefault(norm, []).append(self._normalize_name(initial_form))
+
+                # Concatenated initials + last (new: e.g., "jk dobbins")
+                initials = "".join([f[0] for f in first.split() if f and len(f) > 0])
+                if len(initials) > 1:
+                    concat_form = f"{initials} {last}".lower()
+                    variants.setdefault(norm, []).append(self._normalize_name(concat_form))
+
+                # Full first without middle + last
+                first_no_middle = " ".join([part for part in first.split() if len(part) > 1])
+                if first_no_middle:
+                    full_no_middle = f"{first_no_middle} {last}".lower()
+                    variants.setdefault(norm, []).append(self._normalize_name(full_no_middle))
+
         self._normalized_index = idx
         self._normalized_variants = variants
+
+    def _disambiguate_players(self, matches: List[Dict], debug: bool = False) -> Dict:
+        """
+        Disambiguate between multiple player matches.
+        Prioritizes: active > inactive, then lower search_rank (better ranking).
+        """
+        if len(matches) == 1:
+            return matches[0]
+
+        # Sort by priority: active first, then by search_rank
+        def sort_key(p):
+            active = p.get('active', False)
+            rank = p.get('search_rank') or 9999999
+            # Active players get priority (0), inactive get (1)
+            # Then sort by rank (lower is better)
+            return (0 if active else 1, rank)
+
+        sorted_matches = sorted(matches, key=sort_key)
+
+        if debug:
+            print(f"  Disambiguation: {len(matches)} matches")
+            for m in sorted_matches[:3]:  # Show top 3
+                print(f"    - {m.get('first_name')} {m.get('last_name')} ({m.get('position')}): Active={m.get('active')}, Rank={m.get('search_rank')}, Team={m.get('team')}")
+
+        return sorted_matches[0]
 
     def _fuzzy_lookup(self, norm_query: str, cutoff: float = 0.82) -> Optional[str]:
         """Fuzzy match normalized query among normalized index keys."""
@@ -397,16 +440,22 @@ class SleeperAPI:
         if debug:
             print(f"DEBUG Sleeper lookup: raw='{raw}' -> norm='{norm}'")
 
-        # Direct exact full-name match (raw)
+        # Direct exact full-name match (raw) - with disambiguation
+        exact_matches = []
         for pid, pdata in all_players.items():
             full = f"{pdata.get('first_name', '')} {pdata.get('last_name', '')}".strip().lower()
             if full == lower_raw:
-                pdata = pdata.copy()
-                pdata["sleeper_id"] = pid
-                pdata["match_method"] = "exact"
-                if debug:
-                    print(f"  -> Matched EXACT: {full}")
-                return pdata
+                match = pdata.copy()
+                match["sleeper_id"] = pid
+                match["match_method"] = "exact"
+                exact_matches.append(match)
+
+        if exact_matches:
+            # Disambiguate: prefer active players, then better search_rank
+            best_match = self._disambiguate_players(exact_matches, debug)
+            if debug:
+                print(f"  -> Matched EXACT (best of {len(exact_matches)}): {best_match.get('first_name')} {best_match.get('last_name')} ({best_match.get('position')}, {best_match.get('team')})")
+            return best_match
 
         # Normalized index lookup
         if norm in self._normalized_index:
@@ -465,10 +514,13 @@ class SleeperAPI:
             print(f"  -> NO MATCH for '{norm}'")
         return None
 
-    async def get_defensive_rankings(self, season: int = 2024) -> Dict[str, Dict]:
+    async def get_defensive_rankings(self, season: Optional[int] = None) -> Dict[str, Dict]:
         """
         Get defensive rankings by team and position matchup.
         This is derived from player stats and matchup data.
+
+        Args:
+            season: NFL season year (unused - returns current season mock data)
 
         Returns: {
             "team_abbr": {
@@ -479,12 +531,11 @@ class SleeperAPI:
             }
         }
         """
-        # For now, return a mock structure
-        # In production, this would aggregate actual defensive performance data
-        # Sleeper doesn't provide direct defensive rankings, so we'd need to calculate
-        # from game stats or integrate with another source
+        # Note: season parameter currently unused as this returns mock/static data
+        # TODO: Replace with real-time defensive stats from Sleeper API or other source
+        # For now, return current season defensive rankings (manually updated)
 
-        # Mock data for testing (will be replaced with real calculations)
+        # Mock data for 2025 season (manually updated - should be replaced with API data)
         mock_rankings: Dict[str, Dict[str, int]] = {
             "ARI": {"vs_qb": 28, "vs_rb": 32, "vs_wr": 25, "vs_te": 27},
             "ATL": {"vs_qb": 22, "vs_rb": 26, "vs_wr": 18, "vs_te": 20},
@@ -638,7 +689,7 @@ class SleeperAPI:
         search_rank = player.get("search_rank", 999)
 
         # Get projection data
-        season = 2025
+        season = await get_current_season()
         projections = await self.get_projections(season, current_week, [position])
         player_projection = projections.get(str(player_id), {})
 
