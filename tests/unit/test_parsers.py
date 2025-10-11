@@ -157,7 +157,7 @@ class TestParseFreeAgentPlayers:
         assert result[1]["name"] == "Injured Player"
         assert result[1]["injury_status"] == "Q"
         assert result[1]["injury_detail"] == "Questionable"
-        assert result[1]["bye"] == "7"
+        assert result[1]["bye"] == 7  # Bye week is now an int from fallback utility
         assert result[1]["weekly_change"] == -8
 
     def test_parse_free_agents_empty_response(self):
