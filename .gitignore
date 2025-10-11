@@ -27,6 +27,8 @@ test_*.py
 # IDE
 .vscode/
 .idea/
+.qoder/
+.kilocode/
 *.swp
 *.swo
 *~
@@ -51,10 +53,25 @@ yahoo_token.json
 # Development and debug files
 debug_*.py
 *_debug.py
+find_*.py
+parse_*.py
+fetch_*.py
+get_*.py
+simple_*.py
+standalone_*.py
+mcp_server_test*.py
+exchange_code.py
+quick_validation.py
 *_enhancement.py
 *_enhanced.py
 check_deployment.py
 enhanced_mcp_*.py
+
+# But allow production enhancement layer and official tests
+!src/services/player_enhancement.py
+!test_enhancement_layer.py
+!test_real_data.py
+!demo_enhancement_layer.py
 
 # Temporary and analysis files
 temp/

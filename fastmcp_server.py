@@ -35,16 +35,17 @@ server = FastMCP(
 
 _TOOL_PROMPTS: Dict[str, str] = {
     "ff_get_leagues": (
-        "List the Yahoo fantasy football leagues available to the connected "
-        "manager so you can collect league_key identifiers before other calls."
+        "🏈 LEAGUE DISCOVERY - List all Yahoo fantasy leagues for the user. "
+        "Takes NO parameters. Use FIRST to get league_key values. "
+        "For player searches use ff_get_players or ff_get_waiver_wire."
     ),
     "ff_get_league_info": (
-        "Summarize configuration, scoring, and team context for a specific "
-        "Yahoo league when you already know the league_key."
+        "📋 Get league configuration and settings. "
+        "Parameters: league_key only. Returns scoring type and your team summary."
     ),
     "ff_get_standings": (
-        "Check the current rankings, records, and points totals for every team "
-        "in a league to answer questions about standings."
+        "🏆 Get current league standings. "
+        "Parameters: league_key only. Returns ranks, records, points for all teams."
     ),
     "ff_get_roster": (
         "Get roster data with configurable detail levels. Use data_level='basic' for "
@@ -52,8 +53,8 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "comprehensive analysis with external data sources and enhanced insights."
     ),
     "ff_get_matchup": (
-        "Look up the opponent, projected points, and matchup details for a "
-        "given week in the authenticated manager's league schedule."
+        "🆚 Get weekly matchup for your team. "
+        "Parameters: league_key (required), week (optional). Returns opponent and projections."
     ),
     "ff_get_players": (
         "Research free agents or player pools for waiver pickups by filtering "
@@ -68,12 +69,11 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "Build optimal lineup from your roster using strategy-based optimization and positional constraints."
     ),
     "ff_refresh_token": (
-        "Refresh the stored Yahoo OAuth access token when API responses start "
-        "failing with authentication errors."
+        "🔑 Refresh Yahoo OAuth token. " "NO parameters. Use when API returns 401 errors."
     ),
     "ff_get_api_status": (
-        "Diagnose API availability by checking rate-limit usage, cache status, "
-        "and other service health metrics."
+        "📊 Check API health and rate limits. "
+        "NO parameters. Returns cache metrics and throttling status."
     ),
     "ff_clear_cache": (
         "Clear cached Yahoo responses to force the next call to fetch fresh "
@@ -203,33 +203,54 @@ async def _call_legacy_tool(
 @server.tool(
     name="ff_get_leagues",
     description=(
-        "Discover all Yahoo fantasy football leagues linked to the current "
-        "credentials. Use this before other calls to obtain league keys."
+        "🏈 LEAGUE DISCOVERY - Get list of your Yahoo fantasy leagues. "
+        "NO parameters required (no position/count/sort). "
+        "Use this FIRST to get league_key values. "
+        "For player searches use ff_get_players or ff_get_waiver_wire."
     ),
     meta=_tool_meta("ff_get_leagues"),
 )
 async def ff_get_leagues(ctx: Context) -> Dict[str, Any]:
+    """
+    Discover all Yahoo fantasy football leagues for the authenticated user.
+
+    ⚠️ IMPORTANT: This tool takes NO search parameters!
+    - NO position, count, sort, week, or team_key parameters
+    - This is for LEAGUE DISCOVERY only, not player searches
+
+    For player searches use:
+    - ff_get_players → Search available players by position
+    - ff_get_waiver_wire → Waiver wire analysis with rankings
+    - ff_get_roster → Get YOUR team's current roster
+
+    Returns:
+        Dict with total_leagues count and list of league summaries
+    """
     return await _call_legacy_tool("ff_get_leagues", ctx=ctx)
 
 
 @server.tool(
     name="ff_get_league_info",
     description=(
-        "Retrieve metadata about a single Yahoo league including scoring "
-        "settings, season, and your team summary. Requires a league_key."
+        "📋 Get league configuration and settings. "
+        "Parameters: league_key (required only). "
+        "Returns scoring type, roster requirements, and your team summary."
     ),
     meta=_tool_meta("ff_get_league_info"),
 )
 async def ff_get_league_info(
     ctx: Context,
     league_key: str,
-    week: Optional[int] = None,
-    team_key: Optional[str] = None,
-    data_level: Optional[str] = None,
-    include_analysis: Optional[bool] = None,
-    include_projections: Optional[bool] = None,
-    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    """
+    Retrieve metadata about a single Yahoo league.
+
+    Args:
+        league_key: League identifier (required)
+
+    Returns:
+        Dict with league settings, scoring type, and your team info
+    """
     return await _call_legacy_tool(
         "ff_get_league_info",
         ctx=ctx,
@@ -240,9 +261,10 @@ async def ff_get_league_info(
 @server.tool(
     name="ff_get_roster",
     description=(
-        "Get roster data with configurable detail levels. Supports basic roster info, "
-        "Yahoo projections, and comprehensive multi-source analysis including Sleeper, "
-        "matchup data, and trending information for intelligent lineup decisions."
+        "⚠️ Get YOUR TEAM'S current roster (YOUR players only). "
+        "DO NOT use this to search for available players! "
+        "Parameters: league_key, team_key, week, data_level, include_projections, include_external_data, include_analysis. "
+        "For available players use ff_get_players or ff_get_waiver_wire."
     ),
     meta=_tool_meta("ff_get_roster"),
 )
@@ -257,7 +279,13 @@ async def ff_get_roster(
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
     """
-    Consolidated roster tool with configurable detail levels.
+    Get YOUR TEAM'S roster with configurable detail levels.
+
+    ⚠️ IMPORTANT: This tool ONLY gets YOUR roster, not available players.
+    - To search available players by position → use ff_get_players
+    - For waiver wire pickups with rankings → use ff_get_waiver_wire
+
+    This tool does NOT accept: position, count, sort, include_expert_analysis
 
     Args:
         league_key: League identifier
@@ -329,29 +357,34 @@ async def ff_get_roster(
 @server.tool(
     name="ff_get_standings",
     description=(
-        "Return the current standings table for a Yahoo league showing ranks, "
-        "records, and points for each team."
+        "🏆 Get current league standings and team records. "
+        "Parameters: league_key (required only). "
+        "Returns rank, wins, losses, points for/against for all teams."
     ),
     meta=_tool_meta("ff_get_standings"),
 )
 async def ff_get_standings(
     ctx: Context,
     league_key: str,
-    week: Optional[int] = None,
-    team_key: Optional[str] = None,
-    data_level: Optional[str] = None,
-    include_analysis: Optional[bool] = None,
-    include_projections: Optional[bool] = None,
-    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    """
+    Return the current standings table for a Yahoo league.
+
+    Args:
+        league_key: League identifier (required)
+
+    Returns:
+        Dict with sorted standings showing ranks, records, and points
+    """
     return await _call_legacy_tool("ff_get_standings", ctx=ctx, league_key=league_key)
 
 
 @server.tool(
     name="ff_get_matchup",
     description=(
-        "Retrieve matchup information for the authenticated team in a given "
-        "week. Provide week to inspect historical or future matchups."
+        "🆚 Get weekly matchup for your team. "
+        "Parameters: league_key (required), week (optional, defaults to current). "
+        "Returns opponent info and projected scores."
     ),
     meta=_tool_meta("ff_get_matchup"),
 )
@@ -359,12 +392,17 @@ async def ff_get_matchup(
     ctx: Context,
     league_key: str,
     week: Optional[int] = None,
-    team_key: Optional[str] = None,
-    data_level: Optional[str] = None,
-    include_analysis: Optional[bool] = None,
-    include_projections: Optional[bool] = None,
-    include_external_data: Optional[bool] = None,
 ) -> Dict[str, Any]:
+    """
+    Retrieve matchup information for the authenticated team.
+
+    Args:
+        league_key: League identifier (required)
+        week: Week number (optional, defaults to current week)
+
+    Returns:
+        Dict with matchup data including opponent and projections
+    """
     return await _call_legacy_tool(
         "ff_get_matchup",
         ctx=ctx,
@@ -376,9 +414,10 @@ async def ff_get_matchup(
 @server.tool(
     name="ff_get_players",
     description=(
-        "Search for specific players with enhanced analysis including expert tiers, "
-        "recommendations, and Sleeper rankings. Find players by name or position "
-        "with comprehensive data for lineup decisions and waiver research."
+        "🔍 Search AVAILABLE players by position with count limit. "
+        "Use this to find free agents by position (QB, RB, WR, TE). "
+        "Parameters: league_key, position, count, week. "
+        "For YOUR roster use ff_get_roster. For waiver analysis use ff_get_waiver_wire."
     ),
     meta=_tool_meta("ff_get_players"),
 )
@@ -482,12 +521,21 @@ async def ff_build_lineup(
 @server.tool(
     name="ff_refresh_token",
     description=(
-        "Refresh the Yahoo OAuth access token using the configured refresh "
-        "credentials. Use when API calls return 401 errors."
+        "🔑 Refresh Yahoo OAuth token. "
+        "NO parameters required. "
+        "Use when API calls return 401 authentication errors."
     ),
     meta=_tool_meta("ff_refresh_token"),
 )
 async def ff_refresh_token(ctx: Context) -> Dict[str, Any]:
+    """
+    Refresh the Yahoo OAuth access token.
+
+    ⚠️ Takes NO parameters - automatic token refresh only
+
+    Returns:
+        Dict with token refresh status
+    """
     if ctx is not None:
         await ctx.info("Refreshing Yahoo OAuth token")
     return await _legacy_refresh_token()
@@ -496,12 +544,21 @@ async def ff_refresh_token(ctx: Context) -> Dict[str, Any]:
 @server.tool(
     name="ff_get_api_status",
     description=(
-        "Inspect rate limiter and cache metrics for troubleshooting API "
-        "throttling or stale data issues."
+        "📊 Check API health and rate limits. "
+        "NO parameters required. "
+        "Returns cache metrics and API throttling status."
     ),
     meta=_tool_meta("ff_get_api_status"),
 )
 async def ff_get_api_status(ctx: Context) -> Dict[str, Any]:
+    """
+    Inspect rate limiter and cache metrics for troubleshooting.
+
+    ⚠️ Takes NO parameters - system diagnostic tool only
+
+    Returns:
+        Dict with API status, rate limits, and cache metrics
+    """
     return await _call_legacy_tool("ff_get_api_status", ctx=ctx)
 
 
@@ -535,9 +592,10 @@ async def ff_get_draft_results(ctx: Context, league_key: str) -> Dict[str, Any]:
 @server.tool(
     name="ff_get_waiver_wire",
     description=(
-        "Discover top waiver wire pickups with expert analysis, tiers, and "
-        "recommendations. Enhanced with Sleeper rankings, trending data, and "
-        "start/sit advice to identify the best available free agents."
+        "📊 Get waiver wire pickups with RANKINGS, SORTING, and expert analysis. "
+        "Use this for waiver priority decisions with sort options (rank/points/owned/trending). "
+        "Parameters: league_key, position, sort, count, include_expert_analysis. "
+        "For YOUR roster use ff_get_roster. For simple player search use ff_get_players."
     ),
     meta=_tool_meta("ff_get_waiver_wire"),
 )
@@ -547,6 +605,8 @@ async def ff_get_waiver_wire(
     position: Optional[str] = None,
     sort: Literal["rank", "points", "owned", "trending"] = "rank",
     count: int = 30,
+    week: Optional[int] = None,
+    team_key: Optional[str] = None,
     include_expert_analysis: bool = True,
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
@@ -555,9 +615,11 @@ async def ff_get_waiver_wire(
 
     Args:
         league_key: League identifier
-        position: Filter by position (QB, RB, WR, TE, etc.)
+        position: Filter by position (QB, RB, WR, TE, etc.) - defaults to "all"
         sort: Sort method - "rank" (expert), "points" (season), "owned" (popularity), "trending" (hot pickups)
         count: Number of players to return
+        week: Week for projections (optional, defaults to current)
+        team_key: Team key for context (optional)
         include_expert_analysis: Include tiers, recommendations, and confidence scores
         data_level: Data detail level ("basic", "standard", "full")
     """
@@ -565,6 +627,10 @@ async def ff_get_waiver_wire(
     # Default to enhanced mode for better waiver analysis, but basic mode if expert analysis disabled
     if data_level is None:
         data_level = "full" if include_expert_analysis else "basic"
+
+    # Handle position default - convert None to "all"
+    if position is None:
+        position = "all"
 
     try:
         # Map data_level to legacy parameters for backward compatibility
@@ -588,6 +654,8 @@ async def ff_get_waiver_wire(
             position=position,
             sort=sort,
             count=count,
+            week=week,
+            team_key=team_key,
             include_projections=include_projections,
             include_external_data=include_external_data,
             include_analysis=include_analysis,
@@ -608,7 +676,9 @@ async def ff_get_waiver_wire(
                 if "waiver_priority" in result["players"][0]:
                     result["players"].sort(key=lambda x: x.get("waiver_priority", 0), reverse=True)
                 else:
-                    result["players"].sort(key=lambda x: x.get("expert_confidence", 0), reverse=True)
+                    result["players"].sort(
+                        key=lambda x: x.get("expert_confidence", 0), reverse=True
+                    )
             elif sort == "trending":
                 result["players"].sort(key=lambda x: x.get("trending_score", 50), reverse=True)
         elif include_expert_analysis and ctx:
@@ -819,6 +889,150 @@ Analyze:
 Provide a clear recommendation with reasoning."""
 
 
+@server.prompt
+def start_sit_decision(league_key: str, position: str, player_names: list[str], week: int) -> str:
+    """Generate a prompt for start/sit decision making."""
+    players_str = ", ".join(player_names)
+    return f"""Help me decide who to START at {position} for Week {week} in league {league_key}.
+
+Players to consider: {players_str}
+
+Analyze:
+1. Projected points and ceiling/floor
+2. Matchup quality and defensive rankings
+3. Recent performance trends (last 3 weeks)
+4. Injury concerns and game status
+5. Weather and game environment factors
+6. Target share / snap count / usage trends
+7. Game script prediction (positive/negative)
+
+Provide a clear START/SIT recommendation with confidence level and reasoning."""
+
+
+@server.prompt
+def bye_week_planning(league_key: str, team_key: str, upcoming_weeks: int) -> str:
+    """Generate a prompt for bye week planning and roster management."""
+    return f"""Plan for upcoming bye weeks for team {team_key} in league {league_key} over the next {upcoming_weeks} weeks.
+
+Analyze:
+1. Which starters have byes in each week
+2. Current bench depth at affected positions
+3. Waiver wire options to cover gaps
+4. Potential streaming candidates
+5. Drop candidates to make room
+6. Multi-week planning strategy
+
+Provide a week-by-week action plan."""
+
+
+@server.prompt  
+def playoff_preparation(league_key: str, team_key: str, current_week: int) -> str:
+    """Generate a prompt for playoff preparation strategy."""
+    return f"""Create a playoff preparation strategy for team {team_key} in league {league_key} (currently Week {current_week}).
+
+Focus on:
+1. Playoff schedule strength analysis (Weeks 15-17)
+2. Key players to acquire before deadline
+3. Handcuffs and insurance plays
+4. Bench streamlining for playoff roster
+5. Injury risk assessment for key players
+6. Championship-winning moves to make now
+7. Weather considerations for late season
+
+Provide actionable recommendations to maximize playoff success."""
+
+
+@server.prompt
+def trade_proposal_generation(league_key: str, my_team_key: str, target_team_key: str, position_need: str) -> str:
+    """Generate a prompt for creating fair trade proposals."""
+    return f"""Generate fair trade proposals between my team ({my_team_key}) and {target_team_key} in league {league_key}.
+
+My need: {position_need}
+
+Create proposals that:
+1. Address my positional need
+2. Fill a gap for the other team
+3. Are fair value for both sides
+4. Consider team contexts and records
+5. Account for bye weeks and playoffs
+6. Include 2-3 different trade options
+
+For each proposal explain why it works for both teams."""
+
+
+@server.prompt
+def injury_replacement_strategy(league_key: str, injured_player: str, injury_length: str, position: str) -> str:
+    """Generate a prompt for injury replacement analysis."""
+    return f"""My player {injured_player} ({position}) is injured for approximately {injury_length} in league {league_key}.
+
+Develop a replacement strategy:
+1. Short-term vs long-term replacement approach
+2. Top 5 waiver wire targets with analysis
+3. Trade targets if waiver wire is thin
+4. FAAB bidding strategy (if applicable)
+5. Handcuff analysis for the injured player's backup
+6. Roster moves needed (drops to consider)
+7. Timeline for return and stash strategy
+
+Provide immediate action items and contingency plans."""
+
+
+@server.prompt
+def streaming_dst_kicker(league_key: str, week: int, position: str) -> str:
+    """Generate a prompt for streaming defense or kicker recommendations."""
+    pos_full = "Defense/Special Teams" if position == "DEF" else "Kicker"
+    return f"""Recommend {pos_full} streaming options for Week {week} in league {league_key}.
+
+Analyze:
+1. Top 5 available {pos_full} options this week
+2. Matchup analysis and opponent rankings
+3. Vegas lines and game environment
+4. Weather factors (if relevant)
+5. Next 2-3 weeks schedule preview
+6. Season-long hold vs weekly stream
+7. Ownership percentage and availability
+
+Rank options with confidence levels and reasoning."""
+
+
+@server.prompt
+def season_long_strategy_check(league_key: str, team_key: str, current_record: str, weeks_remaining: int) -> str:
+    """Generate a prompt for comprehensive season strategy assessment."""
+    return f"""Assess season-long strategy for team {team_key} in league {league_key}.
+
+Current record: {current_record}
+Weeks remaining: {weeks_remaining}
+
+Comprehensive analysis:
+1. Playoff probability and path
+2. Win-now vs build-for-future approach
+3. Trade deadline strategy (aggressive/hold/sell)
+4. Waiver wire priority adjustments
+5. Key matchups and must-win games
+6. Positional advantages vs league
+7. Risk tolerance recommendations
+
+Provide strategic guidance for rest of season."""
+
+
+@server.prompt
+def weekly_game_plan(league_key: str, team_key: str, opponent_team_key: str, week: int) -> str:
+    """Generate a comprehensive weekly game plan prompt."""
+    return f"""Create a complete game plan for Week {week} matchup between {team_key} and {opponent_team_key} in league {league_key}.
+
+Develop strategy covering:
+1. Optimal starting lineup with justification
+2. Start/sit decisions with reasoning
+3. Opponent's likely lineup and key players
+4. Positional advantages to exploit
+5. Risk assessment (safe plays vs boom/bust)
+6. Weather and game environment factors
+7. Waiver claims needed before games
+8. Expected score and win probability
+
+Provide a complete action plan for maximum points."""
+
+
 # ============================================================================
 # RESOURCES - Static and dynamic data for LLM context
 # ============================================================================
@@ -1017,6 +1231,439 @@ INACTIVE:
 - Check pre-game reports"""
 
 
+@server.resource("guide://weekly-strategy")
+def get_weekly_strategy_guide() -> str:
+    """Provide week-by-week fantasy football strategic guidance."""
+    return """Fantasy Football Weekly Strategy Guide:
+
+WEEKS 1-4 (EARLY SEASON):
+- Trust preseason rankings and projections
+- Don't overreact to single-game performances
+- Monitor snap counts and target shares
+- Identify emerging trends early
+- Stock up on high-upside bench stashes
+- Be aggressive on waiver wire for breakouts
+- Avoid panic trades after Week 1
+
+WEEKS 5-8 (MID-SEASON):
+- Sample size now meaningful for trends
+- Target buy-low candidates after slow starts
+- Sell high on overperformers
+- Plan ahead for bye week hell
+- Consolidate depth via 2-for-1 trades
+- Stream defenses based on matchups
+- Monitor injury reports closely
+
+WEEKS 9-12 (PLAYOFF PUSH):
+- Focus on playoff schedule (Weeks 15-17)
+- Trade deadline strategy crucial
+- Handcuff your stud RBs
+- Drop low-floor bench players
+- Target players returning from injury
+- Win-now moves for playoff teams
+- Sell future value if competing
+
+WEEKS 13-14 (PLAYOFF PREP):
+- Lock in your playoff roster
+- Drop underperformers without hesitation
+- Stream defenses for playoff weeks
+- Stash handcuffs for key players
+- Monitor weather for late season games
+- Rest concerns for locked playoff teams
+- Final waiver wire pickups
+
+WEEKS 15-17 (PLAYOFFS):
+- Championship mentality
+- Weather is critical factor
+- Monitor resting starters in Week 17
+- Have backup plans for all positions
+- Trust your studs in playoffs
+- Avoid cute plays and overthinking
+- Weather-proof your lineup if possible
+
+KEY WEEKLY TASKS:
+1. Check injury reports (Wed/Thu/Fri)
+2. Review snap counts and usage from prior week
+3. Analyze upcoming matchups
+4. Submit waiver claims (Tuesday/Wednesday)
+5. Check starting lineup before games
+6. Monitor weather reports (Saturday/Sunday)
+7. Set backup plans for questionable players"""
+
+
+@server.resource("guide://common-mistakes")
+def get_common_mistakes_guide() -> str:
+    """Provide guidance on common fantasy football mistakes to avoid."""
+    return """Common Fantasy Football Mistakes to Avoid:
+
+DRAFT MISTAKES:
+❌ Drafting based on team loyalty
+❌ Ignoring bye weeks completely
+❌ Reaching for your favorite players
+❌ Not adjusting to league scoring
+❌ Following outdated rankings
+❌ Drafting kicker/defense too early
+❌ Ignoring injury history
+✅ Value-based drafting with flexibility
+✅ Balance safety and upside
+✅ Adjust for PPR vs Standard scoring
+
+IN-SEASON MISTAKES:
+❌ Overreacting to one bad game
+❌ Starting players on bye week
+❌ Ignoring weather conditions
+❌ Holding too many QBs/TEs/Defenses
+❌ Not using all roster spots
+❌ Forgetting to set lineup
+❌ Trading based on emotion
+✅ Use data and trends for decisions
+✅ Stay active on waiver wire
+✅ Make roster moves every week
+
+WAIVER WIRE MISTAKES:
+❌ Burning #1 priority too early
+❌ Missing Wednesday waivers
+❌ Not checking injury reports
+❌ Chasing last week's points
+❌ Ignoring opportunity (volume > talent early)
+❌ Dropping players after one bad game
+✅ Target volume and opportunity
+✅ Plan ahead for bye weeks
+✅ Be patient with waiver priority
+
+TRADE MISTAKES:
+❌ Accepting first offer received
+❌ Trading based on name value only
+❌ Ignoring team context and situation
+❌ Not considering playoff schedule
+❌ Vetoing trades out of spite
+❌ Trading away depth before bye weeks
+❌ Panicking after injuries
+✅ Always counter-offer first
+✅ Consider both teams' needs
+✅ Look at rest-of-season schedules
+
+LINEUP MISTAKES:
+❌ Benching studs after bad game
+❌ Starting players on snap count
+❌ Overthinking Thursday night games
+❌ Not checking start times
+❌ Ignoring weather reports
+❌ Starting questionable players without backup
+❌ Getting too cute with lineup
+✅ Start your studs
+✅ Have contingency plans
+✅ Trust projections over gut
+
+STRATEGIC MISTAKES:
+❌ Playing for second place
+❌ Not taking calculated risks
+❌ Holding players for trade value
+❌ Ignoring playoff implications
+❌ Not handcuffing elite RBs
+❌ Hoarding too many bench RBs
+✅ Championship-or-bust mentality
+✅ Maximize every roster spot
+✅ Make bold moves when necessary"""
+
+
+@server.resource("guide://advanced-stats")
+def get_advanced_stats_glossary() -> str:
+    """Provide glossary of advanced fantasy football statistics."""
+    return """Advanced Fantasy Football Statistics Glossary:
+
+VOLUME METRICS:
+- Snap Count %: Percentage of offensive snaps played
+  → 70%+ is ideal for RB/WR, 90%+ for elite
+- Target Share: Percentage of team targets received
+  → 20%+ is WR1 territory, 25%+ is elite
+- Touch Count: Total rushing attempts + receptions
+  → 15+ touches for RB1, 20+ is workhorse territory
+- Red Zone Touches: Carries/targets inside opponent 20
+  → High correlation with TDs and fantasy points
+- Air Yards: Total depth of targets (catchable or not)
+  → Higher air yards = more big play potential
+
+EFFICIENCY METRICS:
+- Yards Per Route Run (YPRR): Receiving yards per route
+  → 2.0+ is excellent, 2.5+ is elite
+- Yards After Contact (YAC): Rushing/receiving yards after contact
+  → Indicates home run ability and toughness
+- Yards Per Carry (YPC): Rushing efficiency
+  → 4.5+ is good, 5.0+ is excellent
+- True Catch Rate: Catchable targets caught
+  → Better than raw catch % for WR evaluation
+- Broken Tackles: Missed tackles forced
+  → Indicates elusiveness and big play ability
+
+SITUATION METRICS:
+- Game Script: Expected point differential
+  → Positive = more passing, Negative = more rushing
+- Neutral Game Script %: Snaps in neutral situations
+  → Better indicator of true role than blowouts
+- Two-Minute Drill Usage: Involvement in hurry-up
+  → Indicates trust and pass-catching ability
+- Goal Line Carries: Touches inside 5-yard line
+  → TD equity indicator for RBs
+
+OPPORTUNITY METRICS:
+- Expected Fantasy Points (xFP): Based on usage
+  → Compare actual vs expected to find efficiency
+- Opportunity Share: Team offense share
+  → Volume is king in fantasy football
+- Slot Rate: % of snaps in slot for WRs
+  → Slot WRs see more targets in PPR
+- Route Participation: % of pass plays running route
+  → 90%+ indicates featured receiver
+
+QUARTERBACK METRICS:
+- Time to Throw: Average release time
+  → Affects WR separation and completion %
+- Play Action %: % of dropbacks using play action
+  → Higher = more big plays downfield
+- Pressure Rate: % of dropbacks under pressure
+  → Affects turnovers and efficiency
+- Deep Ball %: % of throws 20+ yards
+  → Indicates downfield aggression
+
+SKILL POSITION TRENDS:
+- Trending Up: Increased snap %, target share, touches
+- Trending Down: Decreased involvement or efficiency
+- Consistent: Stable role week-to-week
+- Volatile: Boom/bust performances
+
+KEY TAKEAWAYS:
+→ Volume > Talent in fantasy (especially early season)
+→ Opportunity + Role > Efficiency alone
+→ Target RBs with 15+ touches and WRs with 20%+ target share
+→ Red zone usage is most predictive of TDs
+→ Monitor snap counts for emerging players"""
+
+
+@server.resource("guide://playoff-strategies")
+def get_playoff_strategies() -> str:
+    """Provide strategies for fantasy football playoffs."""
+    return """Fantasy Football Playoff Strategies:
+
+ROSTER CONSTRUCTION FOR PLAYOFFS:
+✓ Handcuff elite RBs (injury insurance)
+✓ Drop low-floor bench players
+✓ Prioritize favorable playoff schedules (Weeks 15-17)
+✓ Stream defense matchups
+✓ Have backup plans for every position
+✓ Consolidate depth via trades before deadline
+✓ Target players returning from injury
+
+PRE-PLAYOFF PREPARATION (Weeks 12-14):
+1. Analyze Week 15-17 schedules for all players
+2. Identify teams likely to rest starters (Week 17)
+3. Target defenses playing poor offenses in playoffs
+4. Trade away future value for immediate upgrades
+5. Prioritize players on pass-heavy offenses
+6. Stock handcuffs for your RB1/RB2
+7. Drop players on bye in Week 14
+
+CHAMPIONSHIP WEEK STRATEGY (Week 16-17):
+- Weather is critical (snow/wind affects passing)
+- Monitor news for resting starters
+- Indoor games safer than outdoor in December
+- Volume over talent for borderline decisions
+- Trust proven performers over hot waiver adds
+- Have Saturday replacements for Sunday players
+- Check Vegas lines (blowouts = less volume for studs)
+
+PLAYOFF SCHEDULE ANALYSIS:
+GOOD PLAYOFF MATCHUPS (Target):
+- Bad pass defenses (allows 250+ pass yards/game)
+- Bad run defenses (allows 130+ rush yards/game)
+- High-scoring offenses (creates game script)
+- Dome games in late December (weather-proof)
+- Teams eliminated from playoffs (less effort)
+
+BAD PLAYOFF MATCHUPS (Avoid):
+- Elite defenses (top 5 in points allowed)
+- Divisional revenge games (extra motivation)
+- Cold weather games for warm weather teams
+- Week 17 locked playoff seeds (rest risk)
+- Backup QBs or depleted offenses
+
+POSITIONAL STRATEGY:
+
+QUARTERBACK:
+- Target high-volume passers (35+ attempts)
+- Prefer indoor or warm-weather games
+- Avoid QBs on run-heavy teams in playoffs
+- Stream based on matchup if no elite option
+
+RUNNING BACK:
+- Handcuff all workhorse RBs
+- Target RBs with bellcow usage (20+ touches)
+- Avoid RBBC situations in playoffs
+- Monitor for rest in Week 17 for playoff teams
+- Prefer pass-catching backs in PPR
+
+WIDE RECEIVER:
+- Target high-volume WRs (8+ targets)
+- Slot receivers safer in bad weather
+- Deep threats risky in wind/snow
+- WR1s on team safer than WR2/3
+- Avoid rookie QBs throwing in bad weather
+
+TIGHT END:
+- Elite TEs (Kelce tier) are matchup-proof
+- Stream TEs against bad defenses otherwise
+- Red zone usage critical for TE scoring
+- Volume matters more than talent
+
+FLEX DECISIONS:
+- Prefer RBs over WRs in bad weather
+- WRs have higher ceiling in good matchups
+- TEs are floor plays (safe but low ceiling)
+- Trust your studs over waiver wire adds
+- Volume > Matchup for borderline decisions
+
+DEFENSE/KICKER STREAMING:
+- Stream defense vs bad offenses
+- Target defenses at home in bad weather
+- Kickers in domes for consistency
+- Avoid defenses vs elite QBs
+
+WEEK 17 CONSIDERATIONS:
+⚠️ Teams with locked playoff seeds may rest starters
+⚠️ Monitor Saturday injury reports closely
+⚠️ Have backup plans for every starter
+⚠️ Avoid players on locked 1-seed teams
+⚠️ Target teams fighting for playoff spots
+
+CHAMPIONSHIP MENTALITY:
+💪 Trust the players who got you here
+💪 Don't overthink lineup decisions
+💪 Weather and game script matter most
+💪 Volume and opportunity = floor
+💪 Have contingency plans ready
+💪 Championship = bold moves + smart process"""
+
+
+@server.resource("guide://dynasty-keeper")
+def get_dynasty_keeper_guide() -> str:
+    """Provide strategies for dynasty and keeper leagues."""
+    return """Dynasty & Keeper League Strategy Guide:
+
+DYNASTY LEAGUE FUNDAMENTALS:
+- Player values span multiple years
+- Youth and upside trump proven veterans
+- Draft picks are valuable trade assets
+- Rebuild vs compete decisions critical
+- Contracts and cap space management (if applicable)
+- Deeper benches (25-30+ roster spots typical)
+
+KEEPER LEAGUE FUNDAMENTALS:
+- Keep 1-5 players year-to-year (league dependent)
+- Keeper cost tied to draft position or auction $
+- Balance current year vs future value
+- Late-round picks provide keeper value
+- Drop players with bad keeper value late season
+
+VALUATION DIFFERENCES (Dynasty vs Redraft):
+
+POSITIONS TO PRIORITIZE:
+1. Elite Young RBs (age 22-25)
+   → Rare asset with multi-year value
+2. Young WRs with target share (age 22-27)
+   → Longer careers than RBs, safer dynasty assets
+3. Young elite TEs (age 23-26)
+   → Kelce/Andrews tier, decade-long value
+4. Top 5 QBs in Superflex
+   → Game-breaking advantage in Superflex formats
+
+ROOKIE DRAFT STRATEGY:
+- Early picks = high-capital NFL draft picks
+- Target landing spot + draft capital combination
+- RBs have shorter shelf life but immediate impact
+- WRs take 2-3 years to develop typically
+- QBs in Superflex leagues = premium value
+- Avoid reaching for need (value > need in dynasty)
+
+PLAYER LIFECYCLE MANAGEMENT:
+
+CONTENDING TEAMS (Win Now):
+→ Trade future picks for proven vets
+→ Target players aged 26-29 (prime years)
+→ Package young players for upgrades
+→ Stream and optimize for current season
+→ Don't hold onto taxi squad guys
+
+REBUILDING TEAMS (2+ Years Out):
+→ Trade aging vets for picks
+→ Acquire young players with upside
+→ Take on injured players for discount
+→ Don't compete half-way (commit to rebuild)
+→ Accumulate draft capital (1sts and 2nds)
+
+AGING CURVE BY POSITION:
+- RB: Peak age 24-27, cliff at 28-30
+- WR: Peak age 25-29, productive to 32+
+- TE: Peak age 25-30, productive to 33+
+- QB: Peak age 27-35, can play to 40+
+
+TRADE STRATEGY:
+
+SELLING WINDOW (Trade Before Value Drops):
+- RBs aged 28+ (especially with injuries)
+- WRs aged 31+ (target win-now teams)
+- Players on contract years (uncertainty)
+- Boom/bust players after hot streak
+- Backup RBs before starter returns
+
+BUYING WINDOW (Acquire at Discount):
+- Injured players from contenders
+- Rookies after slow start (patience pays)
+- Players in bad offenses (situation change)
+- Young WRs breaking out (buy early)
+- Players on new teams (positive change)
+
+DRAFT PICK VALUES:
+- 1st Round Picks: Premium assets (especially early)
+- 2nd Round Picks: Solid value, trade fodder
+- 3rd+ Round Picks: Dart throws, low hit rate
+
+TYPICAL PICK VALUE (Dynasty):
+- Early 1st (1.01-1.03): Established WR2/RB2
+- Mid 1st (1.04-1.08): Young WR2 or aging RB1
+- Late 1st (1.09-1.12): WR3 with upside or TE1
+- Early 2nd: High-upside WR or backup RB
+- Mid/Late 2nd: Bench depth or taxi squad stash
+
+KEEPER LEAGUE SPECIFIC:
+
+KEEPER VALUE CALCULATION:
+- Keep cost vs Expected draft position
+- Years of keeper eligibility remaining
+- Contract escalation (if applicable)
+- Opportunity cost of keeper slot
+
+BEST KEEPER VALUES:
+✓ Late round picks who broke out (round 10+ keepers)
+✓ Rookies drafted late who hit (league-winning value)
+✓ Injured players stashed (return to form)
+✓ Young QBs in Superflex (early breakouts)
+
+AVOID KEEPING:
+✗ Early round picks (no value gain)
+✗ Aging RBs (value cliff coming)
+✗ Players with bad contracts (auction leagues)
+✗ Injury-prone vets (risk > reward)
+
+KEY DIFFERENCES VS REDRAFT:
+📊 Think 2-3 years ahead, not just this season
+📊 Age matters more than current production
+📊 Target situation + talent over production only
+📊 Rebuild fully or compete fully (no half-measures)
+📊 Draft picks are tradeable assets with real value
+📊 Patience is rewarded (develop young players)
+📊 Deeper benches = more roster management"""
+
+
 def run_http_server(
     host: Optional[str] = None, port: Optional[int] = None, *, show_banner: bool = True
 ) -> None:
@@ -1043,6 +1690,7 @@ __all__ = [
     "server",
     "run_http_server",
     "main",
+    # Core Tools
     "ff_get_leagues",
     "ff_get_league_info",
     "ff_get_standings",
@@ -1060,19 +1708,32 @@ __all__ = [
     "ff_get_draft_recommendation",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
-    # Enhanced Tools - Removed wrapper tools (use core tools instead)
-    # Prompts
+    # Prompts - Pre-built prompt templates for LLMs
     "analyze_roster_strengths",
     "draft_strategy_advice",
     "matchup_analysis",
     "waiver_wire_priority",
     "trade_evaluation",
-    # Resources
+    "start_sit_decision",
+    "bye_week_planning",
+    "playoff_preparation",
+    "trade_proposal_generation",
+    "injury_replacement_strategy",
+    "streaming_dst_kicker",
+    "season_long_strategy_check",
+    "weekly_game_plan",
+    # Resources - Reference data for LLM context
     "get_scoring_rules",
     "get_position_info",
     "get_draft_strategies",
     "get_injury_status_info",
+    "get_weekly_strategy_guide",
+    "get_common_mistakes_guide",
+    "get_advanced_stats_glossary",
+    "get_playoff_strategies",
+    "get_dynasty_keeper_guide",
     "get_tool_selection_guide",
+    "get_version",
 ]
 
 # Optional resource: expose deployed commit SHA for diagnostics

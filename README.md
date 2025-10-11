@@ -6,6 +6,7 @@ A comprehensive Model Context Protocol (MCP) server for Yahoo Fantasy Football t
 
 ### Core Capabilities
 - **Multi-League Support** – Automatically discovers and manages all Yahoo Fantasy Football leagues associated with your account
+- **🆕 Player Enhancement Layer** – Intelligent projection adjustments with bye week detection, recent performance stats, and breakout/declining player flags
 - **Intelligent Lineup Optimization** – Advanced algorithms considering matchups, expert projections, and position-normalized value
 - **Draft Assistant** – Real-time draft recommendations with strategy-based analysis and VORP calculations
 - **Comprehensive Analytics** – Reddit sentiment analysis, team comparisons, and performance metrics
@@ -17,6 +18,54 @@ A comprehensive Model Context Protocol (MCP) server for Yahoo Fantasy Football t
 - **Strategy-Based Optimization** – Conservative, aggressive, and balanced approaches
 - **Volatility Scoring** – Floor vs ceiling analysis for consistent or boom-bust plays
 - **Live Draft Support** – Real-time recommendations during active drafts
+
+## 🆕 Player Enhancement Layer
+
+The enhancement layer enriches player data with real-world context to fix stale projections and prevent common mistakes:
+
+### Key Features
+
+✅ **Bye Week Detection** – Automatically zeros projections and displays "BYE WEEK - DO NOT START" for players on bye, preventing accidental starts
+
+✅ **Recent Performance Stats** – Fetches last 1-3 weeks of actual performance from Sleeper API and displays trends (L3W avg: X.X pts/game)
+
+✅ **Performance Flags** – Intelligent alerts including:
+- `BREAKOUT_CANDIDATE` – Recent performance > 150% of projection
+- `TRENDING_UP` – Recent performance exceeds projection
+- `DECLINING_ROLE` – Recent performance < 70% of projection
+- `HIGH_CEILING` – Explosive upside potential
+- `CONSISTENT` – Reliable, steady performance
+
+✅ **Adjusted Projections** – Blends recent reality with stale projections for more accurate start/sit decisions (60/40 or 70/30 weighting based on confidence)
+
+### Example
+
+**Before Enhancement:**
+```json
+{
+  "name": "Rico Dowdle",
+  "sleeper_projection": 4.0,
+  "recommendation": "Bench"
+}
+```
+
+**After Enhancement:**
+```json
+{
+  "name": "Rico Dowdle",
+  "sleeper_projection": 4.0,
+  "adjusted_projection": 14.8,
+  "performance_flags": ["BREAKOUT_CANDIDATE", "TRENDING_UP"],
+  "enhancement_context": "Recent breakout: averaging 18.5 pts over last 3 weeks",
+  "recommendation": "Strong Start"
+}
+```
+
+The enhancement layer is **non-breaking** and automatically applies to:
+- `ff_get_roster` (with `include_external_data=True`)
+- `ff_get_waiver_wire` (with `include_external_data=True`)
+- `ff_get_players` (with `include_external_data=True`)
+- `ff_build_lineup` (automatic)
 
 ## 🛠️ Available MCP Tools
 
@@ -131,6 +180,7 @@ fantasy-football-mcp-public/
 │   ├── agents/                   # Specialized analysis agents
 │   ├── models/                   # Data models for players, lineups, drafts
 │   ├── strategies/              # Draft and lineup strategies
+│   ├── services/                # Player enhancement and external integrations
 │   └── utils/                   # Utility functions and configurations
 ├── tests/                       # Comprehensive test suite
 ├── utils/                       # Authentication and token management
@@ -176,7 +226,7 @@ The optimization engine targets:
 **Authentication Errors**
 ```bash
 # Refresh expired tokens (expire hourly)
-python refresh_yahoo_token.py
+python utils/refresh_token.py
 
 # Full re-authentication if refresh fails
 python reauth_yahoo.py

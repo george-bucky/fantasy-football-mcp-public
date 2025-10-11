@@ -32,3 +32,4 @@ stringcase==1.2.0
 pytest==8.4.2
 pytest-asyncio==1.2.0
 pytest-mock==3.15.1
+pytest-cov==6.0.0  # Code coverage reporting
