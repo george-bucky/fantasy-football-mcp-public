@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, List, Optional
 
+from src.utils.bye_weeks import get_bye_week_with_fallback
+
 
 def parse_team_roster(data: Dict) -> List[Dict]:
     """Extract a simple roster list from Yahoo team data.
@@ -107,6 +109,21 @@ def parse_team_roster(data: Dict) -> List[Dict]:
                         if team_value:
                             info["team"] = team_value
 
+                    if "bye_weeks" in container:
+                        bye_weeks_data = container["bye_weeks"]
+                        if isinstance(bye_weeks_data, dict) and "week" in bye_weeks_data:
+                            bye_week = bye_weeks_data.get("week")
+                            if bye_week and str(bye_week).isdigit():
+                                bye_num = int(bye_week)
+                                if 1 <= bye_num <= 18:
+                                    info["bye"] = bye_num
+                                else:
+                                    info["bye"] = None
+                            else:
+                                info["bye"] = None
+                        else:
+                            info["bye"] = None
+
                 for element in player_array:
                     if isinstance(element, dict):
                         _scan_container(element)
@@ -117,6 +134,15 @@ def parse_team_roster(data: Dict) -> List[Dict]:
                 if info:
                     if "status" not in info:
                         info["status"] = "OK"
+
+                    team_abbr = info.get("team")
+                    api_bye_week = info.get("bye") if isinstance(info.get("bye"), int) else None
+                    if isinstance(team_abbr, str) and team_abbr:
+                        resolved_bye = get_bye_week_with_fallback(team_abbr, api_bye_week)
+                        info["bye"] = resolved_bye
+                    else:
+                        info["bye"] = None
+
                     roster.append(info)
 
     return roster

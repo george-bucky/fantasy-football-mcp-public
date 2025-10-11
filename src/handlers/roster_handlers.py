@@ -1,5 +1,6 @@
 """Roster MCP tool handlers."""
 
+import logging
 from typing import Any, Dict, List
 
 # These will be injected from main file
@@ -121,6 +122,9 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
         result["note"] = f"Enhanced view unavailable: {exc}"
         return result
 
+    logger = logging.getLogger(__name__)
+    
+    
     def serialize_player(player: Player) -> Dict[str, Any]:
         base = {
             "name": player.name,
@@ -153,6 +157,18 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
             "enhancement_context": player.enhancement_context if effective_external else None,
             "adjusted_projection": player.adjusted_projection if effective_external else None,
         }
+
+        if effective_external and base["bye_week"] in (None, "N/A"):
+            raw_payload = getattr(player, "raw", {})
+            team_context = getattr(player, "team", None)
+            logger.debug(
+                "Roster enhancement missing bye week for %s (%s). player.bye=%r api_team=%r keys=%s",
+                player.name,
+                team_context,
+                getattr(player, "bye", None),
+                raw_payload.get("team"),
+                sorted(raw_payload.keys()) if isinstance(raw_payload, dict) else None,
+            )
 
         # Add analysis if flagged
         if effective_analysis:
