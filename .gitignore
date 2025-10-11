@@ -22,6 +22,7 @@ dist/
 .vscode/
 .idea/
 .qoder/
+.kilocode/
 *.swp
 *.swo
 *~
