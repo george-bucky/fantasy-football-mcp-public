@@ -7,8 +7,12 @@ This module provides enhancements to player data including:
 - Adjusted projections based on recent reality
 """
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -48,25 +52,40 @@ def detect_bye_week(player_bye: Any, current_week: int) -> bool:
     if player_bye is None or player_bye == "N/A" or player_bye == "":
         return False
 
+    logger.debug(
+        "detect_bye_week: raw_bye=%r (type=%s) current_week=%s",
+        player_bye,
+        type(player_bye).__name__,
+        current_week,
+    )
+
     # Handle string representations
     if isinstance(player_bye, str):
         try:
             bye_week = int(player_bye)
         except (ValueError, TypeError):
-            print(f"Warning: Unable to parse bye week string: {player_bye}")
+            logger.warning("Unable to parse bye week string: %r", player_bye)
             return False
     elif isinstance(player_bye, (int, float)):
         bye_week = int(player_bye)
     else:
-        print(f"Warning: Unexpected bye week type: {type(player_bye)} = {player_bye}")
+        logger.warning(
+            "Unexpected bye week type: %s = %r", type(player_bye).__name__, player_bye
+        )
         return False
 
     # Validate bye week is in valid range
     if not (1 <= bye_week <= 18):
-        print(f"Warning: Bye week {bye_week} out of valid range (1-18)")
+        logger.warning("Bye week %s out of valid range (1-18)", bye_week)
         return False
 
-    return bye_week == current_week
+    on_bye = bye_week == current_week
+    logger.debug(
+        "detect_bye_week: normalized_bye=%s matches_current=%s",
+        bye_week,
+        on_bye,
+    )
+    return on_bye
 
 
 def calculate_recent_avg(stats_list: List[Dict[str, Any]]) -> float:
@@ -188,7 +207,20 @@ async def get_recent_stats(
         RecentPerformance object or None if no stats available
     """
     if not sleeper_id or current_week < 1:
+        logger.debug(
+            "get_recent_stats: skipping stats fetch sleeper_id=%r current_week=%s",
+            sleeper_id,
+            current_week,
+        )
         return None
+
+    logger.debug(
+        "get_recent_stats: sleeper_id=%s season=%s current_week=%s lookback=%s",
+        sleeper_id,
+        season,
+        current_week,
+        lookback,
+    )
 
     weeks_data = []
     points_by_week = []
@@ -199,6 +231,13 @@ async def get_recent_stats(
         if week < 1:
             break
 
+        logger.debug(
+            "get_recent_stats: requesting stats sleeper_id=%s season=%s week=%s",
+            sleeper_id,
+            season,
+            week,
+        )
+
         try:
             stats = await sleeper_api.get_player_stats(season, week)
             if stats and sleeper_id in stats:
@@ -207,11 +246,41 @@ async def get_recent_stats(
                 if isinstance(points, (int, float)):
                     weeks_data.append({"week": week, "stats": week_stats, "points": float(points)})
                     points_by_week.append((week, float(points)))
-        except Exception as e:
-            print(f"Error fetching stats for week {week}: {e}")
+                    logger.debug(
+                        "get_recent_stats: captured points=%s sleeper_id=%s week=%s",
+                        points,
+                        sleeper_id,
+                        week,
+                    )
+                else:
+                    logger.debug(
+                        "get_recent_stats: non-numeric points sleeper_id=%s week=%s payload_keys=%s",
+                        sleeper_id,
+                        week,
+                        list(week_stats.keys()),
+                    )
+            else:
+                logger.debug(
+                    "get_recent_stats: no stats entry sleeper_id=%s week=%s",
+                    sleeper_id,
+                    week,
+                )
+        except Exception:
+            logger.exception(
+                "get_recent_stats: error fetching stats sleeper_id=%s season=%s week=%s",
+                sleeper_id,
+                season,
+                week,
+            )
             continue
 
     if not weeks_data:
+        logger.debug(
+            "get_recent_stats: no recent data sleeper_id=%s current_week=%s lookback=%s",
+            sleeper_id,
+            current_week,
+            lookback,
+        )
         return None
 
     # Calculate metrics
@@ -263,6 +332,13 @@ async def enhance_player_with_context(
         # print(f"Debug: No bye week data available for {player_name}")
     
     on_bye = detect_bye_week(player_bye, current_week)
+    logger.debug(
+        "enhance_player_with_context: player=%s bye=%r current_week=%s on_bye=%s",
+        getattr(player, "name", "Unknown"),
+        player_bye,
+        current_week,
+        on_bye,
+    )
 
     if on_bye:
         recommendation_override = "BYE WEEK - DO NOT START"
@@ -286,8 +362,8 @@ async def enhance_player_with_context(
             recent_performance = await get_recent_stats(
                 sleeper_api, sleeper_id, season, current_week, lookback=3
             )
-        except Exception as e:
-            print(f"Error fetching recent stats for {player.name}: {e}")
+        except Exception:
+            logger.exception("Error fetching recent stats for %s", player.name)
 
     # Calculate performance flags
     if recent_performance and recent_performance.avg_points > 0:

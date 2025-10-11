@@ -8,8 +8,12 @@ API so existing callers keep working, while delivering deterministic, best-effor
 results based purely on the roster data already returned by the legacy layer.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
+
+logger = logging.getLogger(__name__)
+
 
 BENCH_SLOTS = {
     "BN",
@@ -411,9 +415,23 @@ class LineupOptimizer:
                     risk_level=player.risk_level,
                     composite_score=player.composite_score,
                     raw=player.raw.copy(),
+                    bye=player.bye,
+                    on_bye=player.on_bye,
+                    recent_performance_data=player.recent_performance_data,
+                    performance_flags=player.performance_flags.copy(),
+                    enhancement_context=player.enhancement_context,
+                    adjusted_projection=player.adjusted_projection,
                 )
 
                 use_week = week or current_week
+                logger.debug(
+                    "enhance_with_external_data: player=%s original_bye=%r requested_week=%s api_current_week=%s use_week=%s",
+                    player.name,
+                    player.bye,
+                    week,
+                    current_week,
+                    use_week,
+                )
 
                 try:
                     # Get Sleeper player mapping and basic data
@@ -424,6 +442,7 @@ class LineupOptimizer:
                     if sleeper_id:
                         enhanced_player.sleeper_id = sleeper_id
                         enhanced_player.sleeper_match_method = "api"
+                        enhanced_player.bye = player.bye
 
                         # Fetch projections for this player
                         try:
@@ -527,7 +546,7 @@ class LineupOptimizer:
 
                         enhancement = await enhance_player_with_context(
                             enhanced_player,
-                            current_week=current_week,
+                            current_week=use_week,
                             season=current_season,
                             sleeper_api=sleeper_client,
                         )
@@ -557,9 +576,9 @@ class LineupOptimizer:
                         else:
                             enhanced_player.adjusted_projection = enhanced_player.sleeper_projection
 
-                    except Exception as e:
+                    except Exception:
                         # If enhancement fails, continue with original data
-                        print(f"Warning: Player enhancement failed for {player.name}: {e}")
+                        logger.exception("Player enhancement failed for %s", player.name)
                         enhanced_player.on_bye = False
                         enhanced_player.recent_performance_data = None
                         enhanced_player.performance_flags = []
