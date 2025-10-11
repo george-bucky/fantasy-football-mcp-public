@@ -70,13 +70,13 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
     roster = parse_team_roster(data)
 
     if not roster:
-        print(
-            f"DEBUG: Empty roster for team {team_key}. Raw data keys: {list(data.keys()) if data else 'None'}"
+        logging.debug(
+            f"Empty roster for team {team_key}. Raw data keys: {list(data.keys()) if data else 'None'}"
         )
         if data:
             import json
 
-            print("DEBUG: Truncated raw data:", json.dumps(data, indent=2)[:2000])
+            logging.debug("Truncated raw data: %s", json.dumps(data, indent=2)[:2000])
 
     if team_info is None or team_info.get("team_key") != team_key:
         team_info = await get_user_team_info(league_key)
