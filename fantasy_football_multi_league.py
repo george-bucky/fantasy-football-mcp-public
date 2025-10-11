@@ -153,7 +153,7 @@ async def get_user_team_info(league_key: Optional[str]) -> Optional[dict]:
         data = await yahoo_api_call(f"league/{league_key}/teams")
 
         # Get user's GUID from environment
-        user_guid = os.getenv("YAHOO_GUID", "your_redacted_value")
+        user_guid = os.getenv("YAHOO_GUID", "your_yahoo_guid_here")
 
         # Parse to find user's team
         league = data.get("fantasy_content", {}).get("league", [])
@@ -516,7 +516,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001'). Use ff_get_leagues to get available keys.",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX'). Use ff_get_leagues to get available keys.",
                     }
                 },
                 "required": ["league_key"],
@@ -530,7 +530,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     }
                 },
                 "required": ["league_key"],
@@ -544,7 +544,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     }
                 },
                 "required": ["league_key"],
@@ -558,7 +558,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     },
                     "team_key": {
                         "anyOf": [{"type": "string"}, {"type": "null"}],
@@ -601,7 +601,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     },
                     "week": {
                         "type": "integer",
@@ -619,7 +619,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     },
                     "position": {
                         "type": "string",
@@ -672,7 +672,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     },
                     "team_key_a": {
                         "type": "string",
@@ -694,7 +694,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     },
                     "week": {
                         "type": "integer",
@@ -726,7 +726,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     },
                     "team_key": {
                         "type": "string",
@@ -744,7 +744,7 @@ async def list_tools() -> list[Tool]:
                 "properties": {
                     "league_key": {
                         "type": "string",
-                        "description": "League key (e.g., '461.l.900001')",
+                        "description": "League key (e.g., 'nfl.l.XXXXXX')",
                     },
                     "position": {
                         "type": "string",
@@ -845,7 +845,7 @@ async def list_tools() -> list[Tool]:
                     "properties": {
                         "league_key": {
                             "type": "string",
-                            "description": "League key (e.g., '461.l.900001')",
+                            "description": "League key (e.g., 'nfl.l.XXXXXX')",
                         },
                         "strategy": {
                             "type": "string",
@@ -876,7 +876,7 @@ async def list_tools() -> list[Tool]:
                     "properties": {
                         "league_key": {
                             "type": "string",
-                            "description": "League key (e.g., '461.l.900001')",
+                            "description": "League key (e.g., 'nfl.l.XXXXXX')",
                         },
                         "strategy": {
                             "type": "string",
