@@ -9,12 +9,66 @@ with advanced lineup optimization, multi-league support, and comprehensive analy
   Football leagues for the authenticated account
 - **Advanced Lineup Optimization** – Sophisticated algorithm with position
   normalization, matchup analysis, and strategy-based recommendations
+- **🆕 Player Enhancement Layer** – Intelligent projection adjustments with bye week
+  detection, recent performance stats, and breakout/declining player flags
 - **Complete League Operations** – Standings, rosters, matchups, waiver wire,
   draft tools, and Reddit sentiment analysis
 - **FastMCP Native** – Single entry point (`fastmcp_server.py`) with HTTP/SSE
   transport for Claude Desktop and fastmcp.cloud
 - **Production Ready** – Rate limiting, caching, automatic token refresh, and
   comprehensive error handling
+
+## 🆕 Player Enhancement Layer
+
+The enhancement layer enriches player data with real-world context to fix stale
+projections and prevent common mistakes:
+
+### Key Features
+
+✅ **Bye Week Detection** – Automatically zeros projections and displays "BYE WEEK - DO NOT START"
+  for players on bye, preventing accidental starts
+
+✅ **Recent Performance Stats** – Fetches last 1-3 weeks of actual performance from Sleeper API
+  and displays trends (L3W avg: X.X pts/game)
+
+✅ **Performance Flags** – Intelligent alerts including:
+- `BREAKOUT_CANDIDATE` – Recent performance > 150% of projection
+- `TRENDING_UP` – Recent performance exceeds projection
+- `DECLINING_ROLE` – Recent performance < 70% of projection
+- `HIGH_CEILING` – Explosive upside potential
+- `CONSISTENT` – Reliable, steady performance
+
+✅ **Adjusted Projections** – Blends recent reality with stale projections for more accurate
+  start/sit decisions (60/40 or 70/30 weighting based on confidence)
+
+### Example
+
+**Before Enhancement:**
+```json
+{
+  "name": "Rico Dowdle",
+  "sleeper_projection": 4.0,
+  "recommendation": "Bench"
+}
+```
+
+**After Enhancement:**
+```json
+{
+  "name": "Rico Dowdle",
+  "sleeper_projection": 4.0,
+  "adjusted_projection": 14.8,
+  "performance_flags": ["BREAKOUT_CANDIDATE", "TRENDING_UP"],
+  "enhancement_context": "Recent breakout: averaging 18.5 pts over last 3 weeks",
+  "recommendation": "Strong Start"
+}
+```
+
+The enhancement layer is **non-breaking** and automatically applies to:
+- `ff_get_roster` (with `include_external_data=True`)
+- `ff_get_waiver_wire` (with `include_external_data=True`)
+- `ff_get_players` (with `include_external_data=True`)
+- `ff_build_lineup` (automatic)
 
 ## Available MCP Tools
 

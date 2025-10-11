@@ -146,16 +146,45 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
             "expert_confidence": player.expert_confidence if effective_external else None,
             "expert_advice": player.expert_advice if effective_external else None,
             "search_rank": player.search_rank if effective_external else None,
+            # Enhancement layer fields (bye weeks, recent stats, performance flags)
+            "bye_week": player.bye if effective_external else None,
+            "on_bye": player.on_bye if effective_external else False,
+            "performance_flags": player.performance_flags if effective_external else [],
+            "enhancement_context": player.enhancement_context if effective_external else None,
+            "adjusted_projection": player.adjusted_projection if effective_external else None,
         }
 
         # Add analysis if flagged
         if effective_analysis:
             total_proj = (player.yahoo_projection or 0) + (player.sleeper_projection or 0)
-            base["roster_analysis"] = {
+
+            # Adjust recommendation for bye weeks
+            if player.on_bye:
+                start_rec = "BYE WEEK - DO NOT START"
+            elif total_proj > 10:
+                start_rec = "Start"
+            else:
+                start_rec = "Bench/Consider"
+
+            analysis = {
                 "projected_points": round(total_proj, 1),
                 "tier_summary": f"{player.player_tier} tier player",
-                "start_recommendation": "Start" if total_proj > 10 else "Bench/Consider",
+                "start_recommendation": start_rec,
             }
+
+            # Add recent performance summary if available
+            if player.recent_performance_data:
+                recent = player.recent_performance_data
+                analysis["recent_performance"] = (
+                    f"L{recent.weeks_analyzed}W avg: {recent.avg_points:.1f} pts/game"
+                )
+                analysis["trend"] = recent.trend.upper()
+
+            # Add performance flag summaries
+            if player.performance_flags:
+                analysis["performance_alerts"] = player.performance_flags
+
+            base["roster_analysis"] = analysis
 
         return base
 

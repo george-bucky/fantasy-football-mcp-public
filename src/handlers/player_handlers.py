@@ -153,16 +153,43 @@ async def handle_ff_get_players(arguments: dict) -> dict:
                         ),
                         "N/A",
                     ),
+                    # Enhancement layer fields
+                    "bye_week": player.bye if include_external_data else None,
+                    "on_bye": player.on_bye if include_external_data else False,
+                    "performance_flags": player.performance_flags if include_external_data else [],
+                    "enhancement_context": (
+                        player.enhancement_context if include_external_data else None
+                    ),
+                    "adjusted_projection": (
+                        player.adjusted_projection if include_external_data else None
+                    ),
                 }
 
                 # Add analysis if flagged
                 if include_analysis:
                     proj = (player.yahoo_projection or 0) + (player.sleeper_projection or 0)
                     owned = base.get("owned_pct", 0.0)
-                    base["free_agent_value"] = round(proj * (1 - owned / 100), 1)
-                    base["analysis"] = (
-                        f"Value based on low ownership ({owned}%) and proj ({proj:.1f})"
-                    )
+
+                    # Adjust analysis for bye weeks
+                    if player.on_bye:
+                        base["free_agent_value"] = 0.0
+                        base["analysis"] = f"ON BYE - Do not add this week"
+                    else:
+                        base["free_agent_value"] = round(proj * (1 - owned / 100), 1)
+                        analysis_parts = [f"Low ownership ({owned}%), proj ({proj:.1f})"]
+
+                        # Add recent performance context
+                        if player.recent_performance_data:
+                            recent = player.recent_performance_data
+                            analysis_parts.append(
+                                f"L{recent.weeks_analyzed}W avg: {recent.avg_points:.1f}"
+                            )
+
+                        # Add performance flags
+                        if player.performance_flags:
+                            analysis_parts.append(", ".join(player.performance_flags))
+
+                        base["analysis"] = " | ".join(analysis_parts)
 
                 return base
 
@@ -257,20 +284,20 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
         return {
             "status": "error",
             "error": "league_key is required",
-            "message": "Please provide a league_key parameter"
+            "message": "Please provide a league_key parameter",
         }
 
     league_key: str = arguments.get("league_key")  # type: ignore
-    
+
     # Get and validate optional parameters with proper defaults
     position = arguments.get("position", "all")
     if position is None:
         position = "all"
-    
+
     sort = arguments.get("sort", "rank")
     if sort not in ["rank", "points", "owned", "trending"]:
         sort = "rank"
-    
+
     count = arguments.get("count", 30)
     try:
         count = int(count)
@@ -278,7 +305,7 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
             count = 30
     except (ValueError, TypeError):
         count = 30
-    
+
     week = arguments.get("week")
     team_key = arguments.get("team_key")
     include_analysis = arguments.get("include_analysis", False)

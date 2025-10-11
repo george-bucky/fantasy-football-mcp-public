@@ -247,6 +247,13 @@ class Player:
     match_confidence: float = 0.0
     match_analytics: Dict[str, Any] = field(default_factory=dict)
     raw: Dict[str, Any] = field(default_factory=dict)
+    # Enhancement layer fields (bye weeks, recent stats, performance flags)
+    bye: Any = "N/A"  # Bye week number (from Yahoo API)
+    on_bye: bool = False  # Is player on bye this week?
+    recent_performance_data: Any = None  # RecentPerformance object from enhancement
+    performance_flags: List[str] = field(default_factory=list)  # ["BREAKOUT", "TRENDING_UP", etc]
+    enhancement_context: str = ""  # Human-readable context message
+    adjusted_projection: float = 0.0  # Projection adjusted based on recent performance
 
     def is_valid(self) -> bool:
         return bool(self.name and self.team)
@@ -337,6 +344,7 @@ class LineupOptimizer:
                 consistency_score=_coerce_float(entry.get("consistency_score")),
                 risk_level=str(entry.get("risk_level") or "medium"),
                 composite_score=_coerce_float(entry.get("composite_score")),
+                bye=entry.get("bye", "N/A"),  # Extract bye week from Yahoo data
                 raw=entry,
             )
             players.append(player)
@@ -512,6 +520,51 @@ class LineupOptimizer:
                                 enhanced_player.trending_score = 50  # Neutral
                         except Exception:
                             enhanced_player.trending_score = 50  # Default if trending fails
+
+                    # ===== ENHANCEMENT LAYER: Bye weeks & recent stats context =====
+                    try:
+                        from src.services.player_enhancement import enhance_player_with_context
+
+                        enhancement = await enhance_player_with_context(
+                            enhanced_player,
+                            current_week=current_week,
+                            season=current_season,
+                            sleeper_api=sleeper_client,
+                        )
+
+                        # Apply bye week override
+                        if enhancement.on_bye:
+                            enhanced_player.sleeper_projection = 0.0
+                            enhanced_player.yahoo_projection = 0.0
+                            enhanced_player.sleeper_projection_ppr = 0.0
+                            enhanced_player.sleeper_projection_std = 0.0
+                            enhanced_player.sleeper_projection_half_ppr = 0.0
+                            enhanced_player.expert_recommendation = (
+                                enhancement.recommendation_override
+                            )
+                            enhanced_player.risk_level = "n/a"
+                            enhanced_player.player_tier = "bye"
+
+                        # Store enhancement data on player
+                        enhanced_player.on_bye = enhancement.on_bye
+                        enhanced_player.recent_performance_data = enhancement.recent_performance
+                        enhanced_player.performance_flags = enhancement.performance_flags
+                        enhanced_player.enhancement_context = enhancement.context_message
+
+                        # Use adjusted projection if available
+                        if enhancement.adjusted_projection is not None and not enhancement.on_bye:
+                            enhanced_player.adjusted_projection = enhancement.adjusted_projection
+                        else:
+                            enhanced_player.adjusted_projection = enhanced_player.sleeper_projection
+
+                    except Exception as e:
+                        # If enhancement fails, continue with original data
+                        print(f"Warning: Player enhancement failed for {player.name}: {e}")
+                        enhanced_player.on_bye = False
+                        enhanced_player.recent_performance_data = None
+                        enhanced_player.performance_flags = []
+                        enhanced_player.enhancement_context = "Enhancement unavailable"
+                        enhanced_player.adjusted_projection = enhanced_player.sleeper_projection
 
                 except Exception:
                     # If Sleeper lookup fails, keep original data

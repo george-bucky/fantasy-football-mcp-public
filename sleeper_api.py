@@ -176,7 +176,10 @@ class SleeperAPI:
             # Sort by active (True first) then search_rank (lower better)
             best_pid, best_pdata = sorted(
                 player_list,
-                key=lambda x: (0 if x[1].get('active', False) else 1, x[1].get('search_rank') or 9999999)
+                key=lambda x: (
+                    0 if x[1].get("active", False) else 1,
+                    x[1].get("search_rank") or 9999999,
+                ),
             )[0]
 
             idx[norm] = best_pid
@@ -214,8 +217,8 @@ class SleeperAPI:
 
         # Sort by priority: active first, then by search_rank
         def sort_key(p):
-            active = p.get('active', False)
-            rank = p.get('search_rank') or 9999999
+            active = p.get("active", False)
+            rank = p.get("search_rank") or 9999999
             # Active players get priority (0), inactive get (1)
             # Then sort by rank (lower is better)
             return (0 if active else 1, rank)
@@ -225,7 +228,9 @@ class SleeperAPI:
         if debug:
             print(f"  Disambiguation: {len(matches)} matches")
             for m in sorted_matches[:3]:  # Show top 3
-                print(f"    - {m.get('first_name')} {m.get('last_name')} ({m.get('position')}): Active={m.get('active')}, Rank={m.get('search_rank')}, Team={m.get('team')}")
+                print(
+                    f"    - {m.get('first_name')} {m.get('last_name')} ({m.get('position')}): Active={m.get('active')}, Rank={m.get('search_rank')}, Team={m.get('team')}"
+                )
 
         return sorted_matches[0]
 
@@ -288,6 +293,35 @@ class SleeperAPI:
     async def get_nfl_state(self) -> Dict:
         """Get current NFL season state (week, season, etc)."""
         return await self._make_request("state/nfl") or {}
+
+    async def get_player_stats(self, season: int, week: int) -> Dict[str, Dict]:
+        """Get actual player stats for a specific week.
+
+        This fetches ACTUAL performance data (not projections) for players
+        who played in the specified week.
+
+        Args:
+            season: NFL season year (e.g., 2024)
+            week: Week number (1-18)
+
+        Returns:
+            Dict keyed by player_id with actual stats including:
+            - pts: Standard scoring points
+            - pts_ppr: PPR scoring points
+            - pts_half_ppr: Half PPR points
+            - Individual stat categories (passing_yards, rushing_yards, etc.)
+
+        Example:
+            stats = await sleeper_api.get_player_stats(2024, 5)
+            player_stats = stats.get("player_id_here")
+            points = player_stats.get("pts_ppr", 0)
+        """
+        endpoint = f"stats/nfl/{season}/{week}"
+        raw = await self._make_request(endpoint, use_cache=True) or {}
+
+        # Sleeper returns stats keyed by player_id
+        # No additional processing needed - return raw data
+        return raw if isinstance(raw, dict) else {}
 
     async def get_projections(
         self, season: int, week: int, positions: Optional[List[str]] = None
@@ -454,7 +488,9 @@ class SleeperAPI:
             # Disambiguate: prefer active players, then better search_rank
             best_match = self._disambiguate_players(exact_matches, debug)
             if debug:
-                print(f"  -> Matched EXACT (best of {len(exact_matches)}): {best_match.get('first_name')} {best_match.get('last_name')} ({best_match.get('position')}, {best_match.get('team')})")
+                print(
+                    f"  -> Matched EXACT (best of {len(exact_matches)}): {best_match.get('first_name')} {best_match.get('last_name')} ({best_match.get('position')}, {best_match.get('team')})"
+                )
             return best_match
 
         # Normalized index lookup
