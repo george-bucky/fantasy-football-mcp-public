@@ -103,7 +103,7 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
         return result
 
     try:
-        from lineup_optimizer import lineup_optimizer, Player  # type: ignore
+        from lineup_optimizer import lineup_optimizer, Player
     except ImportError as exc:
         result["note"] = f"Enhanced view unavailable: {exc}"
         return result
