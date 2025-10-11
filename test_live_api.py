@@ -106,7 +106,7 @@ class LiveAPITester:
         tool_name: str,
         arguments: Dict[str, Any],
         verbose: bool = True
-    ) -> tuple[Optional[Any], bool]:
+    ) -> Tuple[Optional[Any], bool]:
         """Execute a single tool test."""
         start = time.time()
         try:
