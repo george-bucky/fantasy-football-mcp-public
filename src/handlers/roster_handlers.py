@@ -158,6 +158,28 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
             "adjusted_projection": player.adjusted_projection if effective_external else None,
         }
 
+        if effective_projections:
+            zero_out = False
+
+            if base["on_bye"]:
+                zero_out = True
+            elif week is not None and isinstance(player.bye, int) and player.bye == week:
+                zero_out = True
+                base["on_bye"] = True
+
+            if zero_out:
+                player.yahoo_projection = 0.0
+                player.floor_projection = 0.0
+                player.ceiling_projection = 0.0
+                player.adjusted_projection = 0.0
+                base["yahoo_projection"] = 0.0
+                if effective_external:
+                    player.sleeper_projection = 0.0
+                    base["sleeper_projection"] = 0.0
+                    base["adjusted_projection"] = 0.0
+                base["floor_projection"] = 0.0
+                base["ceiling_projection"] = 0.0
+
         if effective_external and base["bye_week"] in (None, "N/A"):
             raw_payload = getattr(player, "raw", {})
             team_context = getattr(player, "team", None)
