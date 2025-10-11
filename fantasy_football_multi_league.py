@@ -21,6 +21,9 @@ from src.services import analyze_reddit_sentiment
 # Import rate limiting and caching utilities
 from src.api.yahoo_utils import rate_limiter, response_cache
 
+# Import bye week utilities
+from src.utils.bye_weeks import get_bye_week_with_fallback
+
 # Import all handlers from the handlers module
 from src.handlers import (
     handle_ff_analyze_draft_state,
@@ -283,10 +286,22 @@ async def get_waiver_wire_players(
                                             player_info["team"] = element["editorial_team_abbr"]
                                         if "display_position" in element:
                                             player_info["position"] = element["display_position"]
+                                        
+                                        # Extract bye week with fallback to static data
+                                        api_bye_week = None
                                         if "bye_weeks" in element:
-                                            player_info["bye"] = element["bye_weeks"].get(
-                                                "week", "N/A"
-                                            )
+                                            bye_weeks_data = element["bye_weeks"]
+                                            if isinstance(bye_weeks_data, dict) and "week" in bye_weeks_data:
+                                                bye_week = bye_weeks_data.get("week")
+                                                # Validate bye week is a valid week number (1-18)
+                                                if bye_week and str(bye_week).isdigit():
+                                                    bye_num = int(bye_week)
+                                                    if 1 <= bye_num <= 18:
+                                                        api_bye_week = bye_num
+                                        
+                                        # Use fallback utility to get bye week (tries API first, then static data)
+                                        team_abbr = element.get("editorial_team_abbr", "")
+                                        player_info["bye"] = get_bye_week_with_fallback(team_abbr, api_bye_week)
 
                                         # Ownership data
                                         if "ownership" in element:
@@ -370,10 +385,22 @@ async def get_draft_rankings(
                                             player_info["team"] = element["editorial_team_abbr"]
                                         if "display_position" in element:
                                             player_info["position"] = element["display_position"]
+                                        
+                                        # Extract bye week with fallback to static data
+                                        api_bye_week = None
                                         if "bye_weeks" in element:
-                                            player_info["bye"] = element["bye_weeks"].get(
-                                                "week", "N/A"
-                                            )
+                                            bye_weeks_data = element["bye_weeks"]
+                                            if isinstance(bye_weeks_data, dict) and "week" in bye_weeks_data:
+                                                bye_week = bye_weeks_data.get("week")
+                                                # Validate bye week is a valid week number (1-18)
+                                                if bye_week and str(bye_week).isdigit():
+                                                    bye_num = int(bye_week)
+                                                    if 1 <= bye_num <= 18:
+                                                        api_bye_week = bye_num
+                                        
+                                        # Use fallback utility to get bye week (tries API first, then static data)
+                                        team_abbr = element.get("editorial_team_abbr", "")
+                                        player_info["bye"] = get_bye_week_with_fallback(team_abbr, api_bye_week)
 
                                         # Draft data if available
                                         if "draft_analysis" in element:

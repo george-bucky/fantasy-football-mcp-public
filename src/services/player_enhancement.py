@@ -38,13 +38,14 @@ def detect_bye_week(player_bye: Any, current_week: int) -> bool:
     """Detect if player is on bye this week.
 
     Args:
-        player_bye: Bye week from player data (could be int, str, or "N/A")
+        player_bye: Bye week from player data (could be int, str, None, or "N/A")
         current_week: Current NFL week number
 
     Returns:
         True if player is on bye this week
     """
-    if not player_bye or player_bye == "N/A":
+    # Handle None or "N/A" cases
+    if player_bye is None or player_bye == "N/A" or player_bye == "":
         return False
 
     # Handle string representations
@@ -52,9 +53,18 @@ def detect_bye_week(player_bye: Any, current_week: int) -> bool:
         try:
             bye_week = int(player_bye)
         except (ValueError, TypeError):
+            print(f"Warning: Unable to parse bye week string: {player_bye}")
             return False
-    else:
+    elif isinstance(player_bye, (int, float)):
         bye_week = int(player_bye)
+    else:
+        print(f"Warning: Unexpected bye week type: {type(player_bye)} = {player_bye}")
+        return False
+
+    # Validate bye week is in valid range
+    if not (1 <= bye_week <= 18):
+        print(f"Warning: Bye week {bye_week} out of valid range (1-18)")
+        return False
 
     return bye_week == current_week
 
@@ -243,8 +253,15 @@ async def enhance_player_with_context(
     recommendation_override = None
     context_message = ""
 
-    # Check bye week
+    # Check bye week with validation
     player_bye = getattr(player, "bye", None)
+    
+    # Log if bye week data is missing for debugging
+    if player_bye is None:
+        player_name = getattr(player, "name", "Unknown")
+        # Only log once per session to avoid spam (in production, use proper logging)
+        # print(f"Debug: No bye week data available for {player_name}")
+    
     on_bye = detect_bye_week(player_bye, current_week)
 
     if on_bye:

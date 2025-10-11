@@ -176,9 +176,25 @@ def parse_yahoo_free_agent_players(data: Dict) -> List[Dict]:
                     info["injury_status"] = container["status"]
                 if "status_full" in container:
                     info["injury_detail"] = container["status_full"]
-                # Bye
+                # Bye week extraction with validation
                 if "bye_weeks" in container:
-                    info["bye"] = container["bye_weeks"].get("week", "N/A")
+                    bye_weeks_data = container["bye_weeks"]
+                    if isinstance(bye_weeks_data, dict) and "week" in bye_weeks_data:
+                        bye_week = bye_weeks_data.get("week")
+                        # Validate bye week is a valid week number (1-18)
+                        if bye_week and str(bye_week).isdigit():
+                            bye_num = int(bye_week)
+                            if 1 <= bye_num <= 18:
+                                info["bye"] = bye_num
+                            else:
+                                info["bye"] = None
+                        else:
+                            info["bye"] = None
+                    else:
+                        info["bye"] = None
+                else:
+                    # No bye_weeks field present
+                    info["bye"] = None
 
             for element in player_array:
                 if isinstance(element, dict):
