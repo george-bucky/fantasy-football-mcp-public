@@ -80,13 +80,12 @@ class TestLoadStaticByeWeeks:
 
 
 class TestGetByeWeekWithFallback:
-    """Test bye week retrieval with static data as authoritative source."""
+    """Test current-season API data with static fallback."""
 
-    def test_get_bye_week_static_overrides_api(self):
-        """Test that static data is always used when available (authoritative)."""
-        # Static data overrides API data
+    def test_get_bye_week_api_overrides_static(self):
+        """Test that current-season API data takes precedence."""
         result = get_bye_week_with_fallback("KC", api_bye_week=6)
-        assert result == 10  # Uses static KC=10, ignores API=6
+        assert result == 6
         
         result = get_bye_week_with_fallback("KC", api_bye_week=10)
         assert result == 10  # Uses static KC=10 (matches API)
@@ -94,23 +93,23 @@ class TestGetByeWeekWithFallback:
     def test_get_bye_week_invalid_api_data_uses_static(self):
         """Test using static data when API data is invalid."""
         # Invalid: week 0
-        result = get_bye_week_with_fallback("KC", api_bye_week=0)
+        result = get_bye_week_with_fallback("KC", api_bye_week=0, season=2025)
         assert result == 10  # Uses static data
         
         # Invalid: week 19
-        result = get_bye_week_with_fallback("SF", api_bye_week=19)
+        result = get_bye_week_with_fallback("SF", api_bye_week=19, season=2025)
         assert result == 14  # Uses static data
         
         # Invalid: negative week
-        result = get_bye_week_with_fallback("BUF", api_bye_week=-1)
+        result = get_bye_week_with_fallback("BUF", api_bye_week=-1, season=2025)
         assert result == 7  # Uses static data
 
     def test_get_bye_week_no_api_data_uses_static(self):
         """Test using static data when API data is not provided."""
-        result = get_bye_week_with_fallback("DAL", api_bye_week=None)
+        result = get_bye_week_with_fallback("DAL", api_bye_week=None, season=2025)
         assert result == 10  # Uses static data
         
-        result = get_bye_week_with_fallback("LAR")
+        result = get_bye_week_with_fallback("LAR", season=2025)
         assert result == 8  # Uses static data (default None)
 
     def test_get_bye_week_nonexistent_team(self):
@@ -122,14 +121,18 @@ class TestGetByeWeekWithFallback:
         result = get_bye_week_with_fallback("XXX", api_bye_week=7)
         assert result == 7  # Uses API data when team not in static
 
-    def test_get_bye_week_static_is_authoritative(self):
-        """Test that static data is authoritative for known teams."""
-        # Static data is always used for teams in the static data file
+    def test_get_bye_week_does_not_use_static_data_for_other_seasons(self):
+        """The bundled 2025 schedule must not leak into later seasons."""
+        assert get_bye_week_with_fallback("KC", season=2026) is None
+        assert get_bye_week_with_fallback("KC") is None
+
+    def test_get_bye_week_api_is_authoritative(self):
+        """Test that valid API data is authoritative for known teams."""
         result = get_bye_week_with_fallback("KC", api_bye_week=6)
-        assert result == 10  # Static overrides API
+        assert result == 6
         
         result = get_bye_week_with_fallback("SF", api_bye_week=9)
-        assert result == 14  # Static overrides API
+        assert result == 9
 
     def test_get_bye_week_all_teams_have_static_data(self):
         """Test that all 32 NFL teams have static data."""
@@ -141,7 +144,7 @@ class TestGetByeWeekWithFallback:
         ]
         
         for team in teams:
-            result = get_bye_week_with_fallback(team, api_bye_week=None)
+            result = get_bye_week_with_fallback(team, api_bye_week=None, season=2025)
             assert result is not None
             assert 1 <= result <= 18
 
@@ -151,7 +154,7 @@ class TestBuildTeamByeWeekMap:
 
     def test_build_map_with_no_api_data(self):
         """Test building map using only static data."""
-        result = build_team_bye_week_map()
+        result = build_team_bye_week_map(season=2025)
         
         assert isinstance(result, dict)
         assert len(result) == 32
@@ -166,7 +169,7 @@ class TestBuildTeamByeWeekMap:
             "BUF": 7,  # Same as static
         }
         
-        result = build_team_bye_week_map(api_data)
+        result = build_team_bye_week_map(api_data, season=2025)
         
         # API data should override static
         assert result["KC"] == 8
@@ -186,7 +189,7 @@ class TestBuildTeamByeWeekMap:
             "DAL": "invalid",  # Invalid (not int)
         }
         
-        result = build_team_bye_week_map(api_data)
+        result = build_team_bye_week_map(api_data, season=2025)
         
         # Valid API data used
         assert result["KC"] == 8
@@ -203,7 +206,7 @@ class TestBuildTeamByeWeekMap:
             "SF": 9,
         }
         
-        result = build_team_bye_week_map(api_data)
+        result = build_team_bye_week_map(api_data, season=2025)
         
         # Should still have all 32 teams
         assert len(result) == 32
@@ -242,7 +245,9 @@ class TestIntegrationScenarios:
         ]
         
         for player in players:
-            bye = get_bye_week_with_fallback(player["team"], player["api_bye"])
+            bye = get_bye_week_with_fallback(
+                player["team"], player["api_bye"], season=2025
+            )
             assert bye is not None
             assert 1 <= bye <= 18
 
@@ -256,7 +261,7 @@ class TestIntegrationScenarios:
         ]
         
         for team, api_bye, expected in test_cases:
-            result = get_bye_week_with_fallback(team, api_bye)
+            result = get_bye_week_with_fallback(team, api_bye, season=2025)
             assert result == expected
 
     def test_season_update_scenario(self):

@@ -185,6 +185,9 @@ The server includes multiple compatibility layers for various cloud platforms:
 ## 🧪 Testing
 
 ```bash
+# Verify the local MCP installation (safe before Yahoo approval)
+.venv/bin/python utils/verify_setup.py
+
 # Run full test suite
 pytest
 

@@ -19,11 +19,6 @@ dist/
 *.egg-info/
 .pytest_cache/
 
-# Tests (excluded from public repository)
-tests/
-test_*.py
-*_test.py
-
 # IDE
 .vscode/
 .idea/
@@ -48,6 +43,8 @@ coverage.xml
 .auth/
 token.json
 yahoo_token.json
+.yahoo_token.json
+.py.json
 *.token
 
 # Development and debug files

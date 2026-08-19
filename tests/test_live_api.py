@@ -12,9 +12,13 @@ import os
 import sys
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Import the legacy call_tool function
 from fantasy_football_multi_league import call_tool
@@ -303,7 +307,7 @@ class LiveAPITester:
         # Recommendations
         doc += "## Recommendations\n\n"
         
-        if pass_rate >= 90:
+        if pass_rate == 100:
             doc += "✅ **Ready to merge** - All critical handlers working correctly\n"
             doc += "- Consider merging consolidate-fastmcp branch to main\n"
             doc += "- Update documentation with any new features\n"
@@ -323,9 +327,14 @@ class LiveAPITester:
         return doc
 
 
+def live_test_exit_code(results: List[Dict[str, Any]]) -> int:
+    """Return success only when at least one live check ran and all passed."""
+    return 0 if results and all(result.get("success") is True for result in results) else 1
+
+
 async def main():
     """Main test execution."""
-    load_dotenv()
+    load_dotenv(PROJECT_ROOT / ".env")
 
     print(f"{BLUE}{BOLD}🚀 Live API Testing - Phase 2b Verification{RESET}")
     print("═" * 60)
@@ -334,7 +343,12 @@ async def main():
     print("═" * 60)
 
     # Verify environment
-    required_vars = ["YAHOO_CONSUMER_KEY", "YAHOO_ACCESS_TOKEN", "YAHOO_GUID"]
+    required_vars = [
+        "YAHOO_CLIENT_ID",
+        "YAHOO_CLIENT_SECRET",
+        "YAHOO_ACCESS_TOKEN",
+        "YAHOO_REFRESH_TOKEN",
+    ]
     missing = [var for var in required_vars if not os.getenv(var)]
     
     if missing:
@@ -342,7 +356,7 @@ async def main():
         for var in missing:
             print(f"  - {var}")
         print(f"\n{YELLOW}Please ensure .env file is configured correctly{RESET}")
-        return
+        return 2
 
     print(f"\n{GREEN}✓ Environment variables configured{RESET}")
 
@@ -353,7 +367,7 @@ async def main():
     
     if not tester.league_key:
         print(f"\n{RED}✗ Could not discover leagues - cannot continue tests{RESET}")
-        return
+        return 1
 
     # Test Admin Handlers
     async def test_admin():
@@ -570,20 +584,20 @@ async def main():
     
     print(f"{GREEN}✓ Results saved to LIVE_API_TEST_RESULTS.md{RESET}")
 
-    # Return exit code based on pass rate
+    # Return success only when every recorded live check passed.
     passed = sum(1 for r in tester.results if r["success"])
-    pass_rate = (passed / len(tester.results) * 100) if tester.results else 0
-    
-    if pass_rate >= 90:
+    exit_code = live_test_exit_code(tester.results)
+
+    if exit_code == 0:
         print(f"\n{GREEN}{BOLD}✅ SUCCESS - All tests passed!{RESET}")
-        sys.exit(0)
-    elif pass_rate >= 80:
-        print(f"\n{YELLOW}{BOLD}⚠️  PARTIAL SUCCESS - Most tests passed{RESET}")
-        sys.exit(0)
+        return exit_code
     else:
-        print(f"\n{RED}{BOLD}❌ FAILURE - Too many tests failed{RESET}")
-        sys.exit(1)
+        print(
+            f"\n{RED}{BOLD}❌ FAILURE - {passed}/{len(tester.results)} "
+            f"live tests passed{RESET}"
+        )
+        return exit_code
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))

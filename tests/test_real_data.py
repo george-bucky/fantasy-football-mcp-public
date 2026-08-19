@@ -5,6 +5,22 @@ import asyncio
 import os
 import sys
 from datetime import datetime
+from pathlib import Path
+
+import pytest
+from dotenv import load_dotenv
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+load_dotenv(PROJECT_ROOT / ".env")
+
+REQUIRED_YAHOO_VARS = [
+    "YAHOO_CLIENT_ID",
+    "YAHOO_CLIENT_SECRET",
+    "YAHOO_ACCESS_TOKEN",
+    "YAHOO_REFRESH_TOKEN",
+]
 
 
 async def test_with_real_roster():
@@ -14,25 +30,11 @@ async def test_with_real_roster():
     print("=" * 60)
 
     # Check for environment variables
-    required_vars = [
-        "YAHOO_CONSUMER_KEY",
-        "YAHOO_CONSUMER_SECRET",
-        "YAHOO_ACCESS_TOKEN",
-        "YAHOO_REFRESH_TOKEN",
-    ]
-
-    missing = [var for var in required_vars if not os.getenv(var)]
+    missing = [var for var in REQUIRED_YAHOO_VARS if not os.getenv(var)]
     if missing:
-        print(f"⚠️  SKIP: Missing environment variables: {missing}")
-        print("This test requires Yahoo API credentials")
-        return True
+        pytest.skip(f"Yahoo credentials pending: {', '.join(missing)}")
 
     try:
-        # Import after env check
-        import sys
-
-        sys.path.insert(0, "/workspaces/fantasy-football-mcp-server")
-
         from src.handlers.roster_handlers import handle_ff_get_roster
         from fantasy_football_multi_league import (
             discover_leagues,
@@ -46,15 +48,15 @@ async def test_with_real_roster():
         leagues = await discover_leagues()
 
         if not leagues:
-            print("⚠️  No leagues found")
-            return True
+            raise AssertionError("No Yahoo leagues found")
 
-        print(f"Found {len(leagues)} league(s):")
-        for league in leagues[:3]:  # Show first 3
-            print(f"  - {league.get('name')} ({league.get('league_key')})")
+        league_list = list(leagues.values())
+        print(f"Found {len(league_list)} league(s):")
+        for league in league_list[:3]:  # Show first 3
+            print(f"  - {league.get('name')} ({league.get('key')})")
 
         # Use first league
-        league_key = leagues[0].get("league_key")
+        league_key = league_list[0].get("key")
         print(f"\n2. Testing with league: {league_key}")
 
         # Inject dependencies for handlers
@@ -81,8 +83,7 @@ async def test_with_real_roster():
         )
 
         if result.get("status") != "success":
-            print(f"❌ FAIL: {result.get('error', 'Unknown error')}")
-            return False
+            raise AssertionError(result.get("error", "Roster enhancement failed"))
 
         # Analyze results
         print(f"\n4. Analyzing enhancement results...")
@@ -123,14 +124,14 @@ async def test_with_real_roster():
                 print(f"  - {player.get('name')}: {sleeper:.1f} → {adjusted:.1f} ({diff:+.1f})")
 
         print("\n✅ PASS: Enhancement layer successfully integrated with real data")
-        return True
+        return None
 
     except Exception as e:
         print(f"❌ ERROR: {e}")
         import traceback
 
         traceback.print_exc()
-        return False
+        raise
 
 
 async def test_waiver_wire_enhancements():
@@ -139,23 +140,11 @@ async def test_waiver_wire_enhancements():
     print("REAL DATA TEST: Waiver Wire Enhancement")
     print("=" * 60)
 
-    required_vars = [
-        "YAHOO_CONSUMER_KEY",
-        "YAHOO_CONSUMER_SECRET",
-        "YAHOO_ACCESS_TOKEN",
-        "YAHOO_REFRESH_TOKEN",
-    ]
-
-    missing = [var for var in required_vars if not os.getenv(var)]
+    missing = [var for var in REQUIRED_YAHOO_VARS if not os.getenv(var)]
     if missing:
-        print(f"⚠️  SKIP: Missing environment variables")
-        return True
+        pytest.skip(f"Yahoo credentials pending: {', '.join(missing)}")
 
     try:
-        import sys
-
-        sys.path.insert(0, "/workspaces/fantasy-football-mcp-server")
-
         from src.handlers.player_handlers import handle_ff_get_waiver_wire
         from fantasy_football_multi_league import (
             discover_leagues,
@@ -166,10 +155,9 @@ async def test_waiver_wire_enhancements():
         # Get league
         leagues = await discover_leagues()
         if not leagues:
-            print("⚠️  No leagues found")
-            return True
+            raise AssertionError("No Yahoo leagues found")
 
-        league_key = leagues[0].get("league_key")
+        league_key = next(iter(leagues.values())).get("key")
         print(f"Testing with league: {league_key}")
 
         # Inject dependencies
@@ -194,8 +182,7 @@ async def test_waiver_wire_enhancements():
         )
 
         if result.get("status") != "success":
-            print(f"❌ FAIL: {result.get('error')}")
-            return False
+            raise AssertionError(result.get("error", "Waiver enhancement failed"))
 
         players = result.get("enhanced_players", [])
         print(f"\nFound {len(players)} RBs on waiver wire")
@@ -212,14 +199,14 @@ async def test_waiver_wire_enhancements():
             print(f"  - {player['name']}: {', '.join(player.get('performance_flags', []))}")
 
         print("\n✅ PASS: Waiver wire enhancements working")
-        return True
+        return None
 
     except Exception as e:
         print(f"❌ ERROR: {e}")
         import traceback
 
         traceback.print_exc()
-        return False
+        raise
 
 
 async def main():
@@ -228,9 +215,21 @@ async def main():
     print("=" * 60)
     print(f"Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
+    missing = [var for var in REQUIRED_YAHOO_VARS if not os.getenv(var)]
+    if missing:
+        print(f"Yahoo credentials pending: {', '.join(missing)}")
+        return 2
+
     results = []
-    results.append(("Roster Enhancement", await test_with_real_roster()))
-    results.append(("Waiver Wire Enhancement", await test_waiver_wire_enhancements()))
+    for name, test in [
+        ("Roster Enhancement", test_with_real_roster),
+        ("Waiver Wire Enhancement", test_waiver_wire_enhancements),
+    ]:
+        try:
+            await test()
+            results.append((name, True))
+        except Exception:
+            results.append((name, False))
 
     # Summary
     print("\n" + "=" * 60)

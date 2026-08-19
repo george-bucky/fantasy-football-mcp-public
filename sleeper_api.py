@@ -683,7 +683,7 @@ class SleeperAPI:
 
             rankings.append(
                 {
-                    "player_id": player.get("sleeper_id"),
+                    "player_id": player.get("player_id"),
                     "name": player.get("full_name"),
                     "team": player.get("team"),
                     "position": player.get("position"),

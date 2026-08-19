@@ -101,7 +101,7 @@ REDDIT_CLIENT_SECRET=your_reddit_client_secret
 REDDIT_USERNAME=your_reddit_username
 ```
 
-**Note**: Since this is a private repository, the `.env` file is tracked for backup purposes.
+**Note**: Keep the `.env` file local and untracked because it contains sensitive credentials.
 
 ### 4.1 Reddit API Setup (Optional)
 
@@ -167,6 +167,14 @@ Add the following to your MCP config file:
 - The server name can be either `"yahoo-fantasy-football"` or `"fantasy-football"` - the scripts will update both
 
 ## Step 6: Test the Installation
+
+Before Yahoo approval or OAuth, verify the local installation without exposing credentials:
+
+```bash
+.venv/bin/python utils/verify_setup.py
+```
+
+`LOCAL READY` means the MCP installation is working and only Yahoo credentials or approval remain pending.
 
 ### 6.1 Test Python Server Directly
 
@@ -312,6 +320,6 @@ For issues or questions:
 
 - Never share your Yahoo API credentials
 - The `.env` file contains sensitive tokens
-- This repository should remain private
+- Never commit token files or `.env` files to the repository
 - Tokens expire after 1 hour (auto-refresh available)
 - Refresh tokens last ~60 days if used regularly

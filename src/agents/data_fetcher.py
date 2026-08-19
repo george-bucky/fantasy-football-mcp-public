@@ -631,9 +631,9 @@ class DataFetcherAgent:
                 league_id=None,  # Will be set per request
                 game_code="nfl",
                 game_id=None,  # Will be determined from current season
-                YAHOO_CLIENT_ID=self.settings.yahoo_client_id,
-                YAHOO_CLIENT_SECRET=self.settings.yahoo_client_secret,
-                env_file_location=str(ENV_FILE_PATH),  # OAuth tokens stored in project root .env
+                yahoo_consumer_key=self.settings.yahoo_client_id,
+                yahoo_consumer_secret=self.settings.yahoo_client_secret,
+                env_file_location=PROJECT_ROOT,  # yfpy expects the directory containing .env
             )
 
             logger.info("Yahoo API client initialized")
