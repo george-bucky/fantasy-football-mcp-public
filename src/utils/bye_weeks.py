@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Cache for loaded bye week data to avoid repeated file reads
 _BYE_WEEK_CACHE: Optional[Dict[str, int]] = None
+STATIC_BYE_WEEK_SEASON = 2025
 
 
 def load_static_bye_weeks() -> Dict[str, int]:
@@ -65,48 +66,41 @@ def load_static_bye_weeks() -> Dict[str, int]:
 
 def get_bye_week_with_fallback(
     team_abbr: str,
-    api_bye_week: Optional[int] = None
+    api_bye_week: Optional[int] = None,
+    season: Optional[int] = None,
 ) -> Optional[int]:
     """
-    Get bye week for a team, preferring static data as authoritative source.
+    Get bye week for a team, using static data only as a fallback.
     
-    Static data contains the correct 2025 NFL bye weeks and is always used when available.
-    API data is only used as a fallback if the team is not in static data.
+    Valid API data is season-aware and therefore takes precedence. The bundled
+    2025 data is used only when API data is missing or invalid and the caller
+    explicitly identifies the 2025 season.
     
     Args:
         team_abbr: Team abbreviation (e.g., "KC", "SF", "BUF")
-        api_bye_week: Bye week from API (if available, used only as fallback)
+        api_bye_week: Bye week from the current Yahoo season, if available
+        season: Fantasy season associated with the request
     
     Returns:
         Bye week number (1-18) or None if not found.
     """
-    # Load static data (authoritative source for 2025)
-    static_data = load_static_bye_weeks()
-    
-    # Always prefer static data when available
+    if api_bye_week is not None and isinstance(api_bye_week, int) and 1 <= api_bye_week <= 18:
+        logger.debug(f"Using current-season API bye week {api_bye_week} for {team_abbr}")
+        return api_bye_week
+
+    static_data = load_static_bye_weeks() if season == STATIC_BYE_WEEK_SEASON else {}
     if team_abbr in static_data:
         bye_week = static_data[team_abbr]
-        if api_bye_week is not None and api_bye_week != bye_week and 1 <= api_bye_week <= 18:
-            logger.debug(
-                f"Using static bye week {bye_week} for {team_abbr} "
-                f"(overriding API value: {api_bye_week})"
-            )
+        logger.info(f"Using static 2025 fallback bye week {bye_week} for {team_abbr}")
         return bye_week
-    
-    # Fall back to API data only if team not in static data
-    if api_bye_week is not None and isinstance(api_bye_week, int) and 1 <= api_bye_week <= 18:
-        logger.info(
-            f"Using API bye week {api_bye_week} for {team_abbr} "
-            f"(team not in static data)"
-        )
-        return api_bye_week
     
     logger.warning(f"No bye week data found for team {team_abbr} (static or API)")
     return None
 
 
 def build_team_bye_week_map(
-    api_team_data: Optional[Dict[str, int]] = None
+    api_team_data: Optional[Dict[str, int]] = None,
+    season: Optional[int] = None,
 ) -> Dict[str, int]:
     """
     Build a complete team-to-bye-week mapping with fallback support.
@@ -116,12 +110,15 @@ def build_team_bye_week_map(
     
     Args:
         api_team_data: Optional dictionary of team abbreviations to bye weeks from API
+        season: Fantasy season associated with the request
     
     Returns:
         Dictionary mapping team abbreviations to bye week numbers.
     """
-    # Start with static data as baseline
-    bye_week_map = load_static_bye_weeks().copy()
+    # The bundled baseline is safe only for its named season.
+    bye_week_map = (
+        load_static_bye_weeks().copy() if season == STATIC_BYE_WEEK_SEASON else {}
+    )
     
     # Override with API data where available and valid
     if api_team_data:
@@ -139,9 +136,9 @@ def build_team_bye_week_map(
         if valid_count > 0:
             logger.info(f"Updated {valid_count} teams with API bye week data")
         if invalid_count > 0:
-            logger.info(f"Kept static data for {invalid_count} teams due to invalid API data")
+                logger.info(f"Ignored invalid API data for {invalid_count} teams")
     else:
-        logger.info("No API bye week data provided, using all static data")
+        logger.info("No API bye week data provided")
     
     return bye_week_map
 

@@ -505,7 +505,7 @@ class TestMainFunctionsByeWeeks:
     async def test_get_waiver_wire_players_bye_week_extraction(self):
         """Test that get_waiver_wire_players correctly extracts and validates bye weeks.
         
-        Now with static fallback: invalid API data falls back to static 2025 bye weeks.
+        Invalid or missing current-season API data stays unknown.
         """
         from fantasy_football_multi_league import get_waiver_wire_players
         
@@ -571,16 +571,16 @@ class TestMainFunctionsByeWeeks:
             )
 
             assert len(result) == 3
-            # Static data is authoritative - always used when available
-            assert result[0]["bye"] == 10  # KC static data (10) used (overriding API 7)
-            assert result[1]["bye"] == 7  # BUF static data (7) used (API 99 is invalid)
-            assert result[2]["bye"] == 12  # MIA static data (12) used (no API data)
+            # Current-season API data wins; stale fallback data is not guessed.
+            assert result[0]["bye"] == 7  # KC uses valid API data
+            assert result[1]["bye"] is None  # Invalid API value
+            assert result[2]["bye"] is None  # No API value
 
     @pytest.mark.asyncio
     async def test_get_draft_rankings_bye_week_validation(self):
         """Test that get_draft_rankings validates bye weeks correctly.
         
-        Now with static fallback: invalid API data falls back to static 2025 bye weeks.
+        Invalid current-season API data stays unknown.
         """
         from fantasy_football_multi_league import get_draft_rankings
         
@@ -634,4 +634,4 @@ class TestMainFunctionsByeWeeks:
 
                 assert len(result) == 2
                 assert result[0]["bye"] == 10  # Valid API bye week used
-                assert result[1]["bye"] == 7  # Invalid API (0) falls back to static (BUF = week 7)
+                assert result[1]["bye"] is None  # Invalid API value is not guessed
