@@ -40,7 +40,10 @@ from .draft_handlers import (
 )
 
 # Analytics handlers (minimal dependencies)
-from .analytics_handlers import handle_ff_analyze_reddit_sentiment
+from .analytics_handlers import (
+    handle_ff_analyze_reddit_sentiment,
+    handle_ff_get_player_news,
+)
 
 
 def inject_roster_dependencies(**deps):
@@ -139,6 +142,7 @@ __all__ = [
     "handle_ff_analyze_draft_state",
     # Analytics handlers (extracted, minimal dependencies)
     "handle_ff_analyze_reddit_sentiment",
+    "handle_ff_get_player_news",
     # Injection functions
     "inject_roster_dependencies",
     "inject_matchup_dependencies",

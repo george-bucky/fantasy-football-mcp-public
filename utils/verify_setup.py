@@ -33,6 +33,7 @@ EXPECTED_TOOLS = {
     "ff_get_draft_recommendation",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
+    "ff_get_player_news",
 }
 
 REQUIRED_IMPORTS = {

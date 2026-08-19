@@ -1,6 +1,6 @@
 """Analytics MCP tool handlers."""
 
-from src.services import analyze_reddit_sentiment
+from src.services import analyze_reddit_sentiment, get_rotowire_player_news
 
 
 async def handle_ff_analyze_reddit_sentiment(arguments: dict) -> dict:
@@ -21,3 +21,18 @@ async def handle_ff_analyze_reddit_sentiment(arguments: dict) -> dict:
         return {"error": "No players specified for sentiment analysis"}
 
     return await analyze_reddit_sentiment(players, time_window)
+
+
+async def handle_ff_get_player_news(arguments: dict) -> dict:
+    """Get recent RotoWire NFL news, optionally filtered by player."""
+    try:
+        return await get_rotowire_player_news(
+            players=arguments.get("players"),
+            limit=arguments.get("limit", 5),
+        )
+    except (RuntimeError, ValueError) as exc:
+        return {
+            "status": "error",
+            "source": "RotoWire NFL RSS",
+            "error": str(exc),
+        }
