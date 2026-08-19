@@ -44,6 +44,7 @@ from src.handlers import (
     handle_ff_get_league_info,
     handle_ff_get_leagues,
     handle_ff_get_matchup,
+    handle_ff_get_player_news,
     handle_ff_get_players,
     handle_ff_get_roster,
     handle_ff_get_standings,
@@ -842,6 +843,30 @@ async def list_tools() -> list[Tool]:
                 "required": [],
             },
         ),
+        Tool(
+            name="ff_get_player_news",
+            description=(
+                "Get recent RotoWire NFL player news from the public RSS feed; "
+                "no Yahoo or Reddit credentials required"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "players": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional player names to filter (for example, ['Josh Allen'])",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum news items to return (1-5, default: 5)",
+                        "minimum": 1,
+                        "maximum": 5,
+                        "default": 5,
+                    },
+                },
+            },
+        ),
     ]
 
     # Add draft tools if available
@@ -944,6 +969,7 @@ TOOL_HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
     "ff_get_draft_recommendation": handle_ff_get_draft_recommendation,
     "ff_analyze_draft_state": handle_ff_analyze_draft_state,
     "ff_analyze_reddit_sentiment": handle_ff_analyze_reddit_sentiment,
+    "ff_get_player_news": handle_ff_get_player_news,
 }
 
 

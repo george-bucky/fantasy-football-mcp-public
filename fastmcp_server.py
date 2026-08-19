@@ -28,7 +28,8 @@ server = FastMCP(
     name="fantasy-football",
     instructions=(
         "Yahoo Fantasy Football operations including league discovery, roster "
-        "analysis, waiver insights, draft tools, and Reddit sentiment checks. "
+        "analysis, waiver insights, draft tools, Reddit sentiment checks, and "
+        "RotoWire player news. "
         "Set the YAHOO_* environment variables before starting the server."
     ),
 )
@@ -105,6 +106,10 @@ _TOOL_PROMPTS: Dict[str, str] = {
     "ff_analyze_reddit_sentiment": (
         "Summarize recent Reddit sentiment and engagement around one or more "
         "players to complement scouting insights."
+    ),
+    "ff_get_player_news": (
+        "Get up to five recent RotoWire NFL RSS updates, optionally filtered "
+        "by player. No Yahoo or Reddit credentials are required."
     ),
 }
 
@@ -788,6 +793,27 @@ async def ff_analyze_reddit_sentiment(
         ctx=ctx,
         players=list(players),
         time_window_hours=time_window_hours,
+    )
+
+
+@server.tool(
+    name="ff_get_player_news",
+    description=(
+        "Get recent RotoWire NFL player news from its public RSS feed, with "
+        "optional player filtering."
+    ),
+    meta=_tool_meta("ff_get_player_news"),
+)
+async def ff_get_player_news(
+    ctx: Context,
+    players: Optional[Sequence[str]] = None,
+    limit: int = 5,
+) -> Dict[str, Any]:
+    return await _call_legacy_tool(
+        "ff_get_player_news",
+        ctx=ctx,
+        players=list(players) if players is not None else None,
+        limit=limit,
     )
 
 
@@ -1715,6 +1741,7 @@ __all__ = [
     "ff_get_draft_recommendation",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
+    "ff_get_player_news",
     # Prompts - Pre-built prompt templates for LLMs
     "analyze_roster_strengths",
     "draft_strategy_advice",

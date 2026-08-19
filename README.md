@@ -90,6 +90,7 @@ The enhancement layer is **non-breaking** and automatically applies to:
 
 ### Advanced Analytics
 - `ff_analyze_reddit_sentiment` – Social media sentiment analysis for player buzz and injury updates
+- `ff_get_player_news` – Recent RotoWire NFL RSS updates, optionally filtered by player (no credentials required)
 - `ff_get_api_status` – Monitor cache performance and Yahoo API rate limiting
 - `ff_clear_cache` – Clear cached responses for fresh data (with pattern support)
 - `ff_refresh_token` – Automatically refresh Yahoo OAuth tokens
