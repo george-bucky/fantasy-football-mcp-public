@@ -88,6 +88,27 @@ The enhancement layer is **non-breaking** and automatically applies to:
 - `ff_analyze_draft_state` – Real-time roster needs and positional analysis during drafts
 - `ff_get_draft_results` – Post-draft analysis with grades and team summaries
 
+### Optional 2026 Rookie-Year Outlook
+
+Set `use_rookie_intelligence=true` on `ff_get_draft_recommendation`,
+`ff_get_waiver_wire`, or `ff_build_lineup` to include the reviewed 2026 rookie
+board. The board estimates first-season PPR value. It is not a weekly
+projection and does not include opponent context.
+
+- Draft and waiver decisions use the rookie board to order confirmed rookies
+  against other confirmed rookies while keeping roster, injury, projection,
+  news, and availability evidence visible.
+- Lineup decisions use it only to break a rounded tie between otherwise equal,
+  healthy weekly options. It never changes a player's weekly score.
+- Player matching accepts only one exact normalized name-and-position match.
+  Missing or ambiguous matches are shown as quarantined; fuzzy matching is not
+  used.
+- Set `rookie_only=true` on draft recommendations or waivers to return only
+  confirmed current-class rookies. This implies rookie intelligence and never
+  falls back to veterans.
+
+Normal redraft behavior is unchanged when these options are omitted.
+
 ### Advanced Analytics
 - `ff_analyze_reddit_sentiment` – Social media sentiment analysis for player buzz and injury updates
 - `ff_get_player_news` – Recent RotoWire NFL RSS updates, optionally filtered by player (no credentials required)

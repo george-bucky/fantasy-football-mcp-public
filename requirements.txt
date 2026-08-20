@@ -14,6 +14,7 @@ aiocache==0.12.3
 # Data processing
 pandas==2.3.2
 numpy==2.3.3
+jsonschema==4.26.0
 
 # Logging and CLI helpers
 loguru==0.7.3

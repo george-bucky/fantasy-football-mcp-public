@@ -43,6 +43,7 @@ dependencies = [
     "aiocache>=0.12.3",
     "pandas>=2.2.3",
     "numpy>=1.26.4",
+    "jsonschema>=4.20.0",
     "loguru>=0.7.3",
     "click>=8.1.8",
     "rich>=13.9.6"
@@ -73,7 +74,7 @@ Issues = "https://github.com/yourusername/fantasy-football-mcp/issues"
 packages = ["src"]
 
 [tool.setuptools.package-data]
-src = ["*.json", "*.yaml", "*.yml"]
+src = ["*.json", "*.yaml", "*.yml", "data/*.json"]
 
 [tool.black]
 line-length = 100

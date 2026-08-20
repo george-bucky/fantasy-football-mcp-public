@@ -16,6 +16,7 @@ from lineup_optimizer import (
     _coerce_int,
     _normalize_position,
 )
+from src.services.rookie_intelligence import rookie_identity_key, rookie_identity_token
 
 
 class TestUtilityFunctions:
@@ -193,6 +194,145 @@ class TestPlayer:
         assert player.injury_probability == 0.0
         assert player.recent_performance == []
         assert player.composite_score == 0.0
+
+
+@pytest.mark.asyncio
+async def test_rookie_outlook_only_breaks_a_rounded_healthy_weekly_tie():
+    veteran = Player(
+        name="Veteran QB",
+        position="QB",
+        team="BUF",
+        roster_position="QB",
+        yahoo_projection=20.04,
+    )
+    rookie = Player(
+        name="Rookie QB",
+        position="QB",
+        team="NYJ",
+        roster_position="BN",
+        yahoo_projection=20.0,
+    )
+    outlook = {
+        rookie_identity_key("Rookie QB", "QB"): {
+            "status": "matched",
+            "base_rank": 2,
+            "rookie_year_ppr": {"p10": 100, "p50": 180, "p90": 240},
+        }
+    }
+
+    result = await LineupOptimizer().optimize_lineup_smart(
+        [veteran, rookie], rookie_intelligence=outlook
+    )
+
+    assert result["starters"]["QB"].name == "Rookie QB"
+    assert result["strategy_summary"]["rookie_intelligence"]["numeric_scores_changed"] is False
+    assert result["strategy_summary"]["rookie_intelligence"]["opponent_aware"] is False
+    assert (
+        result["player_evidence"][rookie_identity_token("Rookie QB", "QB")][
+            "rookie_tiebreak_applied"
+        ]
+        is True
+    )
+
+
+@pytest.mark.asyncio
+async def test_rookie_outlook_never_overrides_clear_weekly_or_health_evidence():
+    veteran = Player(
+        name="Veteran QB",
+        position="QB",
+        team="BUF",
+        roster_position="QB",
+        yahoo_projection=20.2,
+    )
+    rookie = Player(
+        name="Rookie QB",
+        position="QB",
+        team="NYJ",
+        roster_position="BN",
+        yahoo_projection=20.0,
+        status="O",
+    )
+    outlook = {rookie_identity_key("Rookie QB", "QB"): {"status": "matched", "base_rank": 1}}
+
+    result = await LineupOptimizer().optimize_lineup_smart(
+        [veteran, rookie], rookie_intelligence=outlook
+    )
+
+    assert result["starters"]["QB"].name == "Veteran QB"
+    assert result["strategy_summary"]["rookie_intelligence"]["tiebreaks"] == []
+
+
+@pytest.mark.asyncio
+async def test_rookie_outlook_cannot_break_zero_or_incomparable_weekly_evidence_ties():
+    veteran = Player(
+        name="Veteran QB",
+        position="QB",
+        team="BUF",
+        roster_position="QB",
+        yahoo_projection=20.0,
+    )
+    rookie = Player(
+        name="Rookie QB",
+        position="QB",
+        team="NYJ",
+        roster_position="BN",
+        recent_performance_data=SimpleNamespace(weeks_data=[{"points": 20.0}]),
+    )
+    outlook = {rookie_identity_key("Rookie QB", "QB"): {"status": "matched", "base_rank": 1}}
+
+    incomparable = await LineupOptimizer().optimize_lineup_smart(
+        [veteran, rookie], rookie_intelligence=outlook
+    )
+    veteran.yahoo_projection = 0.0
+    rookie.recent_performance_data = None
+    zero_evidence = await LineupOptimizer().optimize_lineup_smart(
+        [veteran, rookie], rookie_intelligence=outlook
+    )
+
+    assert incomparable["starters"]["QB"].name == "Veteran QB"
+    assert incomparable["strategy_summary"]["rookie_intelligence"]["tiebreaks"] == []
+    assert zero_evidence["starters"]["QB"].name == "Veteran QB"
+    assert zero_evidence["strategy_summary"]["rookie_intelligence"]["tiebreaks"] == []
+
+
+@pytest.mark.asyncio
+async def test_same_name_different_positions_keep_distinct_lineup_evidence():
+    running_back = Player(
+        name="Same Name",
+        position="RB",
+        team="BUF",
+        roster_position="FLEX",
+        yahoo_projection=20.0,
+    )
+    receiver = Player(
+        name="Same Name",
+        position="WR",
+        team="NYJ",
+        roster_position="BN",
+        yahoo_projection=20.0,
+    )
+    outlook = {
+        rookie_identity_key("Same Name", "RB"): {"status": "matched", "base_rank": 20},
+        rookie_identity_key("Same Name", "WR"): {"status": "matched", "base_rank": 1},
+    }
+
+    result = await LineupOptimizer().optimize_lineup_smart(
+        [running_back, receiver], rookie_intelligence=outlook
+    )
+
+    assert result["starters"]["FLEX"].position == "WR"
+    assert (
+        result["player_evidence"][rookie_identity_token("Same Name", "RB")]["rookie_intelligence"][
+            "base_rank"
+        ]
+        == 20
+    )
+    assert (
+        result["player_evidence"][rookie_identity_token("Same Name", "WR")]["rookie_intelligence"][
+            "base_rank"
+        ]
+        == 1
+    )
 
 
 class TestLineupOptimizer:
