@@ -1,0 +1,16 @@
+Third-party data notice
+=======================
+
+nflverse data
+Copyright nflverse contributors
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+Sources used at runtime:
+- https://github.com/nflverse/nflverse-data/releases/download/schedules/games.csv
+- https://github.com/nflverse/nflverse-data/releases/download/stats_player/stats_player_week_{season}.csv
+
+This project derives position-specific defensive fantasy points allowed,
+rankings, and percentiles from those schedule and weekly-statistics files.
+The derived calculations and field names are changes made by this project and
+are not published rankings from nflverse.

@@ -180,61 +180,8 @@ class SleeperAPI:
         return None
     
     async def get_defensive_rankings(self, season: int = 2024) -> Dict[str, Dict]:
-        """
-        Get defensive rankings by team and position matchup.
-        This is derived from player stats and matchup data.
-        
-        Returns: {
-            "team_abbr": {
-                "vs_qb_rank": 1-32,
-                "vs_rb_rank": 1-32,
-                "vs_wr_rank": 1-32,
-                "vs_te_rank": 1-32
-            }
-        }
-        """
-        # For now, return a mock structure
-        # In production, this would aggregate actual defensive performance data
-        # Sleeper doesn't provide direct defensive rankings, so we'd need to calculate
-        # from game stats or integrate with another source
-        
-        # Mock data for testing (will be replaced with real calculations)
-        mock_rankings = {
-            "ARI": {"vs_qb": 28, "vs_rb": 32, "vs_wr": 25, "vs_te": 27},
-            "ATL": {"vs_qb": 22, "vs_rb": 26, "vs_wr": 18, "vs_te": 20},
-            "BAL": {"vs_qb": 2, "vs_rb": 3, "vs_wr": 2, "vs_te": 5},
-            "BUF": {"vs_qb": 8, "vs_rb": 12, "vs_wr": 10, "vs_te": 8},
-            "CAR": {"vs_qb": 25, "vs_rb": 27, "vs_wr": 30, "vs_te": 24},
-            "CHI": {"vs_qb": 12, "vs_rb": 8, "vs_wr": 15, "vs_te": 14},
-            "CIN": {"vs_qb": 18, "vs_rb": 20, "vs_wr": 16, "vs_te": 19},
-            "CLE": {"vs_qb": 1, "vs_rb": 7, "vs_wr": 4, "vs_te": 3},
-            "DAL": {"vs_qb": 7, "vs_rb": 10, "vs_wr": 8, "vs_te": 11},
-            "DEN": {"vs_qb": 4, "vs_rb": 14, "vs_wr": 6, "vs_te": 9},
-            "DET": {"vs_qb": 24, "vs_rb": 30, "vs_wr": 28, "vs_te": 26},
-            "GB": {"vs_qb": 14, "vs_rb": 17, "vs_wr": 13, "vs_te": 15},
-            "HOU": {"vs_qb": 11, "vs_rb": 5, "vs_wr": 12, "vs_te": 10},
-            "IND": {"vs_qb": 20, "vs_rb": 22, "vs_wr": 21, "vs_te": 18},
-            "JAX": {"vs_qb": 26, "vs_rb": 24, "vs_wr": 27, "vs_te": 28},
-            "KC": {"vs_qb": 15, "vs_rb": 16, "vs_wr": 14, "vs_te": 13},
-            "LAC": {"vs_qb": 10, "vs_rb": 9, "vs_wr": 11, "vs_te": 12},
-            "LAR": {"vs_qb": 19, "vs_rb": 18, "vs_wr": 20, "vs_te": 21},
-            "LV": {"vs_qb": 27, "vs_rb": 29, "vs_wr": 26, "vs_te": 30},
-            "MIA": {"vs_qb": 16, "vs_rb": 15, "vs_wr": 17, "vs_te": 16},
-            "MIN": {"vs_qb": 13, "vs_rb": 11, "vs_wr": 19, "vs_te": 17},
-            "NE": {"vs_qb": 6, "vs_rb": 4, "vs_wr": 7, "vs_te": 6},
-            "NO": {"vs_qb": 9, "vs_rb": 6, "vs_wr": 9, "vs_te": 7},
-            "NYG": {"vs_qb": 21, "vs_rb": 23, "vs_wr": 22, "vs_te": 23},
-            "NYJ": {"vs_qb": 3, "vs_rb": 2, "vs_wr": 3, "vs_te": 4},
-            "PHI": {"vs_qb": 5, "vs_rb": 13, "vs_wr": 5, "vs_te": 2},
-            "PIT": {"vs_qb": 17, "vs_rb": 1, "vs_wr": 23, "vs_te": 22},
-            "SEA": {"vs_qb": 29, "vs_rb": 31, "vs_wr": 29, "vs_te": 31},
-            "SF": {"vs_qb": 23, "vs_rb": 19, "vs_wr": 24, "vs_te": 25},
-            "TB": {"vs_qb": 30, "vs_rb": 25, "vs_wr": 31, "vs_te": 29},
-            "TEN": {"vs_qb": 31, "vs_rb": 28, "vs_wr": 32, "vs_te": 32},
-            "WAS": {"vs_qb": 32, "vs_rb": 21, "vs_wr": 1, "vs_te": 1}
-        }
-        
-        return mock_rankings
+        """Return no ranking when source-backed defensive evidence is absent."""
+        return {}
     
     async def map_yahoo_to_sleeper(self, yahoo_name: str, position: str = None, team: str = None) -> Optional[str]:
         """

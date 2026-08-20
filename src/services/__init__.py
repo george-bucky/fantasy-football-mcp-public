@@ -2,6 +2,10 @@
 
 from .decision_news_service import get_decision_news_context
 from .espn_news_service import get_espn_nfl_news
+from .nflverse_matchups import (
+    MatchupEvidenceError,
+    weekly_matchup_evidence_service,
+)
 from .reddit_service import analyze_reddit_sentiment
 from .rookie_add_recommendations import (
     RookieAddContextError,
@@ -19,6 +23,8 @@ __all__ = [
     "analyze_reddit_sentiment",
     "get_decision_news_context",
     "get_espn_nfl_news",
+    "MatchupEvidenceError",
+    "weekly_matchup_evidence_service",
     "RookieAddContextError",
     "build_rookie_add_recommendations",
     "apply_rookie_intelligence",
