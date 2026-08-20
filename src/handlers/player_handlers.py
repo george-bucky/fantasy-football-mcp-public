@@ -2,11 +2,79 @@
 
 from typing import Any, Dict
 
-from src.services import apply_rookie_intelligence
+from src.services import (
+    apply_rookie_intelligence,
+    build_rookie_add_recommendations,
+    rookie_identity_key,
+)
 
 # These will be injected from main file
 yahoo_api_call = None
 get_waiver_wire_players = None
+get_user_team_key = None
+get_league_context = None
+
+
+async def _build_rookie_only_waiver_result(
+    *,
+    league_key: str,
+    team_key: Any,
+    position: str,
+    sort: str,
+    count: int,
+) -> dict[str, Any]:
+    """Use complete Yahoo context for the completeness-dependent rookie-only path."""
+
+    resolved_team_key = team_key
+    try:
+        if not resolved_team_key:
+            if get_user_team_key is None:
+                raise ValueError("User team resolver is unavailable")
+            resolved_team_key = await get_user_team_key(league_key)
+        if not resolved_team_key:
+            raise ValueError("Could not resolve an exact user team_key")
+        if get_league_context is None:
+            raise ValueError("Complete Yahoo league context is unavailable")
+
+        context = await get_league_context(league_key)
+        recommendations = build_rookie_add_recommendations(
+            context,
+            str(resolved_team_key),
+            position=position,
+            count=count,
+        )
+        return {
+            "status": "success",
+            "league_key": league_key,
+            "team_key": resolved_team_key,
+            "position": position,
+            "sort": sort,
+            "total_players": len(recommendations["players"]),
+            "players": recommendations["players"],
+            "decision_evidence": {"rookie_intelligence": recommendations["evidence"]},
+        }
+    except Exception as exc:
+        return {
+            "status": "success",
+            "league_key": league_key,
+            "team_key": resolved_team_key,
+            "position": position,
+            "sort": sort,
+            "total_players": 0,
+            "players": [],
+            "decision_evidence": {
+                "rookie_intelligence": {
+                    "enabled": False,
+                    "rookie_only": True,
+                    "league_context": {"complete": False, "fresh": False},
+                    "warnings": [f"Rookie-only recommendations unavailable: {exc}"],
+                    "opponent_aware": False,
+                    "influence": (
+                        "None; completeness-dependent rookie recommendations failed closed."
+                    ),
+                }
+            },
+        }
 
 
 def _apply_rookie_waiver_context(
@@ -39,6 +107,48 @@ def _apply_rookie_waiver_context(
             "influence": "None; reviewed rookie data failed closed.",
         }
     return result
+
+
+def _preserve_rookie_add_order(
+    enhanced_players: list[dict[str, Any]],
+    complete_rookie_players: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Restore complete-context order and evidence after optional enrichment."""
+
+    remaining = [dict(player) for player in enhanced_players]
+    ordered: list[dict[str, Any]] = []
+    for complete_player in complete_rookie_players:
+        identity = rookie_identity_key(
+            complete_player.get("name"), complete_player.get("position")
+        )
+        match_index = next(
+            (
+                index
+                for index, player in enumerate(remaining)
+                if rookie_identity_key(player.get("name"), player.get("position")) == identity
+            ),
+            None,
+        )
+        if match_index is None:
+            ordered.append(dict(complete_player))
+            continue
+        enriched = remaining.pop(match_index)
+        for field in ("player_key", "player_id", "rookie_intelligence", "league_fit"):
+            enriched[field] = complete_player.get(field)
+        ordered.append(enriched)
+    return ordered
+
+
+def _finalize_rookie_waiver_context(
+    result: dict[str, Any], *, use_rookie_intelligence: bool, rookie_only: bool
+) -> dict[str, Any]:
+    if rookie_only:
+        return result
+    return _apply_rookie_waiver_context(
+        result,
+        use_rookie_intelligence=use_rookie_intelligence,
+        rookie_only=False,
+    )
 
 
 async def handle_ff_get_players(arguments: dict) -> dict:
@@ -351,9 +461,29 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
     rookie_only = arguments.get("rookie_only", False)
     use_rookie_intelligence = use_rookie_intelligence or rookie_only
 
-    # Fetch basic Yahoo waiver players
-    basic_players = await get_waiver_wire_players(league_key, position, sort, count)
+    if rookie_only:
+        result = await _build_rookie_only_waiver_result(
+            league_key=league_key,
+            team_key=team_key,
+            position=position,
+            sort=sort,
+            count=count,
+        )
+        basic_players = result["players"]
+    else:
+        # Fetch the legacy, count-limited Yahoo pool for normal and mixed calls.
+        basic_players = await get_waiver_wire_players(league_key, position, sort, count)
+        result = {
+            "status": "success",
+            "league_key": league_key,
+            "position": position,
+            "sort": sort,
+            "total_players": len(basic_players),
+            "players": basic_players,
+        }
     if not basic_players:
+        if rookie_only:
+            return result
         empty_result = {
             "status": "success",
             "league_key": league_key,
@@ -369,19 +499,10 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
             rookie_only=rookie_only,
         )
 
-    result = {
-        "status": "success",
-        "league_key": league_key,
-        "position": position,
-        "sort": sort,
-        "total_players": len(basic_players),
-        "players": basic_players,
-    }
-
     needs_enhancement = include_projections or include_external_data or include_analysis
 
     if not needs_enhancement:
-        return _apply_rookie_waiver_context(
+        return _finalize_rookie_waiver_context(
             result,
             use_rookie_intelligence=use_rookie_intelligence,
             rookie_only=rookie_only,
@@ -392,7 +513,7 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
         from sleeper_api import get_trending_adds, sleeper_client
     except ImportError as exc:
         result["note"] = f"Enhanced data unavailable: {exc}"
-        return _apply_rookie_waiver_context(
+        return _finalize_rookie_waiver_context(
             result,
             use_rookie_intelligence=use_rookie_intelligence,
             rookie_only=rookie_only,
@@ -456,30 +577,42 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     ),
                     "trending_score": player.trending_score if include_external_data else None,
                     "risk_level": player.risk_level,
-                    "owned_pct": next(
-                        (
-                            p.get("owned_pct") or 0.0
-                            for p in basic_players
-                            if p.get("name", "").lower() == player.name.lower()
-                        ),
-                        0.0,
+                    "owned_pct": (
+                        None
+                        if rookie_only
+                        else next(
+                            (
+                                p.get("owned_pct") or 0.0
+                                for p in basic_players
+                                if p.get("name", "").lower() == player.name.lower()
+                            ),
+                            0.0,
+                        )
                     ),
-                    "weekly_change": next(
-                        (
-                            p.get("weekly_change")
-                            for p in basic_players
-                            if p.get("name", "").lower() == player.name.lower()
-                        ),
-                        0,
+                    "weekly_change": (
+                        None
+                        if rookie_only
+                        else next(
+                            (
+                                p.get("weekly_change")
+                                for p in basic_players
+                                if p.get("name", "").lower() == player.name.lower()
+                            ),
+                            0,
+                        )
                     ),
                     "injury_status": getattr(player, "injury_status", "Healthy"),
-                    "bye": next(
-                        (
-                            p.get("bye")
-                            for p in basic_players
-                            if p.get("name", "").lower() == player.name.lower()
-                        ),
-                        "N/A",
+                    "bye": (
+                        None
+                        if rookie_only
+                        else next(
+                            (
+                                p.get("bye")
+                                for p in basic_players
+                                if p.get("name", "").lower() == player.name.lower()
+                            ),
+                            "N/A",
+                        )
                     ),
                     # Expert advice fields
                     "expert_tier": (
@@ -507,7 +640,7 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
 
             # Analyze positional scarcity in league for context
             position_scarcity = {}
-            if include_analysis:
+            if include_analysis and not rookie_only:
                 try:
                     # Simple scarcity analysis based on ownership and position
                     position_counts = {}
@@ -544,6 +677,21 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
 
                 # Create serialized player data
                 base = serialize_waiver_player(player)
+
+                if include_analysis and rookie_only:
+                    expert_tier = getattr(player, "expert_tier", "Unknown")
+                    expert_rec = getattr(player, "expert_recommendation", "Monitor")
+                    base["analysis"] = (
+                        f"{expert_tier} tier player. Recommendation: {expert_rec}. "
+                        "Ownership-dependent waiver priority was omitted because the "
+                        "complete-context rookie record has no ownership evidence."
+                    )
+                    base["analysis_limitations"] = [
+                        "Ownership, weekly change, and bye evidence are unavailable; "
+                        "scarcity, waiver priority, and pickup urgency were omitted."
+                    ]
+                    enhanced_list.append(base)
+                    continue
 
                 # Add waiver-specific analysis if flagged
                 if include_analysis:
@@ -621,8 +769,10 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     )
 
                 enhanced_list.append(base)
-            # Sort by waiver_priority or projection if analysis/projections
-            if include_analysis:
+            # Complete-context rookie order remains authoritative after enrichment.
+            if rookie_only:
+                enhanced_list = _preserve_rookie_add_order(enhanced_list, basic_players)
+            elif include_analysis:
                 enhanced_list.sort(key=lambda x: x.get("waiver_priority", 0), reverse=True)
             elif include_projections:
                 enhanced_list.sort(
@@ -643,13 +793,25 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
                             "expert_advice": include_analysis,  # Expert advice tied to analysis flag
                         },
                         "features": [
-                            "Yahoo ownership and change data",
+                            "Yahoo ownership and change data" if not rookie_only else None,
                             "Sleeper projections and rankings" if include_external_data else None,
                             "Matchup analysis" if include_external_data else None,
                             "Expert tier classification" if include_analysis else None,
-                            "Waiver priority scoring" if include_analysis else None,
-                            "Pickup urgency assessment" if include_analysis else None,
-                            "Positional scarcity analysis" if include_analysis else None,
+                            (
+                                "Waiver priority scoring"
+                                if include_analysis and not rookie_only
+                                else None
+                            ),
+                            (
+                                "Pickup urgency assessment"
+                                if include_analysis and not rookie_only
+                                else None
+                            ),
+                            (
+                                "Positional scarcity analysis"
+                                if include_analysis and not rookie_only
+                                else None
+                            ),
                         ],
                         "algorithm": (
                             {
@@ -661,10 +823,23 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
                                     "scarcity_bonus": "5%",
                                 }
                             }
-                            if include_analysis
+                            if include_analysis and not rookie_only
                             else None
                         ),
-                        "position_scarcity": position_scarcity if include_analysis else None,
+                        "position_scarcity": (
+                            position_scarcity
+                            if include_analysis and not rookie_only
+                            else None
+                        ),
+                        "warnings": (
+                            [
+                                "Complete-context rookie records do not expose ownership, "
+                                "weekly change, or bye evidence; ownership-dependent waiver "
+                                "scoring was omitted."
+                            ]
+                            if rookie_only
+                            else []
+                        ),
                         "week": week or "current",
                         "trending_count": len(trending),
                     },
@@ -675,7 +850,7 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
     except Exception as exc:
         result["note"] = f"Enhancement failed: {exc}. Using basic data."
 
-    return _apply_rookie_waiver_context(
+    return _finalize_rookie_waiver_context(
         result,
         use_rookie_intelligence=use_rookie_intelligence,
         rookie_only=rookie_only,
