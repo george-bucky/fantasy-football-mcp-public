@@ -11,7 +11,6 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -69,9 +68,7 @@ def detect_bye_week(player_bye: Any, current_week: int) -> bool:
     elif isinstance(player_bye, (int, float)):
         bye_week = int(player_bye)
     else:
-        logger.warning(
-            "Unexpected bye week type: %s = %r", type(player_bye).__name__, player_bye
-        )
+        logger.warning("Unexpected bye week type: %s = %r", type(player_bye).__name__, player_bye)
         return False
 
     # Validate bye week is in valid range
@@ -88,7 +85,22 @@ def detect_bye_week(player_bye: Any, current_week: int) -> bool:
     return on_bye
 
 
-def calculate_recent_avg(stats_list: List[Dict[str, Any]]) -> float:
+def _points_for_format(stats: Dict[str, Any], scoring_format: str) -> Optional[float]:
+    """Return Sleeper actual points in the league's common scoring format."""
+    normalized = scoring_format.lower()
+    keys = {
+        "standard": ("pts", "pts_std"),
+        "half-ppr": ("pts_half_ppr",),
+        "ppr": ("pts_ppr",),
+    }.get(normalized, ("pts_ppr",))
+    for key in keys:
+        value = stats.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    return None
+
+
+def calculate_recent_avg(stats_list: List[Dict[str, Any]], scoring_format: str = "ppr") -> float:
     """Calculate average fantasy points from recent stats.
 
     Args:
@@ -104,10 +116,9 @@ def calculate_recent_avg(stats_list: List[Dict[str, Any]]) -> float:
     valid_weeks = 0
 
     for week_stats in stats_list:
-        # Try PPR first, then standard
-        points = week_stats.get("pts_ppr") or week_stats.get("pts", 0)
-        if isinstance(points, (int, float)) and points > 0:
-            total_points += float(points)
+        points = _points_for_format(week_stats, scoring_format)
+        if points is not None and points > 0:
+            total_points += points
             valid_weeks += 1
 
     return total_points / valid_weeks if valid_weeks > 0 else 0.0
@@ -192,7 +203,12 @@ def calculate_breakout_score(recent_avg: float, projection: float, recent_high: 
 
 
 async def get_recent_stats(
-    sleeper_api, sleeper_id: str, season: int, current_week: int, lookback: int = 3
+    sleeper_api,
+    sleeper_id: str,
+    season: int,
+    current_week: int,
+    lookback: int = 3,
+    scoring_format: str = "ppr",
 ) -> Optional[RecentPerformance]:
     """Fetch recent actual stats for a player from Sleeper API.
 
@@ -242,8 +258,8 @@ async def get_recent_stats(
             stats = await sleeper_api.get_player_stats(season, week)
             if stats and sleeper_id in stats:
                 week_stats = stats[sleeper_id]
-                points = week_stats.get("pts_ppr") or week_stats.get("pts", 0)
-                if isinstance(points, (int, float)):
+                points = _points_for_format(week_stats, scoring_format)
+                if points is not None:
                     weeks_data.append({"week": week, "stats": week_stats, "points": float(points)})
                     points_by_week.append((week, float(points)))
                     logger.debug(
@@ -284,9 +300,12 @@ async def get_recent_stats(
         return None
 
     # Calculate metrics
-    avg_points = calculate_recent_avg([w["stats"] for w in weeks_data])
+    avg_points = calculate_recent_avg(
+        [w["stats"] for w in weeks_data], scoring_format=scoring_format
+    )
     total_points = sum(w["points"] for w in weeks_data)
-    trend = calculate_performance_trend(points_by_week)
+    # Requests are made newest-to-oldest; trend calculation expects chronology.
+    trend = calculate_performance_trend(sorted(points_by_week, key=lambda item: item[0]))
 
     return RecentPerformance(
         weeks_analyzed=len(weeks_data),
@@ -324,13 +343,13 @@ async def enhance_player_with_context(
 
     # Check bye week with validation
     player_bye = getattr(player, "bye", None)
-    
+
     # Log if bye week data is missing for debugging
     if player_bye is None:
         player_name = getattr(player, "name", "Unknown")
         # Only log once per session to avoid spam (in production, use proper logging)
         # print(f"Debug: No bye week data available for {player_name}")
-    
+
     on_bye = detect_bye_week(player_bye, current_week)
     logger.debug(
         "enhance_player_with_context: player=%s bye=%r current_week=%s on_bye=%s",
@@ -360,7 +379,12 @@ async def enhance_player_with_context(
     if sleeper_id:
         try:
             recent_performance = await get_recent_stats(
-                sleeper_api, sleeper_id, season, current_week, lookback=3
+                sleeper_api,
+                sleeper_id,
+                season,
+                current_week,
+                lookback=3,
+                scoring_format=getattr(player, "scoring_format", "ppr"),
             )
         except Exception:
             logger.exception("Error fetching recent stats for %s", player.name)

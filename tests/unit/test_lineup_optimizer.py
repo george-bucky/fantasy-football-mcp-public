@@ -1,5 +1,8 @@
 """Unit tests for lineup_optimizer.py - Lineup optimization logic."""
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from lineup_optimizer import (
@@ -282,6 +285,330 @@ class TestLineupOptimizer:
         for payload in malformed_payloads:
             players = await optimizer.parse_yahoo_roster(payload)
             assert players == []
+
+    @pytest.mark.asyncio
+    async def test_parse_yahoo_roster_preserves_natural_and_selected_positions(self):
+        optimizer = LineupOptimizer()
+
+        players = await optimizer.parse_yahoo_roster(
+            {
+                "roster": [
+                    {
+                        "name": "Bench Receiver",
+                        "position": "BN",
+                        "display_position": "WR",
+                        "team": "BUF",
+                    }
+                ]
+            }
+        )
+
+        assert players[0].position == "WR"
+        assert players[0].roster_position == "BN"
+
+    @pytest.mark.asyncio
+    async def test_strategies_choose_different_players_from_trustworthy_evidence(self):
+        def recent(*points):
+            return SimpleNamespace(
+                weeks_data=[
+                    {"week": index + 1, "points": point} for index, point in enumerate(points)
+                ]
+            )
+
+        players = [
+            Player(
+                "Best Overall",
+                "WR",
+                "BUF",
+                roster_position="WR",
+                yahoo_projection=12.0,
+                sleeper_projection=12.0,
+                sleeper_projection_ppr=12.0,
+                sleeper_projection_source="sleeper_api",
+                recent_performance_data=recent(10.0, 12.0, 11.0),
+            ),
+            Player(
+                "Safe Floor",
+                "WR",
+                "KC",
+                roster_position="BN",
+                yahoo_projection=11.4,
+                sleeper_projection=11.3,
+                sleeper_projection_ppr=11.3,
+                sleeper_projection_source="sleeper_api",
+                recent_performance_data=recent(11.2, 11.4, 11.3),
+                performance_flags=["CONSISTENT"],
+            ),
+            Player(
+                "High Upside",
+                "WR",
+                "DET",
+                roster_position="BN",
+                yahoo_projection=11.5,
+                sleeper_projection=11.6,
+                sleeper_projection_ppr=11.6,
+                sleeper_projection_source="sleeper_api",
+                recent_performance_data=recent(5.0, 8.0, 20.0),
+                performance_flags=["HIGH_CEILING"],
+            ),
+        ]
+        optimizer = LineupOptimizer()
+
+        results = {
+            strategy: await optimizer.optimize_lineup_smart(players, strategy)
+            for strategy in ("balanced", "conservative", "aggressive")
+        }
+
+        assert results["balanced"]["starters"]["WR"].name == "Best Overall"
+        assert results["conservative"]["starters"]["WR"].name == "Safe Floor"
+        assert results["aggressive"]["starters"]["WR"].name == "High Upside"
+        assert all(
+            result["strategy_summary"]["opponent_aware"] is False for result in results.values()
+        )
+
+    @pytest.mark.asyncio
+    async def test_balanced_uses_only_provenance_gated_sleeper_projection(self):
+        ranking_fallback = Player(
+            "Ranking Fallback",
+            "RB",
+            "BUF",
+            roster_position="RB",
+            yahoo_projection=12.0,
+            sleeper_projection=30.0,
+            sleeper_projection_source="fallback_ranking",
+        )
+        real_projection = Player(
+            "Real Projection",
+            "RB",
+            "KC",
+            roster_position="BN",
+            yahoo_projection=11.5,
+            sleeper_projection=15.0,
+            sleeper_projection_ppr=15.0,
+            sleeper_projection_source="sleeper_api",
+        )
+
+        result = await LineupOptimizer().optimize_lineup_smart(
+            [ranking_fallback, real_projection], "balanced"
+        )
+
+        assert result["starters"]["RB"].name == "Real Projection"
+        fallback_evidence = result["player_evidence"]["Ranking Fallback"]
+        assert not any(
+            value.startswith("Sleeper real") for value in fallback_evidence["inputs_used"]
+        )
+        assert (
+            "Sleeper projection omitted: fallback_ranking is not a real projection"
+            in fallback_evidence["fallbacks"]
+        )
+
+    @pytest.mark.asyncio
+    async def test_enhancement_carries_real_projection_provenance_and_omits_fallback(self):
+        players = [
+            Player(
+                "Real Player",
+                "RB",
+                "BUF",
+                roster_position="RB",
+                scoring_format="standard",
+                scoring_format_source="yahoo_settings",
+            ),
+            Player(
+                "Fallback Player",
+                "RB",
+                "KC",
+                roster_position="BN",
+                scoring_format="standard",
+                scoring_format_source="yahoo_settings",
+            ),
+        ]
+        projections = {
+            "real": {
+                "pts": 13.0,
+                "projection_source": "sleeper_api",
+            },
+            "fallback": {
+                "pts": 30.0,
+                "projection_source": "fallback_ranking",
+            },
+        }
+
+        with (
+            patch("sleeper_api.get_current_season", AsyncMock(return_value=2026)),
+            patch("sleeper_api.get_current_week", AsyncMock(return_value=4)),
+            patch(
+                "sleeper_api.sleeper_client.get_all_players",
+                AsyncMock(
+                    return_value={
+                        "real": {"status": "Active", "depth_chart_order": 1},
+                        "fallback": {
+                            "status": "Active",
+                            "injury_status": "Questionable",
+                            "depth_chart_order": 2,
+                        },
+                    }
+                ),
+            ),
+            patch(
+                "sleeper_api.sleeper_client.map_yahoo_to_sleeper",
+                AsyncMock(side_effect=["real", "fallback"]),
+            ),
+            patch(
+                "sleeper_api.sleeper_client.get_projections",
+                AsyncMock(return_value=projections),
+            ),
+            patch(
+                "sleeper_api.sleeper_client.get_expert_advice",
+                AsyncMock(return_value={}),
+            ),
+            patch(
+                "sleeper_api.sleeper_client.get_trending_players",
+                AsyncMock(
+                    side_effect=[
+                        [{"player_id": "real"}],
+                        [],
+                        [],
+                        [{"player_id": "fallback"}],
+                    ]
+                ),
+            ),
+            patch(
+                "sleeper_api.sleeper_client.get_player_stats",
+                AsyncMock(
+                    side_effect=lambda season, week: {
+                        "real": {
+                            "pts": {1: 8.0, 2: 10.0, 3: 14.0}[week],
+                            "pts_ppr": 100.0,
+                        },
+                        "fallback": {"pts": 12.0, "pts_ppr": 100.0},
+                    }
+                ),
+            ),
+        ):
+            enhanced = await LineupOptimizer().enhance_with_external_data(players, week=4)
+
+        assert enhanced[0].sleeper_projection == 13.0
+        assert enhanced[0].sleeper_projection_source == "sleeper_api"
+        assert enhanced[0].sleeper_status == "Active"
+        assert enhanced[0].sleeper_depth_chart_order == 1
+        assert enhanced[0].trending_score == 75
+        assert len(enhanced[0].recent_performance_data.weeks_data) == 3
+        assert [week["points"] for week in enhanced[0].recent_performance_data.weeks_data] == [
+            14.0,
+            10.0,
+            8.0,
+        ]
+        assert enhanced[0].recent_performance_data.trend == "improving"
+        assert "TRENDING_UP" in enhanced[0].performance_flags
+        assert enhanced[1].sleeper_projection == 0.0
+        assert enhanced[1].sleeper_projection_source == "fallback_ranking"
+        assert enhanced[1].sleeper_injury_status == "Questionable"
+        assert enhanced[1].sleeper_depth_chart_order == 2
+        assert enhanced[1].trending_score == 25
+
+        optimizer = LineupOptimizer()
+        sourced_result = await optimizer.optimize_lineup_smart(enhanced, "conservative")
+        assert sourced_result["starters"]["RB"].name == "Real Player"
+        real_evidence = sourced_result["player_evidence"]["Real Player"]
+        assert "Sleeper recent actuals (3 weeks)" in real_evidence["inputs_used"]
+        assert "Sleeper depth-chart order: 1" in real_evidence["inputs_used"]
+        assert "Sleeper trending adds" in real_evidence["inputs_used"]
+        assert sourced_result["player_evidence"]["Fallback Player"]["health_flags"] == [
+            "Questionable status: QUESTIONABLE"
+        ]
+
+        for player in enhanced:
+            player.sleeper_injury_status = ""
+            player.sleeper_depth_chart_order = 0
+            player.trending_score = 50
+        neutral_result = await optimizer.optimize_lineup_smart(enhanced, "conservative")
+        assert neutral_result["starters"]["RB"].name == "Fallback Player"
+
+    @pytest.mark.asyncio
+    async def test_news_flags_risk_without_becoming_numeric_projection(self):
+        recent = SimpleNamespace(
+            weeks_data=[
+                {"week": 1, "points": 10.0},
+                {"week": 2, "points": 11.0},
+            ]
+        )
+        player = Player(
+            "News Player",
+            "RB",
+            "BUF",
+            roster_position="RB",
+            yahoo_projection=11.0,
+            sleeper_projection=11.0,
+            sleeper_projection_ppr=11.0,
+            sleeper_projection_source="sleeper_api",
+            recent_performance_data=recent,
+            performance_flags=["CONSISTENT"],
+        )
+        optimizer = LineupOptimizer()
+
+        without_news = await optimizer.optimize_lineup_smart([player], "balanced")
+        with_news = await optimizer.optimize_lineup_smart(
+            [player],
+            "balanced",
+            decision_news={
+                "News Player": {
+                    "espn": [],
+                    "rotowire": [
+                        {
+                            "headline": "Not expected to play",
+                            "summary": "Availability remains uncertain.",
+                            "source": "RotoWire NFL RSS",
+                        }
+                    ],
+                }
+            },
+        )
+
+        without_evidence = without_news["player_evidence"]["News Player"]
+        with_evidence = with_news["player_evidence"]["News Player"]
+        assert with_evidence["strategy_score"] == without_evidence["strategy_score"]
+        assert with_evidence["confidence"] == "medium"
+        assert with_evidence["news_signals"] == [
+            {
+                "signal": "availability_or_role_risk",
+                "source": "RotoWire NFL RSS",
+                "headline": "Not expected to play",
+            }
+        ]
+        assert "headlines are not converted to points" in with_evidence["news_scoring_note"]
+
+    @pytest.mark.asyncio
+    async def test_missing_data_fallback_prefers_healthy_player_over_out_player(self):
+        out_player = Player(
+            "Out Starter",
+            "RB",
+            "BUF",
+            roster_position="RB",
+            status="O",
+        )
+        healthy_player = Player(
+            "Healthy Bench",
+            "RB",
+            "KC",
+            roster_position="BN",
+        )
+
+        result = await LineupOptimizer().optimize_lineup_smart(
+            [out_player, healthy_player], "conservative"
+        )
+
+        assert result["starters"]["RB"].name == "Healthy Bench"
+        assert result["player_evidence"]["Out Starter"]["health_flags"] == ["Unavailable status: O"]
+        evidence = result["player_evidence"]["Healthy Bench"]
+        assert evidence["strategy_score"] == 0.0
+        assert evidence["fallbacks"] == [
+            "Yahoo projection unavailable",
+            "Sleeper real projection unavailable",
+            "Sleeper recent actuals unavailable",
+            "Yahoo scoring format unavailable; PPR fallback used",
+            "Roster/role evidence unavailable",
+            "ESPN/RotoWire player evidence unavailable",
+        ]
 
 
 class TestBenchSlots:

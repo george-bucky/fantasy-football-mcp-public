@@ -1,6 +1,7 @@
 """Matchup MCP tool handlers."""
 
-from typing import Any
+import asyncio
+from typing import Any, Optional
 
 from src.services import get_decision_news_context
 
@@ -9,6 +10,78 @@ get_user_team_key = None
 get_user_team_info = None
 yahoo_api_call = None
 parse_team_roster = None
+
+
+def _walk_dicts(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for nested in value.values():
+            yield from _walk_dicts(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _walk_dicts(nested)
+
+
+def _lineup_scoring_format(settings_data: dict, categories_data: dict) -> Optional[str]:
+    """Resolve standard/half-PPR/PPR from Yahoo reception scoring."""
+    stat_names: dict[str, str] = {}
+    for node in _walk_dicts(categories_data):
+        stat = node.get("stat")
+        if not isinstance(stat, dict) and "stat_id" in node:
+            stat = node
+        if isinstance(stat, dict) and stat.get("stat_id") is not None:
+            name = stat.get("display_name") or stat.get("name") or stat.get("abbr")
+            if name:
+                stat_names[str(stat["stat_id"])] = str(name).strip().lower()
+
+    for node in _walk_dicts(settings_data):
+        stat = node.get("stat")
+        if not isinstance(stat, dict) and "stat_id" in node and "value" in node:
+            stat = node
+        if not isinstance(stat, dict) or "stat_id" not in stat or "value" not in stat:
+            continue
+        stat_name = (
+            str(
+                stat.get("display_name")
+                or stat.get("name")
+                or stat.get("abbr")
+                or stat_names.get(str(stat["stat_id"]))
+                or ""
+            )
+            .strip()
+            .lower()
+        )
+        if stat_name not in {"reception", "receptions", "rec"}:
+            continue
+        try:
+            reception_points = float(stat["value"])
+        except (TypeError, ValueError):
+            return None
+        if abs(reception_points - 1.0) < 0.001:
+            return "ppr"
+        if abs(reception_points - 0.5) < 0.001:
+            return "half-ppr"
+        if abs(reception_points) < 0.001:
+            return "standard"
+        return "custom"
+    return None
+
+
+async def _get_lineup_scoring_format(league_key: str) -> tuple[str, str]:
+    game_key = league_key.split(".", 1)[0]
+    settings_data, categories_data = await asyncio.gather(
+        yahoo_api_call(f"league/{league_key}/settings"),
+        yahoo_api_call(f"game/{game_key}/stat_categories"),
+        return_exceptions=True,
+    )
+    if isinstance(settings_data, Exception) or isinstance(categories_data, Exception):
+        return "ppr", "fallback_default_ppr"
+    scoring_format = _lineup_scoring_format(settings_data, categories_data)
+    if scoring_format == "custom":
+        return "ppr", "fallback_custom_ppr"
+    if scoring_format is None:
+        return "ppr", "fallback_default_ppr"
+    return scoring_format, "yahoo_settings"
 
 
 async def handle_ff_get_matchup(arguments: dict) -> dict:
@@ -76,7 +149,7 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
         arguments: Dict containing:
             - league_key: League identifier
             - week: Week number (optional)
-            - strategy: "balanced", "floor", or "ceiling" (default: "balanced")
+            - strategy: "balanced", "conservative", or "aggressive" (default: "balanced")
             - use_llm: Use LLM for additional insights (default: False)
 
     Returns:
@@ -112,12 +185,25 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "suggestion": "Check roster data format or try refreshing",
             }
 
+        scoring_format, scoring_format_source = await _get_lineup_scoring_format(league_key)
+        for player in players:
+            player.scoring_format = scoring_format
+            player.scoring_format_source = scoring_format_source
         players = await lineup_optimizer.enhance_with_external_data(players, week=week)
+        try:
+            decision_news = await get_decision_news_context([player.name for player in players])
+        except Exception as exc:
+            decision_news = {
+                "by_player": {},
+                "sources": [],
+                "warnings": [f"Decision news unavailable: {exc}"],
+            }
         optimization = await lineup_optimizer.optimize_lineup_smart(
             players,
             strategy,
             week,
             use_llm,
+            decision_news=decision_news["by_player"],
         )
         if optimization["status"] == "error":
             return {
@@ -128,21 +214,6 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "errors": optimization.get("errors", []),
                 "details": optimization.get("errors", []),
                 "data_quality": optimization.get("data_quality", {}),
-            }
-
-        relevant_players = [
-            *optimization["starters"].values(),
-            *optimization["bench"][:5],
-        ]
-        try:
-            decision_news = await get_decision_news_context(
-                [player.name for player in relevant_players]
-            )
-        except Exception as exc:
-            decision_news = {
-                "by_player": {},
-                "sources": [],
-                "warnings": [f"Decision news unavailable: {exc}"],
             }
 
         starters_formatted = {}
@@ -172,6 +243,7 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                     player.name,
                     {"espn": [], "rotowire": [], "espn_athlete_refs": []},
                 ),
+                "selection_evidence": optimization.get("player_evidence", {}).get(player.name, {}),
             }
 
         bench_formatted = [
@@ -186,6 +258,7 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                     player.name,
                     {"espn": [], "rotowire": [], "espn_athlete_refs": []},
                 ),
+                "selection_evidence": optimization.get("player_evidence", {}).get(player.name, {}),
             }
             for player in optimization["bench"][:5]
         ]
@@ -211,15 +284,13 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 ],
                 "strategy_used": optimization["strategy_used"],
                 "data_sources": [
-                    "Yahoo projections",
-                    "Sleeper rankings",
-                    "Matchup analysis",
-                    "Trending data",
+                    *optimization.get("strategy_summary", {}).get("inputs_used", []),
                     *decision_news["sources"],
                 ],
+                "strategy_evidence": optimization.get("strategy_summary", {}),
                 "news_evidence_note": (
-                    "ESPN and RotoWire news is attached as evidence and does not "
-                    "silently change the deterministic lineup selection."
+                    "ESPN and RotoWire news is attributed and used only for "
+                    "qualitative confidence/risk flags, never fabricated points."
                 ),
             },
         }
