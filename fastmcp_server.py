@@ -26,11 +26,16 @@ _legacy_refresh_token = fantasy_football_multi_league.refresh_yahoo_token
 
 
 def _sort_enhanced_waiver_players(
-    players: Sequence[dict[str, Any]], sort: str, rookie_enabled: bool = False
+    players: Sequence[dict[str, Any]],
+    sort: str,
+    rookie_enabled: bool = False,
+    rookie_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Apply the requested veteran sort, then reorder only matched rookie slots."""
 
     ordered = list(players)
+    if rookie_only:
+        return ordered
     if sort == "rank" and ordered:
         if "waiver_priority" in ordered[0]:
             ordered.sort(key=lambda player: player.get("waiver_priority", 0), reverse=True)
@@ -645,7 +650,8 @@ async def ff_get_draft_results(ctx: Context, league_key: str) -> Dict[str, Any]:
     description=(
         "📊 Get waiver wire pickups with RANKINGS, SORTING, and expert analysis. "
         "Use this for waiver priority decisions with sort options (rank/points/owned/trending). "
-        "Parameters: league_key, position, sort, count, include_expert_analysis. "
+        "Set use_rookie_intelligence=true for reviewed 2026 rookie context, or "
+        "rookie_only=true for a complete league-aware rookie-only add board. "
         "For YOUR roster use ff_get_roster. For simple player search use ff_get_players."
     ),
     meta=_tool_meta("ff_get_waiver_wire"),
@@ -675,6 +681,8 @@ async def ff_get_waiver_wire(
         team_key: Team key for context (optional)
         include_expert_analysis: Include tiers, recommendations, and confidence scores
         data_level: Data detail level ("basic", "standard", "full")
+        use_rookie_intelligence: Add reviewed first-year outlook to mixed results
+        rookie_only: Use complete Yahoo context and return only exact 2026 rookies
     """
 
     # Default to enhanced mode for better waiver analysis, but basic mode if expert analysis disabled
@@ -729,7 +737,7 @@ async def ff_get_waiver_wire(
                 result.get("decision_evidence", {}).get("rookie_intelligence", {}).get("enabled")
             )
             result["players"] = _sort_enhanced_waiver_players(
-                result["players"], sort, rookie_enabled
+                result["players"], sort, rookie_enabled, rookie_only
             )
         elif include_expert_analysis and ctx:
             await ctx.info("Expert analysis requested but not available from main server")

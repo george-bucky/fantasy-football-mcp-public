@@ -158,7 +158,7 @@ def test_load_validates_sha_current_class_and_rookie_year_rank(tmp_path):
     assert board.match("Rookie-One", "RB")["match_method"] == (
         "unique_normalized_exact_name_position"
     )
-    assert board.match("Rookie One", "WR")["status"] == "quarantined"
+    assert board.match("Rookie One", "WR")["status"] == "not_on_current_rookie_board"
 
 
 def test_load_rejects_unreviewed_or_misranked_artifact(tmp_path):
@@ -233,6 +233,8 @@ def test_apply_orders_only_rookies_and_never_falls_back_to_veterans(tmp_path):
         "Other Rookie",
     ]
     assert no_rookies["players"] == []
+    assert no_rookies["evidence"]["not_on_current_rookie_board_players"] == 1
+    assert no_rookies["evidence"]["quarantined_players"] == 0
     assert "no veterans were returned" in no_rookies["evidence"]["warnings"][-1]
 
 

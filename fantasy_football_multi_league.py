@@ -22,6 +22,7 @@ from src.services import (
     get_decision_news_context,
     rookie_identity_key,
 )
+from src.services.league_context import YahooLeagueContextService
 
 # Import rate limiting and caching utilities
 from src.api.yahoo_utils import rate_limiter, response_cache
@@ -1814,6 +1815,8 @@ inject_matchup_dependencies(
 inject_player_dependencies(
     yahoo_api_call=yahoo_api_call,
     get_waiver_wire_players=get_waiver_wire_players,
+    get_user_team_key=get_user_team_key,
+    get_league_context=YahooLeagueContextService().fetch,
 )
 
 # Inject dependencies for draft handlers

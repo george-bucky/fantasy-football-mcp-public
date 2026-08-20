@@ -98,11 +98,16 @@ projection and does not include opponent context.
 - Draft and waiver decisions use the rookie board to order confirmed rookies
   against other confirmed rookies while keeping roster, injury, projection,
   news, and availability evidence visible.
+- `rookie_only=true` waiver calls verify the complete paginated Yahoo available
+  pool and the exact user team. Rookie-year tier remains primary; verified
+  roster need and league-wide starter demand may reorder rookies only within a
+  tier, with board rank as the final tie-breaker. Incomplete or stale league
+  context returns no rookie-only recommendations instead of guessing.
 - Lineup decisions use it only to break a rounded tie between otherwise equal,
   healthy weekly options. It never changes a player's weekly score.
 - Player matching accepts only one exact normalized name-and-position match.
-  Missing or ambiguous matches are shown as quarantined; fuzzy matching is not
-  used.
+  Ordinary veterans are labeled as outside the current rookie board; missing or
+  ambiguous identities are quarantined. Fuzzy matching is not used.
 - Set `rookie_only=true` on draft recommendations or waivers to return only
   confirmed current-class rookies. This implies rookie intelligence and never
   falls back to veterans.

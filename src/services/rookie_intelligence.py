@@ -151,7 +151,14 @@ class RookieBoard:
         if not normalized_name or not normalized_position:
             reason = "missing_name_or_position"
         elif not candidates:
-            reason = "no_unique_normalized_exact_name_position_match"
+            return {
+                "status": "not_on_current_rookie_board",
+                "match_method": "none",
+                "warnings": [],
+                "outlook_scope": (
+                    "season-long first NFL regular season PPR; not a weekly projection"
+                ),
+            }
         elif len(candidates) > 1:
             reason = "ambiguous_normalized_exact_name_position_match"
         else:
@@ -365,11 +372,15 @@ def apply_rookie_intelligence(
         for index, rookie in zip(matched_indices, matched):
             output_players[index] = rookie
 
-    unmatched_count = len(enriched) - len(matched)
+    not_on_board_count = sum(
+        row["rookie_intelligence"]["status"] == "not_on_current_rookie_board"
+        for row in enriched
+    )
+    quarantined_count = len(enriched) - len(matched) - not_on_board_count
     warnings: list[str] = []
-    if unmatched_count:
+    if quarantined_count:
         warnings.append(
-            f"{unmatched_count} player(s) were quarantined from rookie matching; "
+            f"{quarantined_count} player(s) were quarantined from rookie matching; "
             "only unique normalized exact name+position matches were accepted"
         )
     if rookie_only and not matched:
@@ -397,7 +408,8 @@ def apply_rookie_intelligence(
             "context": context,
             "rookie_only": rookie_only,
             "matched_players": len(matched),
-            "quarantined_players": unmatched_count,
+            "not_on_current_rookie_board_players": not_on_board_count,
+            "quarantined_players": quarantined_count,
             "match_method": "unique_normalized_exact_name_position",
             "influence": influence,
             "opponent_aware": False,

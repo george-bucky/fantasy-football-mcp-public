@@ -1,8 +1,10 @@
-# Private league context
+# League context
 
-`src.models.league_context` and `src.services.league_context` provide private,
-provider-neutral league context. They are intentionally not connected to either
-public MCP server.
+`src.models.league_context` and `src.services.league_context` provide
+provider-neutral league context. Normal calls do not load it. The explicit
+`rookie_only=true` waiver path uses it through both public MCP transports so a
+completeness-dependent rookie recommendation cannot be built from only Yahoo's
+first available-player page.
 
 ## Exact contracts
 
@@ -42,3 +44,9 @@ make settings incomplete and contribute no demand. For example, in
 a 12-team league, one QB plus one `Q/W/R/T` slot produces QB demand of 24. This is
 a transparent upper bound, not a guessed flex allocation. Bench, IR, unknown
 slots, and inputs with an unknown team count produce no added demand.
+
+For rookie-only waivers, rookie-year tier is always the first ordering boundary.
+Within a tier, an exact user-roster gap is preferred, followed by verified
+league-wide starter demand, then the reviewed rookie-board rank. The PPR board
+is not converted for other scoring formats. Stale, incomplete, or unresolved
+team context fails closed with no veteran fallback.
