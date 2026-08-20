@@ -732,6 +732,11 @@ async def list_tools() -> list[Tool]:
                         "default": False,
                         "description": "Opt in to reviewed season-long first-year PPR as near-tie lineup context only",
                     },
+                    "use_matchup_evidence": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Opt in to source-backed weekly NFL opponent evidence as a near-tie lineup tiebreak only",
+                    },
                 },
                 "required": ["league_key"],
             },
