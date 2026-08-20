@@ -114,6 +114,29 @@ projection and does not include opponent context.
 
 Normal redraft behavior is unchanged when these options are omitted.
 
+### Optional Weekly Matchup Evidence
+
+Set `use_matchup_evidence=true` on `ff_build_lineup` to add the current opponent
+and a position-specific view of fantasy points allowed by that defense. The
+feature uses nflverse schedules and weekly player statistics; it does not use
+the old static Sleeper defensive rankings.
+
+- Yahoo supplies the league season and current week. Sleeper is used for the
+  current week only when Yahoo omits it and Sleeper reports the same season.
+- Defensive strength is available only after all 32 defenses have at least four
+  completed games in the selected scoring basis (`standard`, `half_ppr`, or
+  `ppr`). Custom scoring receives schedule context only.
+- Matchup evidence can only resolve an otherwise equal, positive, comparable
+  weekly-score tie when the defensive-percentile gap is at least 12.5 points.
+  It never changes either player's score. Bye, health, and attributed news risk
+  remain more important, and the rookie outlook remains the final tie-breaker.
+- If the source is incomplete, stale, invalid, unavailable, or the game has
+  already started, the normal lineup still returns and matchup evidence cannot
+  influence the selection.
+- The response keeps this data in a separate `weekly_matchup_evidence` object,
+  including source version, fetch time, availability reason, and tie-break
+  audit. Behavior is unchanged when the option is omitted.
+
 ### Advanced Analytics
 - `ff_analyze_reddit_sentiment` – Social media sentiment analysis for player buzz and injury updates
 - `ff_get_player_news` – Recent RotoWire NFL RSS updates, optionally filtered by player (no credentials required)
