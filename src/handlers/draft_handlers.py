@@ -64,14 +64,14 @@ async def handle_ff_get_draft_rankings(arguments: dict) -> dict:
 
 
 async def handle_ff_get_draft_recommendation(arguments: dict) -> dict:
-    """Get draft recommendations based on strategy.
+    """Get draft recommendations based on roster, league, timing, and strategy.
 
     Args:
         arguments: Dict containing:
             - league_key: League identifier (required)
             - strategy: "conservative", "aggressive", or "balanced" (default: "balanced")
             - num_recommendations: Number of recommendations (default: 10, max: 20)
-            - current_pick: Current pick number (optional)
+            - current_pick: Current pick number (optional; inferred when possible)
 
     Returns:
         Dict with draft recommendations

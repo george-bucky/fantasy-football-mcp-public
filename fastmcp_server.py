@@ -29,7 +29,7 @@ server = FastMCP(
     instructions=(
         "Yahoo Fantasy Football operations including league discovery, roster "
         "analysis, waiver insights, draft tools, Reddit sentiment checks, and "
-        "RotoWire player news. "
+        "RotoWire and ESPN NFL news. "
         "Set the YAHOO_* environment variables before starting the server."
     ),
 )
@@ -110,6 +110,11 @@ _TOOL_PROMPTS: Dict[str, str] = {
     "ff_get_player_news": (
         "Get up to five recent RotoWire NFL RSS updates, optionally filtered "
         "by player. No Yahoo or Reddit credentials are required."
+    ),
+    "ff_get_espn_nfl_news": (
+        "Get up to ten recent ESPN NFL reports and analysis articles, optionally "
+        "filtered by player using ESPN metadata and article text. Uses an "
+        "undocumented public JSON endpoint and requires no Yahoo credentials."
     ),
 }
 
@@ -732,8 +737,8 @@ async def ff_get_draft_rankings(
 @server.tool(
     name="ff_get_draft_recommendation",
     description=(
-        "Provide draft pick recommendations tailored to a strategy such as "
-        "balanced, aggressive, or conservative."
+        "Provide draft pick recommendations tailored to your drafted roster, "
+        "reception and passing-TD scoring, roster settings, draft timing, and strategy."
     ),
     meta=_tool_meta("ff_get_draft_recommendation"),
 )
@@ -811,6 +816,27 @@ async def ff_get_player_news(
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_get_player_news",
+        ctx=ctx,
+        players=list(players) if players is not None else None,
+        limit=limit,
+    )
+
+
+@server.tool(
+    name="ff_get_espn_nfl_news",
+    description=(
+        "Get recent ESPN NFL reporting and analysis from its public JSON endpoint, "
+        "with optional player filtering."
+    ),
+    meta=_tool_meta("ff_get_espn_nfl_news"),
+)
+async def ff_get_espn_nfl_news(
+    ctx: Context,
+    players: Optional[Sequence[str]] = None,
+    limit: int = 5,
+) -> Dict[str, Any]:
+    return await _call_legacy_tool(
+        "ff_get_espn_nfl_news",
         ctx=ctx,
         players=list(players) if players is not None else None,
         limit=limit,
@@ -938,6 +964,10 @@ Analyze:
 5. Weather and game environment factors
 6. Target share / snap count / usage trends
 7. Game script prediction (positive/negative)
+
+Use ff_build_lineup for Yahoo and Sleeper context, then consult both
+ff_get_player_news and ff_get_espn_nfl_news for attributed recent evidence.
+Treat headlines as context, not as projections or automatic score adjustments.
 
 Provide a clear START/SIT recommendation with confidence level and reasoning."""
 
@@ -1742,6 +1772,7 @@ __all__ = [
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
     "ff_get_player_news",
+    "ff_get_espn_nfl_news",
     # Prompts - Pre-built prompt templates for LLMs
     "analyze_roster_strengths",
     "draft_strategy_advice",

@@ -16,7 +16,7 @@ from mcp.types import TextContent, Tool
 # Import extracted modules
 from src.api import get_access_token, refresh_yahoo_token, set_access_token, yahoo_api_call
 from src.parsers import parse_team_roster, parse_yahoo_free_agent_players
-from src.services import analyze_reddit_sentiment
+from src.services import analyze_reddit_sentiment, get_decision_news_context
 
 # Import rate limiting and caching utilities
 from src.api.yahoo_utils import rate_limiter, response_cache
@@ -41,6 +41,7 @@ from src.handlers import (
     handle_ff_get_draft_rankings,
     handle_ff_get_draft_recommendation,
     handle_ff_get_draft_results,
+    handle_ff_get_espn_nfl_news,
     handle_ff_get_league_info,
     handle_ff_get_leagues,
     handle_ff_get_matchup,
@@ -867,6 +868,30 @@ async def list_tools() -> list[Tool]:
                 },
             },
         ),
+        Tool(
+            name="ff_get_espn_nfl_news",
+            description=(
+                "Get recent ESPN NFL reporting and analysis from its public JSON "
+                "endpoint; no Yahoo or Reddit credentials required"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "players": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional player names to filter using ESPN article metadata and text",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum news items to return (1-10, default: 5)",
+                        "minimum": 1,
+                        "maximum": 10,
+                        "default": 5,
+                    },
+                },
+            },
+        ),
     ]
 
     # Add draft tools if available
@@ -874,7 +899,7 @@ async def list_tools() -> list[Tool]:
         draft_tools = [
             Tool(
                 name="ff_get_draft_recommendation",
-                description="Get AI-powered draft recommendations for live fantasy football drafts",
+                description="Get live draft recommendations using your roster needs, reception and passing-TD scoring, roster settings, and draft timing",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -897,7 +922,8 @@ async def list_tools() -> list[Tool]:
                         },
                         "current_pick": {
                             "type": "integer",
-                            "description": "Current overall pick number (optional)",
+                            "minimum": 1,
+                            "description": "Current overall pick number; when omitted it is inferred from your roster and Yahoo draft slot",
                         },
                     },
                     "required": ["league_key"],
@@ -970,6 +996,7 @@ TOOL_HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
     "ff_analyze_draft_state": handle_ff_analyze_draft_state,
     "ff_analyze_reddit_sentiment": handle_ff_analyze_reddit_sentiment,
     "ff_get_player_news": handle_ff_get_player_news,
+    "ff_get_espn_nfl_news": handle_ff_get_espn_nfl_news,
 }
 
 
@@ -1025,6 +1052,411 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=json.dumps(error_result, indent=2))]
 
 
+_DEFAULT_DRAFT_ROSTER_SLOTS = {
+    "QB": 1,
+    "RB": 2,
+    "WR": 2,
+    "TE": 1,
+    "FLEX": 1,
+    "K": 1,
+    "DEF": 1,
+    "BN": 6,
+}
+
+
+def _walk_dicts(value: Any):
+    """Yield every dictionary in a nested Yahoo response."""
+    if isinstance(value, dict):
+        yield value
+        for nested in value.values():
+            yield from _walk_dicts(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            yield from _walk_dicts(nested)
+
+
+def _normalize_draft_position(position: Any) -> str:
+    aliases = {
+        "D/ST": "DEF",
+        "DST": "DEF",
+        "W/R/T": "FLEX",
+        "UTIL": "FLEX",
+        "Q/W/R/T": "SUPERFLEX",
+        "OP": "SUPERFLEX",
+    }
+    normalized = str(position or "").upper()
+    return aliases.get(normalized, normalized)
+
+
+def _number(value: Any, default: float = 0.0) -> float:
+    try:
+        if value in (None, "", "N/A"):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _parse_draft_settings(settings_data: dict, stat_categories_data: Optional[dict] = None) -> dict:
+    """Extract roster slots and the reception modifier used for draft context."""
+    roster_slots: dict[str, int] = {}
+    stat_modifiers: dict[str, float] = {}
+    reception_points: Optional[float] = None
+    passing_touchdown_points: Optional[float] = None
+    draft_type = "snake"
+
+    stat_names = {}
+    for node in _walk_dicts(stat_categories_data or {}):
+        stat = node.get("stat")
+        if not isinstance(stat, dict) and "stat_id" in node:
+            stat = node
+        if isinstance(stat, dict) and "stat_id" in stat:
+            name = stat.get("display_name") or stat.get("name") or stat.get("abbr")
+            if name:
+                stat_names[str(stat["stat_id"])] = str(name)
+
+    for node in _walk_dicts(settings_data):
+        roster_position = node.get("roster_position")
+        if isinstance(roster_position, dict):
+            position = _normalize_draft_position(roster_position.get("position"))
+            if position:
+                roster_slots[position] = roster_slots.get(position, 0) + int(
+                    _number(roster_position.get("count"), 1)
+                )
+
+        stat = node.get("stat")
+        if not isinstance(stat, dict) and "stat_id" in node and "value" in node:
+            stat = node
+        if isinstance(stat, dict) and "stat_id" in stat and "value" in stat:
+            stat_id = str(stat.get("stat_id"))
+            value = _number(stat.get("value"))
+            stat_modifiers[stat_id] = value
+            stat_name = str(
+                stat.get("display_name")
+                or stat.get("name")
+                or stat.get("abbr")
+                or stat_names.get(stat_id)
+                or ""
+            ).lower()
+            if stat_name.strip() in {"reception", "receptions", "rec"}:
+                reception_points = value
+            if "passing touchdown" in stat_name or stat_name.strip() in {"pass td", "pass tds"}:
+                passing_touchdown_points = value
+
+        for key in ("draft_type", "draft_order_type"):
+            if key in node:
+                draft_type = str(node[key]).lower()
+        if str(node.get("is_auction_draft", "0")).lower() in {"1", "true", "yes"}:
+            draft_type = "auction"
+
+    if reception_points is None:
+        scoring_format = "custom/unknown"
+    elif reception_points >= 0.75:
+        scoring_format = "PPR"
+    elif reception_points > 0:
+        scoring_format = "Half-PPR"
+    else:
+        scoring_format = "Standard"
+
+    return {
+        "roster_slots": roster_slots or dict(_DEFAULT_DRAFT_ROSTER_SLOTS),
+        "roster_slots_source": "yahoo" if roster_slots else "standard fallback",
+        "scoring_format": scoring_format,
+        "scoring_adjustment": "receptions and passing touchdowns",
+        "reception_points": reception_points,
+        "passing_touchdown_points": passing_touchdown_points,
+        "stat_modifier_count": len(stat_modifiers),
+        "stat_modifiers": stat_modifiers,
+        "draft_type": draft_type,
+        "is_snake_draft": draft_type not in {"auction", "salary_cap", "linear"},
+    }
+
+
+def _drafted_position_counts(roster: list[dict], roster_data: dict) -> dict[str, int]:
+    """Count natural positions even when Yahoo assigns a bench or flex slot."""
+    natural_positions = []
+    for node in _walk_dicts(roster_data):
+        player = node.get("player")
+        if not isinstance(player, list):
+            continue
+        player_nodes = list(_walk_dicts(player))
+        position = next(
+            (part.get("display_position") for part in player_nodes if part.get("display_position")),
+            None,
+        )
+        name = next(
+            (
+                part["name"].get("full")
+                for part in player_nodes
+                if isinstance(part.get("name"), dict) and part["name"].get("full")
+            ),
+            None,
+        )
+        if position and name:
+            natural_positions.append(_normalize_draft_position(str(position).split(",")[0]))
+
+    positions = natural_positions or [
+        _normalize_draft_position(player.get("position")) for player in roster
+    ]
+    counts: dict[str, int] = {}
+    for position in positions:
+        if position:
+            counts[position] = counts.get(position, 0) + 1
+    return counts
+
+
+_FLEX_SLOT_ELIGIBILITY = {
+    "FLEX": {"RB", "WR", "TE"},
+    "W/R": {"WR", "RB"},
+    "W/T": {"WR", "TE"},
+    "R/T": {"RB", "TE"},
+    "RB/WR": {"RB", "WR"},
+    "WR/TE": {"WR", "TE"},
+    "SUPERFLEX": {"QB", "RB", "WR", "TE"},
+}
+
+
+def _max_flexible_slots_filled(surplus: dict[str, int], slots: list[set[str]]) -> int:
+    """Return the most flexible slots that can be filled by positional surplus."""
+    ordered_slots = sorted(slots, key=len)
+
+    def assign(index: int) -> int:
+        if index == len(ordered_slots):
+            return 0
+        best = assign(index + 1)
+        for position in ordered_slots[index]:
+            if surplus.get(position, 0) <= 0:
+                continue
+            surplus[position] -= 1
+            best = max(best, 1 + assign(index + 1))
+            surplus[position] += 1
+        return best
+
+    return assign(0)
+
+
+def _build_positional_needs(
+    position_counts: dict[str, int], roster_slots: dict[str, int], roster_available: bool = True
+) -> dict:
+    surplus = {
+        position: max(0, position_counts.get(position, 0) - roster_slots.get(position, 0))
+        for position in ("QB", "RB", "WR", "TE")
+    }
+    regular_slots = [
+        eligible
+        for slot, eligible in _FLEX_SLOT_ELIGIBILITY.items()
+        if slot != "SUPERFLEX"
+        for _ in range(roster_slots.get(slot, 0))
+    ]
+    all_slots = regular_slots + [
+        _FLEX_SLOT_ELIGIBILITY["SUPERFLEX"]
+        for _ in range(roster_slots.get("SUPERFLEX", 0))
+    ]
+    regular_filled = _max_flexible_slots_filled(dict(surplus), regular_slots)
+    all_filled = _max_flexible_slots_filled(dict(surplus), all_slots)
+
+    needs = {}
+    for position in ("QB", "RB", "WR", "TE", "K", "DEF"):
+        current = position_counts.get(position, 0)
+        starters = roster_slots.get(position, 0)
+        missing_starters = max(0, starters - current)
+        if not roster_available:
+            level = "unknown"
+            bonus = 0.0
+        elif missing_starters:
+            level = "critical"
+            bonus = 18.0
+        else:
+            candidate_surplus = dict(surplus)
+            candidate_surplus[position] = candidate_surplus.get(position, 0) + 1
+            fills_regular = (
+                _max_flexible_slots_filled(candidate_surplus, regular_slots) > regular_filled
+            )
+            fills_any = _max_flexible_slots_filled(candidate_surplus, all_slots) > all_filled
+            if fills_regular:
+                level = "flex"
+                bonus = 9.0
+            elif fills_any:
+                level = "superflex"
+                bonus = 12.0 if position == "QB" else 9.0
+            elif starters and current == starters and position not in {"K", "DEF"}:
+                level = "depth"
+                bonus = 4.0
+            elif starters:
+                level = "filled"
+                bonus = 0.0
+            else:
+                level = "not required"
+                bonus = -4.0
+
+        needs[position] = {
+            "current_count": current,
+            "starter_slots": starters,
+            "missing_starters": missing_starters,
+            "need": level,
+            "recommendation_bonus": bonus,
+        }
+    return needs
+
+
+def _snake_draft_timing(
+    current_pick: Optional[int],
+    drafted_count: int,
+    num_teams: int,
+    draft_slot: Any,
+    is_snake_draft: Optional[bool] = True,
+) -> dict:
+    num_teams = max(2, int(_number(num_teams, 12)))
+    slot = int(_number(draft_slot)) if _number(draft_slot) else None
+
+    if is_snake_draft is None:
+        return {
+            "current_pick": current_pick,
+            "source": "draft type unavailable",
+            "num_teams": num_teams,
+            "is_snake_draft": None,
+        }
+    if not is_snake_draft:
+        return {
+            "current_pick": current_pick,
+            "source": "not applicable for non-snake draft",
+            "num_teams": num_teams,
+            "is_snake_draft": False,
+        }
+
+    if current_pick and current_pick > 0:
+        pick = current_pick
+        source = "explicit current_pick"
+        round_number = ((pick - 1) // num_teams) + 1
+        pick_in_round = ((pick - 1) % num_teams) + 1
+        if slot is None:
+            slot = pick_in_round if round_number % 2 else num_teams - pick_in_round + 1
+    elif slot:
+        round_number = drafted_count + 1
+        pick_in_round = slot if round_number % 2 else num_teams - slot + 1
+        pick = ((round_number - 1) * num_teams) + pick_in_round
+        source = "inferred from roster and draft slot"
+    else:
+        return {
+            "current_pick": current_pick,
+            "source": "unavailable",
+            "num_teams": num_teams,
+            "is_snake_draft": True,
+        }
+
+    scheduled_pick_in_round = slot if round_number % 2 else num_teams - slot + 1
+    scheduled_pick = ((round_number - 1) * num_teams) + scheduled_pick_in_round
+    if current_pick and pick < scheduled_pick:
+        next_pick = scheduled_pick
+    else:
+        next_round = round_number + 1
+        next_pick_in_round = slot if next_round % 2 else num_teams - slot + 1
+        next_pick = ((next_round - 1) * num_teams) + next_pick_in_round
+    return {
+        "current_pick": pick,
+        "source": source,
+        "num_teams": num_teams,
+        "draft_slot": slot,
+        "round": round_number,
+        "pick_in_round": pick_in_round,
+        "next_pick": next_pick,
+        "picks_until_next": max(0, next_pick - pick - 1),
+        "is_snake_draft": True,
+    }
+
+
+def _scoring_bonus(
+    position: str, scoring_format: str, passing_touchdown_points: Optional[float] = None
+) -> float:
+    bonus = 0.0
+    if scoring_format == "PPR":
+        bonus += {"RB": 4.0, "WR": 7.0, "TE": 7.0}.get(position, 0.0)
+    elif scoring_format == "Half-PPR":
+        bonus += {"RB": 2.0, "WR": 4.0, "TE": 4.0}.get(position, 0.0)
+    if position == "QB" and passing_touchdown_points is not None:
+        bonus += max(-6.0, min(6.0, (passing_touchdown_points - 4.0) * 3.0))
+    return bonus
+
+
+async def _get_draft_context(league_key: str, current_pick: Optional[int]) -> dict:
+    warnings = []
+    leagues, team_info = await asyncio.gather(
+        discover_leagues(), get_user_team_info(league_key), return_exceptions=True
+    )
+    if isinstance(leagues, Exception):
+        warnings.append("League summary unavailable")
+        league_info = {}
+    else:
+        league_info = leagues.get(league_key, {})
+    if isinstance(team_info, Exception) or not team_info:
+        warnings.append("Your team and draft slot could not be identified")
+        team_info = {}
+
+    game_key = league_key.split(".", 1)[0]
+    settings_data, stat_categories_data = await asyncio.gather(
+        yahoo_api_call(f"league/{league_key}/settings"),
+        yahoo_api_call(f"game/{game_key}/stat_categories"),
+        return_exceptions=True,
+    )
+    if isinstance(settings_data, Exception):
+        settings_data = {}
+        warnings.append("Yahoo league settings unavailable; standard roster fallback used")
+    if isinstance(stat_categories_data, Exception):
+        stat_categories_data = {}
+        warnings.append("Yahoo stat categories unavailable; scoring adjustments may be limited")
+    settings = _parse_draft_settings(settings_data, stat_categories_data)
+    settings_available = bool(settings_data)
+    roster_configuration_available = settings["roster_slots_source"] == "yahoo"
+
+    roster = []
+    roster_data = {}
+    roster_available = False
+    team_key = team_info.get("team_key")
+    if team_key:
+        try:
+            roster_data = await yahoo_api_call(f"team/{team_key}/roster")
+            roster = parse_team_roster(roster_data)
+            roster_available = True
+        except Exception:
+            warnings.append("Your drafted roster could not be loaded")
+    else:
+        warnings.append("Your drafted roster could not be loaded")
+
+    position_counts = _drafted_position_counts(roster, roster_data)
+    needs = _build_positional_needs(
+        position_counts,
+        settings["roster_slots"],
+        roster_available=roster_available and roster_configuration_available,
+    )
+    timing = _snake_draft_timing(
+        current_pick,
+        sum(position_counts.values()),
+        league_info.get("num_teams", 12),
+        team_info.get("draft_position") if current_pick or roster_available else None,
+        settings["is_snake_draft"] if settings_available else None,
+    )
+    if timing["source"] == "unavailable":
+        warnings.append("Pass current_pick to apply snake-draft timing")
+    elif timing["source"] == "draft type unavailable":
+        warnings.append("Draft timing was not applied because Yahoo draft settings are unavailable")
+
+    return {
+        "drafted_roster": roster,
+        "roster_available": roster_available,
+        "roster_configuration_available": roster_configuration_available,
+        "position_counts": position_counts,
+        "positional_needs": needs,
+        "league": {
+            "name": league_info.get("name", "Unknown"),
+            "num_teams": timing["num_teams"],
+            "matchup_scoring_type": league_info.get("scoring_type", "unknown"),
+            **settings,
+        },
+        "draft_timing": timing,
+        "warnings": warnings,
+    }
+
+
 async def get_draft_recommendation_simple(
     league_key: str, strategy: str, num_recommendations: int, current_pick: Optional[int] = None
 ) -> dict:
@@ -1033,6 +1465,7 @@ async def get_draft_recommendation_simple(
         # Get available players using existing waiver wire function
         available_players = await get_waiver_wire_players(league_key, count=100)
         draft_rankings = await get_draft_rankings(league_key, count=50)
+        draft_context = await _get_draft_context(league_key, current_pick)
 
         # Simple scoring based on rankings and availability
         recommendations = []
@@ -1044,13 +1477,18 @@ async def get_draft_recommendation_simple(
             player_name = player.get("name", "").lower()
             if player_name in available_names:
                 # Simple scoring based on strategy
-                rank = player.get("rank", 999)
+                rank = _number(
+                    player.get("rank"),
+                    _number(player.get("average_draft_position"), 999),
+                )
+                adp = _number(player.get("average_draft_position"), rank)
                 base_score = max(0, 100 - rank)
+                strategy_bonus = 0.0
 
                 if strategy == "conservative":
                     # Prefer higher-ranked (safer) picks
-                    score = base_score + (10 if rank <= 24 else 0)
-                    reasoning = f"Rank #{rank}, conservative choice (proven player)"
+                    strategy_bonus = 10 if rank <= 24 else 0
+                    reasoning = f"Rank #{rank:g}, conservative choice (proven player)"
                 elif strategy == "aggressive":
                     # Prefer potential breakouts (lower owned %)
                     owned_pct = next(
@@ -1061,31 +1499,107 @@ async def get_draft_recommendation_simple(
                         ),
                         50,
                     )
-                    upside_bonus = max(0, 20 - (owned_pct / 5))  # Bonus for lower ownership
-                    score = base_score + upside_bonus
-                    reasoning = f"Rank #{rank}, high upside potential ({owned_pct}% owned)"
+                    strategy_bonus = max(
+                        0, 20 - (_number(owned_pct, 50) / 5)
+                    )  # Bonus for lower ownership
+                    reasoning = f"Rank #{rank:g}, high upside potential ({owned_pct}% owned)"
                 else:  # balanced
-                    score = base_score + (5 if rank <= 50 else 0)
-                    reasoning = f"Rank #{rank}, balanced value pick"
+                    strategy_bonus = 5 if rank <= 50 else 0
+                    reasoning = f"Rank #{rank:g}, balanced value pick"
 
-                recommendations.append({"player": player, "score": score, "reasoning": reasoning})
+                position = _normalize_draft_position(player.get("position"))
+                position_need = draft_context["positional_needs"].get(position, {})
+                need_bonus = _number(position_need.get("recommendation_bonus"))
+                scoring_bonus = _scoring_bonus(
+                    position,
+                    draft_context["league"]["scoring_format"],
+                    draft_context["league"]["passing_touchdown_points"],
+                )
+
+                timing_bonus = 0.0
+                next_pick = draft_context["draft_timing"].get("next_pick")
+                if next_pick and adp <= next_pick:
+                    draft_window = max(
+                        1, draft_context["draft_timing"].get("picks_until_next", 0) + 1
+                    )
+                    timing_bonus = min(12.0, max(2.0, ((next_pick - adp) / draft_window) * 8))
+
+                context_reasons = []
+                if need_bonus > 0:
+                    context_reasons.append(f"{position_need.get('need')} {position} need")
+                if scoring_bonus > 0:
+                    if position == "QB" and draft_context["league"][
+                        "passing_touchdown_points"
+                    ] not in (None, 4):
+                        context_reasons.append(
+                            f"{draft_context['league']['passing_touchdown_points']:g}-point passing TD fit"
+                        )
+                    else:
+                        context_reasons.append(
+                            f"{draft_context['league']['scoring_format']} scoring fit"
+                        )
+                if timing_bonus > 0:
+                    context_reasons.append("unlikely to last until your next snake-draft pick")
+                if context_reasons:
+                    reasoning = f"{reasoning}; " + ", ".join(context_reasons)
+
+                score = base_score + strategy_bonus + need_bonus + scoring_bonus + timing_bonus
+                recommendations.append(
+                    {
+                        "player": player,
+                        "score": round(score, 2),
+                        "reasoning": reasoning,
+                        "score_breakdown": {
+                            "base_rank": round(base_score, 2),
+                            "strategy": round(strategy_bonus, 2),
+                            "roster_need": round(need_bonus, 2),
+                            "league_scoring": round(scoring_bonus, 2),
+                            "draft_timing": round(timing_bonus, 2),
+                        },
+                    }
+                )
 
         # Sort by score and take top N
         recommendations.sort(key=lambda x: x["score"], reverse=True)
         top_picks = recommendations[:num_recommendations]
 
+        try:
+            decision_news = await get_decision_news_context(
+                [pick["player"].get("name", "") for pick in top_picks]
+            )
+        except Exception as exc:
+            decision_news = {
+                "by_player": {},
+                "sources": [],
+                "warnings": [f"Decision news unavailable: {exc}"],
+            }
+        for pick in top_picks:
+            name = pick["player"].get("name", "")
+            pick["news_context"] = decision_news["by_player"].get(
+                name,
+                {"espn": [], "rotowire": [], "espn_athlete_refs": []},
+            )
+
         return {
             "status": "success",
             "league_key": league_key,
             "strategy": strategy,
-            "current_pick": current_pick,
+            "current_pick": draft_context["draft_timing"].get("current_pick"),
             "recommendations": top_picks,
             "total_analyzed": len(recommendations),
+            "draft_context": draft_context,
+            "decision_evidence": {
+                "news_sources": decision_news["sources"],
+                "warnings": decision_news["warnings"],
+                "note": "News is attached as attributed evidence and does not alter numeric draft scores.",
+            },
             "insights": [
                 f"Using {strategy} draft strategy",
                 f"Analyzed {len(available_players)} available players",
                 "Cross-referenced with Yahoo rankings",
-                "Recommendations prioritize available players only",
+                "Used your drafted roster and current positional needs when available",
+                "Applied available Yahoo roster, supported scoring, and draft-timing context",
+                "Attached recent ESPN and RotoWire evidence for recommended players when available",
             ],
         }
 

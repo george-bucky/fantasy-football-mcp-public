@@ -130,11 +130,19 @@ class RotowireNewsService:
             return items
 
     async def get_player_news(
-        self, players: Sequence[str] | None = None, limit: int = 5
+        self,
+        players: Sequence[str] | None = None,
+        limit: int = 5,
+        *,
+        _max_limit: int = 5,
     ) -> dict[str, Any]:
         """Return up to five recent feed items, optionally filtered by player."""
-        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 5:
-            raise ValueError("limit must be an integer between 1 and 5")
+        if (
+            isinstance(limit, bool)
+            or not isinstance(limit, int)
+            or not 1 <= limit <= _max_limit
+        ):
+            raise ValueError(f"limit must be an integer between 1 and {_max_limit}")
 
         if players is not None and (
             isinstance(players, (str, bytes))
@@ -170,3 +178,12 @@ async def get_rotowire_player_news(
 ) -> dict[str, Any]:
     """Fetch player news through the shared in-memory service instance."""
     return await rotowire_news_service.get_player_news(players=players, limit=limit)
+
+
+async def get_rotowire_player_news_batch(
+    players: Sequence[str] | None = None, limit: int = 50
+) -> dict[str, Any]:
+    """Internal larger batch used before per-player decision limits are applied."""
+    return await rotowire_news_service.get_player_news(
+        players=players, limit=limit, _max_limit=50
+    )

@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from src.services import get_decision_news_context
+
 # These will be injected from main file
 get_user_team_key = None
 get_user_team_info = None
@@ -128,6 +130,21 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "data_quality": optimization.get("data_quality", {}),
             }
 
+        relevant_players = [
+            *optimization["starters"].values(),
+            *optimization["bench"][:5],
+        ]
+        try:
+            decision_news = await get_decision_news_context(
+                [player.name for player in relevant_players]
+            )
+        except Exception as exc:
+            decision_news = {
+                "by_player": {},
+                "sources": [],
+                "warnings": [f"Decision news unavailable: {exc}"],
+            }
+
         starters_formatted = {}
         for pos, player in optimization["starters"].items():
             starters_formatted[pos] = {
@@ -151,6 +168,10 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "ceiling": (
                     round(player.ceiling_projection, 1) if player.ceiling_projection else None
                 ),
+                "news_context": decision_news["by_player"].get(
+                    player.name,
+                    {"espn": [], "rotowire": [], "espn_athlete_refs": []},
+                ),
             }
 
         bench_formatted = [
@@ -161,6 +182,10 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "composite_score": round(player.composite_score, 1),
                 "matchup_score": player.matchup_score,
                 "tier": player.player_tier.upper() if player.player_tier else "UNKNOWN",
+                "news_context": decision_news["by_player"].get(
+                    player.name,
+                    {"espn": [], "rotowire": [], "espn_athlete_refs": []},
+                ),
             }
             for player in optimization["bench"][:5]
         ]
@@ -190,11 +215,17 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                     "Sleeper rankings",
                     "Matchup analysis",
                     "Trending data",
+                    *decision_news["sources"],
                 ],
+                "news_evidence_note": (
+                    "ESPN and RotoWire news is attached as evidence and does not "
+                    "silently change the deterministic lineup selection."
+                ),
             },
         }
-        if optimization.get("errors"):
-            result["warnings"] = optimization["errors"]
+        warnings = [*optimization.get("errors", []), *decision_news["warnings"]]
+        if warnings:
+            result["warnings"] = warnings
         return result
     except Exception as exc:
         return {
