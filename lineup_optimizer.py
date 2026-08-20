@@ -12,6 +12,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
+from src.services.rookie_intelligence import rookie_identity_key, rookie_identity_token
+
 logger = logging.getLogger(__name__)
 
 
@@ -1039,6 +1041,7 @@ class LineupOptimizer:
         week: Optional[int] = None,
         use_llm: bool = False,
         decision_news: Optional[Dict[str, Dict[str, Any]]] = None,
+        rookie_intelligence: Optional[Dict[tuple[str, str], Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Return a deterministic, evidence-labeled starter/bench split."""
 
@@ -1051,6 +1054,14 @@ class LineupOptimizer:
             strategy_used = "balanced"
 
         decision_news = decision_news or {}
+        rookie_intelligence = rookie_intelligence or {}
+        def evidence_key(player: Player) -> str:
+            return (
+                rookie_identity_token(player.name, player.position)
+                if rookie_intelligence
+                else player.name
+            )
+
         scores: Dict[int, float] = {}
         player_evidence: Dict[str, Dict[str, Any]] = {}
         for player in players:
@@ -1060,7 +1071,18 @@ class LineupOptimizer:
                 decision_news.get(player.name),
             )
             scores[id(player)] = score
-            player_evidence[player.name] = evidence
+            rookie_outlook = rookie_intelligence.get(
+                rookie_identity_key(player.name, player.position)
+            )
+            if rookie_outlook:
+                evidence["rookie_intelligence"] = rookie_outlook
+                if rookie_outlook.get("status") == "matched":
+                    evidence["inputs_used"].append(
+                        "Reviewed rookie-year PPR outlook (near-tie context only)"
+                    )
+                else:
+                    evidence["fallbacks"].extend(rookie_outlook.get("warnings", []))
+            player_evidence[evidence_key(player)] = evidence
 
         active_slots = [
             (index, (player.roster_position or player.position).upper())
@@ -1082,6 +1104,7 @@ class LineupOptimizer:
         )
         selected_ids: set[int] = set()
         selected_by_index: Dict[int, Player] = {}
+        rookie_tiebreaks: list[dict[str, Any]] = []
         for index, slot in assignment_order:
             eligible = [
                 player
@@ -1091,6 +1114,84 @@ class LineupOptimizer:
             if not eligible:
                 continue
             selected = max(eligible, key=lambda player: scores[id(player)])
+            best_score = scores[id(selected)]
+            best_evidence = player_evidence[evidence_key(selected)]
+            best_weekly_sources = {
+                source
+                for source, available in (
+                    ("yahoo_projection", selected.yahoo_projection > 0),
+                    (
+                        "sleeper_projection",
+                        _sleeper_projection_for_format(selected) > 0
+                        and selected.sleeper_projection_source == "sleeper_api",
+                    ),
+                    ("recent_actuals", bool(_recent_actual_points(selected))),
+                )
+                if available
+            }
+            best_has_availability_risk = bool(best_evidence["health_flags"]) or any(
+                signal.get("signal") == "availability_or_role_risk"
+                for signal in best_evidence["news_signals"]
+            )
+            if not best_has_availability_risk and best_score > 0 and best_weekly_sources:
+                near_tied_rookies = [
+                    player
+                    for player in eligible
+                    if rookie_intelligence.get(
+                        rookie_identity_key(player.name, player.position), {}
+                    ).get("status")
+                    == "matched"
+                    and not player_evidence[evidence_key(player)]["health_flags"]
+                    and not any(
+                        signal.get("signal") == "availability_or_role_risk"
+                        for signal in player_evidence[evidence_key(player)]["news_signals"]
+                    )
+                    and scores[id(player)] > 0
+                    and bool(
+                        best_weekly_sources
+                        & {
+                            source
+                            for source, available in (
+                                ("yahoo_projection", player.yahoo_projection > 0),
+                                (
+                                    "sleeper_projection",
+                                    _sleeper_projection_for_format(player) > 0
+                                    and player.sleeper_projection_source == "sleeper_api",
+                                ),
+                                ("recent_actuals", bool(_recent_actual_points(player))),
+                            )
+                            if available
+                        }
+                    )
+                    and round(scores[id(player)], 1) == round(best_score, 1)
+                ]
+                if near_tied_rookies:
+                    rookie_choice = min(
+                        near_tied_rookies,
+                        key=lambda player: rookie_intelligence[
+                            rookie_identity_key(player.name, player.position)
+                        ]["base_rank"],
+                    )
+                    if rookie_choice is not selected:
+                        rookie_tiebreaks.append(
+                            {
+                                "slot": _slot_label(slot),
+                                "selected": rookie_choice.name,
+                                "over": selected.name,
+                                "rounded_weekly_score": round(best_score, 1),
+                                "rookie_base_rank": rookie_intelligence[
+                                    rookie_identity_key(rookie_choice.name, rookie_choice.position)
+                                ]["base_rank"],
+                                "note": (
+                                    "Season-long rookie outlook broke a rounded weekly-score tie; "
+                                    "numeric weekly scores and health evidence were not changed."
+                                ),
+                            }
+                        )
+                        player_evidence[evidence_key(rookie_choice)][
+                            "rookie_tiebreak_applied"
+                        ] = True
+                        selected = rookie_choice
             selected_ids.add(id(selected))
             selected_by_index[index] = selected
 
@@ -1141,7 +1242,7 @@ class LineupOptimizer:
             "low_confidence_matches": sum(1 for p in players if 0 < p.match_confidence < 0.6),
         }
 
-        return {
+        result = {
             "status": "success",
             "strategy_used": strategy_used,
             "strategy_requested": strategy,
@@ -1162,6 +1263,15 @@ class LineupOptimizer:
                 ),
             },
         }
+        if rookie_intelligence:
+            result["strategy_summary"]["rookie_intelligence"] = {
+                "role": "rounded weekly-score tie break only",
+                "tiebreaks": rookie_tiebreaks,
+                "numeric_scores_changed": False,
+                "opponent_aware": False,
+                "note": "Season-long first-year PPR outlook is not a weekly projection.",
+            }
+        return result
 
 
 lineup_optimizer = LineupOptimizer()

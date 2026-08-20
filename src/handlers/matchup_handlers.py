@@ -3,7 +3,12 @@
 import asyncio
 from typing import Any, Optional
 
-from src.services import get_decision_news_context
+from src.services import (
+    apply_rookie_intelligence,
+    get_decision_news_context,
+    rookie_identity_key,
+    rookie_identity_token,
+)
 
 # These will be injected from main file
 get_user_team_key = None
@@ -159,6 +164,7 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
     week = arguments.get("week")
     strategy = arguments.get("strategy", "balanced")
     use_llm = arguments.get("use_llm", False)
+    use_rookie_intelligence = arguments.get("use_rookie_intelligence", False)
 
     team_key = await get_user_team_key(league_key)
     if not team_key:
@@ -198,12 +204,30 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "sources": [],
                 "warnings": [f"Decision news unavailable: {exc}"],
             }
+        rookie_by_identity: dict[tuple[str, str], dict[str, Any]] = {}
+        rookie_evidence = None
+        if use_rookie_intelligence:
+            try:
+                rookie_context = apply_rookie_intelligence(
+                    [{"name": player.name, "position": player.position} for player in players],
+                    context="lineup",
+                )
+                rookie_by_identity = rookie_context["by_identity"]
+                rookie_evidence = rookie_context["evidence"]
+            except Exception as exc:
+                rookie_evidence = {
+                    "enabled": False,
+                    "warnings": [f"Rookie intelligence unavailable: {exc}"],
+                    "opponent_aware": False,
+                    "influence": "None; reviewed rookie data failed closed.",
+                }
         optimization = await lineup_optimizer.optimize_lineup_smart(
             players,
             strategy,
             week,
             use_llm,
             decision_news=decision_news["by_player"],
+            rookie_intelligence=rookie_by_identity,
         )
         if optimization["status"] == "error":
             return {
@@ -243,11 +267,21 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                     player.name,
                     {"espn": [], "rotowire": [], "espn_athlete_refs": []},
                 ),
-                "selection_evidence": optimization.get("player_evidence", {}).get(player.name, {}),
+                "selection_evidence": optimization.get("player_evidence", {}).get(
+                    rookie_identity_token(player.name, player.position)
+                    if use_rookie_intelligence
+                    else player.name,
+                    {},
+                ),
             }
+            if use_rookie_intelligence:
+                starters_formatted[pos]["rookie_intelligence"] = rookie_by_identity.get(
+                    rookie_identity_key(player.name, player.position)
+                )
 
-        bench_formatted = [
-            {
+        bench_formatted = []
+        for player in optimization["bench"][:5]:
+            bench_player = {
                 "name": player.name,
                 "position": player.position,
                 "opponent": player.opponent,
@@ -258,10 +292,18 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                     player.name,
                     {"espn": [], "rotowire": [], "espn_athlete_refs": []},
                 ),
-                "selection_evidence": optimization.get("player_evidence", {}).get(player.name, {}),
+                "selection_evidence": optimization.get("player_evidence", {}).get(
+                    rookie_identity_token(player.name, player.position)
+                    if use_rookie_intelligence
+                    else player.name,
+                    {},
+                ),
             }
-            for player in optimization["bench"][:5]
-        ]
+            if use_rookie_intelligence:
+                bench_player["rookie_intelligence"] = rookie_by_identity.get(
+                    rookie_identity_key(player.name, player.position)
+                )
+            bench_formatted.append(bench_player)
 
         result: dict[str, Any] = {
             "status": optimization["status"],
@@ -295,6 +337,9 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
             },
         }
         warnings = [*optimization.get("errors", []), *decision_news["warnings"]]
+        if rookie_evidence is not None:
+            result["analysis"]["rookie_intelligence"] = rookie_evidence
+            warnings.extend(rookie_evidence.get("warnings", []))
         if warnings:
             result["warnings"] = warnings
         return result
