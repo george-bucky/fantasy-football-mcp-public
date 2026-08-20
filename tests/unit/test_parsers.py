@@ -86,6 +86,7 @@ class TestParseTeamRoster:
                                                     "name": {"full": "Flex Player"},
                                                     "display_position": "RB",
                                                     "editorial_team_abbr": "KC",
+                                                    "player_projected_points": {"total": "13.7"},
                                                 }
                                             ],
                                             {"selected_position": [{"position": "FLEX"}]},
@@ -102,6 +103,8 @@ class TestParseTeamRoster:
         result = parse_team_roster(response)
         assert len(result) == 1
         assert result[0]["position"] == "FLEX"  # Should use selected_position
+        assert result[0]["display_position"] == "RB"
+        assert result[0]["yahoo_projection"] == 13.7
 
     def test_parse_roster_with_nested_team_structure(self):
         """Test parsing team abbreviation from nested structure."""
