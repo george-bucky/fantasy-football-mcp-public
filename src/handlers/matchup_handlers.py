@@ -1,13 +1,16 @@
 """Matchup MCP tool handlers."""
 
 import asyncio
+from copy import deepcopy
 from typing import Any, Optional
 
 from src.services import (
+    MatchupEvidenceError,
     apply_rookie_intelligence,
     get_decision_news_context,
     rookie_identity_key,
     rookie_identity_token,
+    weekly_matchup_evidence_service,
 )
 
 # These will be injected from main file
@@ -72,21 +75,130 @@ def _lineup_scoring_format(settings_data: dict, categories_data: dict) -> Option
     return None
 
 
-async def _get_lineup_scoring_format(league_key: str) -> tuple[str, str]:
+def _first_int_field(data: Any, field: str) -> Optional[int]:
+    for node in _walk_dicts(data):
+        value = node.get(field)
+        if isinstance(value, bool):
+            continue
+        try:
+            parsed = int(str(value).strip())
+        except (TypeError, ValueError):
+            continue
+        return parsed
+    return None
+
+
+async def _get_lineup_context(league_key: str) -> dict[str, Any]:
     game_key = league_key.split(".", 1)[0]
     settings_data, categories_data = await asyncio.gather(
         yahoo_api_call(f"league/{league_key}/settings"),
         yahoo_api_call(f"game/{game_key}/stat_categories"),
         return_exceptions=True,
     )
-    if isinstance(settings_data, Exception) or isinstance(categories_data, Exception):
-        return "ppr", "fallback_default_ppr"
+    if isinstance(settings_data, Exception):
+        settings_data = {}
+    if isinstance(categories_data, Exception):
+        categories_data = {}
     scoring_format = _lineup_scoring_format(settings_data, categories_data)
+    canonical_basis = str(scoring_format or "unknown").replace("-", "_")
     if scoring_format == "custom":
-        return "ppr", "fallback_custom_ppr"
-    if scoring_format is None:
-        return "ppr", "fallback_default_ppr"
-    return scoring_format, "yahoo_settings"
+        projection_format, source = "ppr", "fallback_custom_ppr"
+    elif scoring_format is None:
+        projection_format, source = "ppr", "fallback_default_ppr"
+    else:
+        projection_format, source = scoring_format, "yahoo_settings"
+    return {
+        "scoring_format": projection_format,
+        "scoring_format_source": source,
+        "canonical_scoring_basis": canonical_basis,
+        "season": _first_int_field(settings_data, "season"),
+        "current_week": _first_int_field(settings_data, "current_week"),
+    }
+
+
+async def _get_lineup_scoring_format(league_key: str) -> tuple[str, str]:
+    """Compatibility wrapper retained for focused parser tests."""
+    context = await _get_lineup_context(league_key)
+    return context["scoring_format"], context["scoring_format_source"]
+
+
+async def _resolve_matchup_period(
+    *, season: Optional[int], requested_week: Any, yahoo_current_week: Optional[int]
+) -> tuple[int, int, int]:
+    if season is None or not 2000 <= season <= 2100:
+        raise MatchupEvidenceError("Exact Yahoo league season is unavailable")
+    current_week = yahoo_current_week
+    if current_week is None or not 1 <= current_week <= 18:
+        from sleeper_api import sleeper_client
+
+        state = await sleeper_client.get_nfl_state()
+        sleeper_season = _first_int_field(state, "season")
+        sleeper_week = _first_int_field(state, "week")
+        if sleeper_season != season:
+            raise MatchupEvidenceError("Sleeper season does not match the Yahoo league season")
+        if sleeper_week is None or not 1 <= sleeper_week <= 18:
+            raise MatchupEvidenceError("Current week is unavailable from Yahoo and Sleeper")
+        current_week = sleeper_week
+    if requested_week is None:
+        target_week = current_week
+    else:
+        if isinstance(requested_week, bool):
+            raise MatchupEvidenceError("Week must be an integer between 1 and 18")
+        try:
+            target_week = int(requested_week)
+        except (TypeError, ValueError) as exc:
+            raise MatchupEvidenceError("Week must be an integer between 1 and 18") from exc
+        if not 1 <= target_week <= 18:
+            raise MatchupEvidenceError("Week must be an integer between 1 and 18")
+    cutoff_week = min(target_week - 1, current_week - 1)
+    return season, target_week, max(0, cutoff_week)
+
+
+def _unavailable_matchup_evidence(
+    *, reason: str, season: Optional[int], target_week: Any, scoring_basis: str
+) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "available": False,
+        "applied": False,
+        "unavailable_reason": reason,
+        "season": season,
+        "target_week": target_week,
+        "cutoff_week": None,
+        "opponent": None,
+        "home_away": None,
+        "kickoff": None,
+        "canonical_scoring_basis": scoring_basis,
+        "games_sampled": 0,
+        "points_allowed_per_game": None,
+        "rank": None,
+        "percentile": None,
+        "source_url": None,
+        "source_version": None,
+        "fetched_at": None,
+        "warnings": [reason],
+        "tie_break_audit": [],
+        "schedule": {"status": "unavailable"},
+        "strength": {"status": "source_unavailable"},
+    }
+
+
+def _apply_weekly_matchup_evidence(players, evidence_rows: list[dict[str, Any]]) -> None:
+    if len(players) != len(evidence_rows):
+        raise MatchupEvidenceError("Player and matchup evidence counts do not match")
+    for player, evidence in zip(players, evidence_rows):
+        player.weekly_matchup_evidence = evidence
+        schedule_status = evidence.get("schedule", {}).get("status")
+        if schedule_status == "bye":
+            player.opponent = "BYE"
+        elif schedule_status == "matched":
+            player.opponent = str(evidence.get("opponent") or "")
+        if evidence.get("strength", {}).get("status") == "available":
+            player.matchup_description = (
+                f"{evidence['canonical_scoring_basis']} points allowed: "
+                f"{evidence['points_allowed_per_game']:.1f}/game vs {player.position} "
+                f"(rank {evidence['rank']:g}/32)"
+            )
 
 
 async def handle_ff_get_matchup(arguments: dict) -> dict:
@@ -165,6 +277,7 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
     strategy = arguments.get("strategy", "balanced")
     use_llm = arguments.get("use_llm", False)
     use_rookie_intelligence = arguments.get("use_rookie_intelligence", False)
+    use_matchup_evidence = arguments.get("use_matchup_evidence", False)
 
     team_key = await get_user_team_key(league_key)
     if not team_key:
@@ -191,11 +304,51 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "suggestion": "Check roster data format or try refreshing",
             }
 
-        scoring_format, scoring_format_source = await _get_lineup_scoring_format(league_key)
+        lineup_context = await _get_lineup_context(league_key)
+        scoring_format = lineup_context["scoring_format"]
+        scoring_format_source = lineup_context["scoring_format_source"]
         for player in players:
             player.scoring_format = scoring_format
             player.scoring_format_source = scoring_format_source
         players = await lineup_optimizer.enhance_with_external_data(players, week=week)
+        matchup_context = None
+        if use_matchup_evidence:
+            try:
+                season, target_week, cutoff_week = await _resolve_matchup_period(
+                    season=lineup_context["season"],
+                    requested_week=week,
+                    yahoo_current_week=lineup_context["current_week"],
+                )
+                matchup_context = await weekly_matchup_evidence_service.get_evidence(
+                    [
+                        {"name": player.name, "team": player.team, "position": player.position}
+                        for player in players
+                    ],
+                    season=season,
+                    target_week=target_week,
+                    cutoff_week=cutoff_week,
+                    scoring_basis=lineup_context["canonical_scoring_basis"],
+                )
+                _apply_weekly_matchup_evidence(players, matchup_context["players"])
+            except Exception as exc:
+                unavailable = _unavailable_matchup_evidence(
+                    reason=f"Weekly matchup evidence unavailable: {exc}",
+                    season=lineup_context["season"],
+                    target_week=(
+                        week
+                        if week is not None
+                        else lineup_context["current_week"] or "current"
+                    ),
+                    scoring_basis=lineup_context["canonical_scoring_basis"],
+                )
+                _apply_weekly_matchup_evidence(
+                    players, [deepcopy(unavailable) for _ in players]
+                )
+                matchup_context = {
+                    "enabled": True,
+                    "players": [player.weekly_matchup_evidence for player in players],
+                    "warnings": [unavailable["unavailable_reason"]],
+                }
         try:
             decision_news = await get_decision_news_context([player.name for player in players])
         except Exception as exc:
@@ -228,6 +381,7 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
             use_llm,
             decision_news=decision_news["by_player"],
             rookie_intelligence=rookie_by_identity,
+            use_matchup_evidence=use_matchup_evidence,
         )
         if optimization["status"] == "error":
             return {
@@ -269,11 +423,15 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 ),
                 "selection_evidence": optimization.get("player_evidence", {}).get(
                     rookie_identity_token(player.name, player.position)
-                    if use_rookie_intelligence
+                    if use_rookie_intelligence or use_matchup_evidence
                     else player.name,
                     {},
                 ),
             }
+            if use_matchup_evidence:
+                starters_formatted[pos]["weekly_matchup_evidence"] = (
+                    player.weekly_matchup_evidence
+                )
             if use_rookie_intelligence:
                 starters_formatted[pos]["rookie_intelligence"] = rookie_by_identity.get(
                     rookie_identity_key(player.name, player.position)
@@ -294,11 +452,13 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 ),
                 "selection_evidence": optimization.get("player_evidence", {}).get(
                     rookie_identity_token(player.name, player.position)
-                    if use_rookie_intelligence
+                    if use_rookie_intelligence or use_matchup_evidence
                     else player.name,
                     {},
                 ),
             }
+            if use_matchup_evidence:
+                bench_player["weekly_matchup_evidence"] = player.weekly_matchup_evidence
             if use_rookie_intelligence:
                 bench_player["rookie_intelligence"] = rookie_by_identity.get(
                     rookie_identity_key(player.name, player.position)
@@ -340,6 +500,11 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
         if rookie_evidence is not None:
             result["analysis"]["rookie_intelligence"] = rookie_evidence
             warnings.extend(rookie_evidence.get("warnings", []))
+        if matchup_context is not None:
+            result["analysis"]["weekly_matchup_evidence"] = {
+                key: value for key, value in matchup_context.items() if key != "players"
+            }
+            warnings.extend(matchup_context.get("warnings", []))
         if warnings:
             result["warnings"] = warnings
         return result

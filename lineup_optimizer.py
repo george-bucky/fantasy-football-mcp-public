@@ -266,6 +266,7 @@ class Player:
     sleeper_depth_chart_order: int = 0
     scoring_format: str = "ppr"
     scoring_format_source: str = "fallback_default_ppr"
+    weekly_matchup_evidence: Dict[str, Any] = field(default_factory=dict)
 
     def is_valid(self) -> bool:
         return bool(self.name and self.team)
@@ -728,6 +729,7 @@ class LineupOptimizer:
                     sleeper_depth_chart_order=player.sleeper_depth_chart_order,
                     scoring_format=player.scoring_format,
                     scoring_format_source=player.scoring_format_source,
+                    weekly_matchup_evidence=player.weekly_matchup_evidence.copy(),
                     sleeper_match_method=player.sleeper_match_method,
                     player_tier=player.player_tier,
                     matchup_score=player.matchup_score,
@@ -1042,6 +1044,7 @@ class LineupOptimizer:
         use_llm: bool = False,
         decision_news: Optional[Dict[str, Dict[str, Any]]] = None,
         rookie_intelligence: Optional[Dict[tuple[str, str], Dict[str, Any]]] = None,
+        use_matchup_evidence: bool = False,
     ) -> Dict[str, Any]:
         """Return a deterministic, evidence-labeled starter/bench split."""
 
@@ -1058,7 +1061,7 @@ class LineupOptimizer:
         def evidence_key(player: Player) -> str:
             return (
                 rookie_identity_token(player.name, player.position)
-                if rookie_intelligence
+                if rookie_intelligence or use_matchup_evidence
                 else player.name
             )
 
@@ -1082,6 +1085,17 @@ class LineupOptimizer:
                     )
                 else:
                     evidence["fallbacks"].extend(rookie_outlook.get("warnings", []))
+            if use_matchup_evidence:
+                evidence["weekly_matchup_evidence"] = player.weekly_matchup_evidence
+                if player.weekly_matchup_evidence.get("available"):
+                    evidence["inputs_used"].append(
+                        "nflverse current-week opponent and defensive points allowed"
+                    )
+                else:
+                    reason = player.weekly_matchup_evidence.get("unavailable_reason")
+                    evidence["fallbacks"].append(
+                        f"Weekly matchup evidence unavailable: {reason or 'unknown'}"
+                    )
             player_evidence[evidence_key(player)] = evidence
 
         active_slots = [
@@ -1104,6 +1118,7 @@ class LineupOptimizer:
         )
         selected_ids: set[int] = set()
         selected_by_index: Dict[int, Player] = {}
+        matchup_tiebreaks: list[dict[str, Any]] = []
         rookie_tiebreaks: list[dict[str, Any]] = []
         for index, slot in assignment_order:
             eligible = [
@@ -1132,16 +1147,21 @@ class LineupOptimizer:
             best_has_availability_risk = bool(best_evidence["health_flags"]) or any(
                 signal.get("signal") == "availability_or_role_risk"
                 for signal in best_evidence["news_signals"]
+            ) or (
+                use_matchup_evidence
+                and selected.weekly_matchup_evidence.get("schedule", {}).get("status") == "bye"
             )
+            safe_near_ties = []
             if not best_has_availability_risk and best_score > 0 and best_weekly_sources:
-                near_tied_rookies = [
+                safe_near_ties = [
                     player
                     for player in eligible
-                    if rookie_intelligence.get(
-                        rookie_identity_key(player.name, player.position), {}
-                    ).get("status")
-                    == "matched"
-                    and not player_evidence[evidence_key(player)]["health_flags"]
+                    if not player_evidence[evidence_key(player)]["health_flags"]
+                    and not (
+                        use_matchup_evidence
+                        and player.weekly_matchup_evidence.get("schedule", {}).get("status")
+                        == "bye"
+                    )
                     and not any(
                         signal.get("signal") == "availability_or_role_risk"
                         for signal in player_evidence[evidence_key(player)]["news_signals"]
@@ -1164,6 +1184,58 @@ class LineupOptimizer:
                         }
                     )
                     and round(scores[id(player)], 1) == round(best_score, 1)
+                ]
+            matchup_resolved = False
+            if use_matchup_evidence and safe_near_ties:
+                sourced = [
+                    player
+                    for player in safe_near_ties
+                    if player.weekly_matchup_evidence.get("available")
+                    and isinstance(player.weekly_matchup_evidence.get("percentile"), (int, float))
+                ]
+                if selected in sourced and len(sourced) >= 2:
+                    matchup_choice = max(
+                        sourced,
+                        key=lambda player: float(
+                            player.weekly_matchup_evidence["percentile"]
+                        ),
+                    )
+                    runner_up = max(
+                        (player for player in sourced if player is not matchup_choice),
+                        key=lambda player: float(
+                            player.weekly_matchup_evidence["percentile"]
+                        ),
+                    )
+                    matchup_gap = float(
+                        matchup_choice.weekly_matchup_evidence["percentile"]
+                    ) - float(
+                        runner_up.weekly_matchup_evidence["percentile"]
+                    )
+                    if matchup_gap >= 12.5:
+                        previous_selected = selected
+                        audit = {
+                            "slot": _slot_label(slot),
+                            "selected": matchup_choice.name,
+                            "over": runner_up.name,
+                            "rounded_weekly_score": round(best_score, 1),
+                            "percentile_gap": round(matchup_gap, 3),
+                            "threshold": 12.5,
+                            "selection_changed": matchup_choice is not previous_selected,
+                            "numeric_scores_changed": False,
+                        }
+                        matchup_tiebreaks.append(audit)
+                        matchup_choice.weekly_matchup_evidence["applied"] = True
+                        matchup_choice.weekly_matchup_evidence["tie_break_audit"].append(audit)
+                        selected = matchup_choice
+                        matchup_resolved = True
+            if not matchup_resolved and safe_near_ties:
+                near_tied_rookies = [
+                    player
+                    for player in safe_near_ties
+                    if rookie_intelligence.get(
+                        rookie_identity_key(player.name, player.position), {}
+                    ).get("status")
+                    == "matched"
                 ]
                 if near_tied_rookies:
                     rookie_choice = min(
@@ -1230,7 +1302,11 @@ class LineupOptimizer:
             "players_with_matchup_data": sum(
                 1
                 for p in players
-                if p.matchup_description and p.matchup_description != "No matchup context"
+                if (
+                    p.weekly_matchup_evidence.get("schedule", {}).get("status") == "matched"
+                    if use_matchup_evidence
+                    else p.matchup_description and p.matchup_description != "No matchup context"
+                )
             ),
             "players_with_sleeper_match": sum(
                 1 for p in players if p.sleeper_id and p.sleeper_match_method not in ["failed", ""]
@@ -1256,13 +1332,23 @@ class LineupOptimizer:
             "strategy_summary": {
                 "inputs_used": all_inputs,
                 "fallbacks": all_fallbacks,
-                "opponent_aware": False,
+                "opponent_aware": bool(matchup_tiebreaks),
                 "note": (
                     "Selection uses Yahoo plus provenance-gated Sleeper evidence. "
                     "Attributed news affects qualitative confidence/risk only."
                 ),
             },
         }
+        if use_matchup_evidence:
+            result["strategy_summary"]["weekly_matchup_evidence"] = {
+                "enabled": True,
+                "available_players": sum(
+                    1 for player in players if player.weekly_matchup_evidence.get("available")
+                ),
+                "applied": bool(matchup_tiebreaks),
+                "numeric_scores_changed": False,
+                "tie_break_audit": matchup_tiebreaks,
+            }
         if rookie_intelligence:
             result["strategy_summary"]["rookie_intelligence"] = {
                 "role": "rounded weekly-score tie break only",

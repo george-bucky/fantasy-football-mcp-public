@@ -558,6 +558,7 @@ async def ff_build_lineup(
     strategy: Literal["conservative", "aggressive", "balanced"] = "balanced",
     debug: bool = False,
     use_rookie_intelligence: bool = False,
+    use_matchup_evidence: bool = False,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_build_lineup",
@@ -567,6 +568,7 @@ async def ff_build_lineup(
         strategy=strategy,
         debug=debug,
         use_rookie_intelligence=use_rookie_intelligence,
+        use_matchup_evidence=use_matchup_evidence,
     )
 
 
