@@ -2,9 +2,43 @@
 
 from typing import Any, Dict
 
+from src.services import apply_rookie_intelligence
+
 # These will be injected from main file
 yahoo_api_call = None
 get_waiver_wire_players = None
+
+
+def _apply_rookie_waiver_context(
+    result: dict[str, Any], *, use_rookie_intelligence: bool, rookie_only: bool
+) -> dict[str, Any]:
+    if not use_rookie_intelligence:
+        return result
+    target_key = "enhanced_players" if result.get("enhanced_players") is not None else "players"
+    try:
+        context = apply_rookie_intelligence(
+            result.get(target_key, []),
+            context="waiver",
+            rookie_only=rookie_only,
+        )
+        result[target_key] = context["players"]
+        if rookie_only:
+            result["players"] = context["players"]
+        result["total_players"] = len(context["players"])
+        result.setdefault("decision_evidence", {})["rookie_intelligence"] = context["evidence"]
+    except Exception as exc:
+        if rookie_only:
+            result[target_key] = []
+            result["players"] = []
+            result["total_players"] = 0
+        result.setdefault("decision_evidence", {})["rookie_intelligence"] = {
+            "enabled": False,
+            "rookie_only": rookie_only,
+            "warnings": [f"Rookie intelligence unavailable: {exc}"],
+            "opponent_aware": False,
+            "influence": "None; reviewed rookie data failed closed.",
+        }
+    return result
 
 
 async def handle_ff_get_players(arguments: dict) -> dict:
@@ -275,6 +309,8 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
             - include_analysis: Include detailed analysis (default: False)
             - include_projections: Include projections (default: True)
             - include_external_data: Include Sleeper data (default: True)
+            - use_rookie_intelligence: Use reviewed first-year PPR outlook (default: False)
+            - rookie_only: Return only exact current-class rookie matches (default: False)
 
     Returns:
         Dict with waiver wire players and optional analysis
@@ -311,11 +347,14 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
     include_analysis = arguments.get("include_analysis", False)
     include_projections = arguments.get("include_projections", True)
     include_external_data = arguments.get("include_external_data", True)
+    use_rookie_intelligence = arguments.get("use_rookie_intelligence", False)
+    rookie_only = arguments.get("rookie_only", False)
+    use_rookie_intelligence = use_rookie_intelligence or rookie_only
 
     # Fetch basic Yahoo waiver players
     basic_players = await get_waiver_wire_players(league_key, position, sort, count)
     if not basic_players:
-        return {
+        empty_result = {
             "status": "success",
             "league_key": league_key,
             "position": position,
@@ -324,6 +363,11 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
             "players": [],
             "message": "No available players found matching the criteria",
         }
+        return _apply_rookie_waiver_context(
+            empty_result,
+            use_rookie_intelligence=use_rookie_intelligence,
+            rookie_only=rookie_only,
+        )
 
     result = {
         "status": "success",
@@ -337,14 +381,22 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
     needs_enhancement = include_projections or include_external_data or include_analysis
 
     if not needs_enhancement:
-        return result
+        return _apply_rookie_waiver_context(
+            result,
+            use_rookie_intelligence=use_rookie_intelligence,
+            rookie_only=rookie_only,
+        )
 
     try:
         from lineup_optimizer import lineup_optimizer, Player
         from sleeper_api import get_trending_adds, sleeper_client
     except ImportError as exc:
         result["note"] = f"Enhanced data unavailable: {exc}"
-        return result
+        return _apply_rookie_waiver_context(
+            result,
+            use_rookie_intelligence=use_rookie_intelligence,
+            rookie_only=rookie_only,
+        )
 
     try:
         # Create payload for optimizer (mimic roster format)
@@ -623,4 +675,8 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
     except Exception as exc:
         result["note"] = f"Enhancement failed: {exc}. Using basic data."
 
-    return result
+    return _apply_rookie_waiver_context(
+        result,
+        use_rookie_intelligence=use_rookie_intelligence,
+        rookie_only=rookie_only,
+    )

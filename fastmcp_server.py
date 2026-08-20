@@ -24,6 +24,38 @@ import fantasy_football_multi_league
 _legacy_call_tool = fantasy_football_multi_league.call_tool
 _legacy_refresh_token = fantasy_football_multi_league.refresh_yahoo_token
 
+
+def _sort_enhanced_waiver_players(
+    players: Sequence[dict[str, Any]], sort: str, rookie_enabled: bool = False
+) -> list[dict[str, Any]]:
+    """Apply the requested veteran sort, then reorder only matched rookie slots."""
+
+    ordered = list(players)
+    if sort == "rank" and ordered:
+        if "waiver_priority" in ordered[0]:
+            ordered.sort(key=lambda player: player.get("waiver_priority", 0), reverse=True)
+        else:
+            ordered.sort(key=lambda player: player.get("expert_confidence", 0), reverse=True)
+    elif sort == "trending":
+        ordered.sort(key=lambda player: player.get("trending_score", 50), reverse=True)
+
+    if not rookie_enabled:
+        return ordered
+    rookie_slots = [
+        index
+        for index, player in enumerate(ordered)
+        if player.get("rookie_intelligence", {}).get("status") == "matched"
+    ]
+    if len(rookie_slots) < 2:
+        return ordered
+    ranked_rookies = sorted(
+        (ordered[index] for index in rookie_slots),
+        key=lambda player: player["rookie_intelligence"]["base_rank"],
+    )
+    for index, rookie in zip(rookie_slots, ranked_rookies):
+        ordered[index] = rookie
+    return ordered
+
 server = FastMCP(
     name="fantasy-football",
     instructions=(
@@ -520,6 +552,7 @@ async def ff_build_lineup(
     week: Optional[int] = None,
     strategy: Literal["conservative", "aggressive", "balanced"] = "balanced",
     debug: bool = False,
+    use_rookie_intelligence: bool = False,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_build_lineup",
@@ -528,6 +561,7 @@ async def ff_build_lineup(
         week=week,
         strategy=strategy,
         debug=debug,
+        use_rookie_intelligence=use_rookie_intelligence,
     )
 
 
@@ -626,6 +660,8 @@ async def ff_get_waiver_wire(
     team_key: Optional[str] = None,
     include_expert_analysis: bool = True,
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
+    use_rookie_intelligence: bool = False,
+    rookie_only: bool = False,
 ) -> Dict[str, Any]:
     """
     Enhanced waiver wire analysis with expert recommendations.
@@ -676,6 +712,8 @@ async def ff_get_waiver_wire(
             include_projections=include_projections,
             include_external_data=include_external_data,
             include_analysis=include_analysis,
+            use_rookie_intelligence=use_rookie_intelligence,
+            rookie_only=rookie_only,
         )
 
         # Check if main server provided enhanced players
@@ -687,17 +725,12 @@ async def ff_get_waiver_wire(
             # Replace basic players with enhanced players for better data
             result["players"] = result["enhanced_players"]
 
-            # Ensure proper sorting based on request
-            if sort == "rank" and result["players"]:
-                # Sort by waiver_priority if available, else expert_confidence
-                if "waiver_priority" in result["players"][0]:
-                    result["players"].sort(key=lambda x: x.get("waiver_priority", 0), reverse=True)
-                else:
-                    result["players"].sort(
-                        key=lambda x: x.get("expert_confidence", 0), reverse=True
-                    )
-            elif sort == "trending":
-                result["players"].sort(key=lambda x: x.get("trending_score", 50), reverse=True)
+            rookie_enabled = bool(
+                result.get("decision_evidence", {}).get("rookie_intelligence", {}).get("enabled")
+            )
+            result["players"] = _sort_enhanced_waiver_players(
+                result["players"], sort, rookie_enabled
+            )
         elif include_expert_analysis and ctx:
             await ctx.info("Expert analysis requested but not available from main server")
 
@@ -748,6 +781,8 @@ async def ff_get_draft_recommendation(
     strategy: Literal["conservative", "aggressive", "balanced"] = "balanced",
     num_recommendations: int = 10,
     current_pick: Optional[int] = None,
+    use_rookie_intelligence: bool = False,
+    rookie_only: bool = False,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_get_draft_recommendation",
@@ -756,6 +791,8 @@ async def ff_get_draft_recommendation(
         strategy=strategy,
         num_recommendations=num_recommendations,
         current_pick=current_pick,
+        use_rookie_intelligence=use_rookie_intelligence,
+        rookie_only=rookie_only,
     )
 
 
@@ -988,7 +1025,7 @@ Analyze:
 Provide a week-by-week action plan."""
 
 
-@server.prompt  
+@server.prompt
 def playoff_preparation(league_key: str, team_key: str, current_week: int) -> str:
     """Generate a prompt for playoff preparation strategy."""
     return f"""Create a playoff preparation strategy for team {team_key} in league {league_key} (currently Week {current_week}).
