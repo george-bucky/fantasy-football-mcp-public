@@ -63,3 +63,17 @@ def test_opt_out_points_and_owned_preserve_original_enhanced_order():
 
     assert _sort_enhanced_waiver_players(players, "points") == players
     assert _sort_enhanced_waiver_players(players, "owned") == players
+
+
+def test_rookie_only_preserves_complete_context_order_after_enrichment():
+    players = [
+        {"name": "Team Fit", "waiver_priority": 1},
+        {"name": "Higher Analysis", "waiver_priority": 99},
+    ]
+
+    assert _sort_enhanced_waiver_players(
+        players,
+        "rank",
+        rookie_enabled=True,
+        rookie_only=True,
+    ) == players

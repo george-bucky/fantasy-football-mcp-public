@@ -82,6 +82,8 @@ def inject_player_dependencies(**deps):
     Required dependencies:
     - yahoo_api_call: Make Yahoo API calls
     - get_waiver_wire_players: Get waiver wire players
+    - get_user_team_key: Resolve the authenticated user's exact team
+    - get_league_context: Fetch complete, fresh Yahoo league context
     """
     import src.handlers.player_handlers as player_mod
 
