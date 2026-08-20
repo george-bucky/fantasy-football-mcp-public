@@ -16,7 +16,12 @@ from mcp.types import TextContent, Tool
 # Import extracted modules
 from src.api import get_access_token, refresh_yahoo_token, set_access_token, yahoo_api_call
 from src.parsers import parse_team_roster, parse_yahoo_free_agent_players
-from src.services import analyze_reddit_sentiment, get_decision_news_context
+from src.services import (
+    analyze_reddit_sentiment,
+    apply_rookie_intelligence,
+    get_decision_news_context,
+    rookie_identity_key,
+)
 
 # Import rate limiting and caching utilities
 from src.api.yahoo_utils import rate_limiter, response_cache
@@ -296,7 +301,7 @@ async def get_waiver_wire_players(
                                             player_info["team"] = element["editorial_team_abbr"]
                                         if "display_position" in element:
                                             player_info["position"] = element["display_position"]
-                                        
+
                                         # Extract bye week with fallback to static data
                                         if "bye_weeks" in element:
                                             bye_weeks_data = element["bye_weeks"]
@@ -307,7 +312,7 @@ async def get_waiver_wire_players(
                                                     bye_num = int(bye_week)
                                                     if 1 <= bye_num <= 18:
                                                         api_bye_week = bye_num
-                                        
+
                                         # Ownership data
                                         if "ownership" in element:
                                             ownership = element["ownership"]
@@ -398,7 +403,7 @@ async def get_draft_rankings(
                                             player_info["team"] = element["editorial_team_abbr"]
                                         if "display_position" in element:
                                             player_info["position"] = element["display_position"]
-                                        
+
                                         # Extract bye week with fallback to static data
                                         if "bye_weeks" in element:
                                             bye_weeks_data = element["bye_weeks"]
@@ -409,7 +414,7 @@ async def get_draft_rankings(
                                                     bye_num = int(bye_week)
                                                     if 1 <= bye_num <= 18:
                                                         api_bye_week = bye_num
-                                        
+
                                         # Draft data if available
                                         if "draft_analysis" in element:
                                             draft = element["draft_analysis"]
@@ -721,6 +726,11 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "description": "Use LLM-based optimization instead of mathematical formulas (default: false)",
                     },
+                    "use_rookie_intelligence": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Opt in to reviewed season-long first-year PPR as near-tie lineup context only",
+                    },
                 },
                 "required": ["league_key"],
             },
@@ -796,6 +806,16 @@ async def list_tools() -> list[Tool]:
                         "anyOf": [{"type": "boolean"}, {"type": "null"}],
                         "description": "Include Sleeper data, trending, and matchups",
                         "default": True,
+                    },
+                    "use_rookie_intelligence": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Opt in to reviewed 2026 first-year PPR outlook for exact rookie matches",
+                    },
+                    "rookie_only": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Return only exact current-class rookie matches; implies rookie intelligence and never falls back to veterans",
                     },
                 },
                 "required": ["league_key"],
@@ -924,6 +944,16 @@ async def list_tools() -> list[Tool]:
                             "type": "integer",
                             "minimum": 1,
                             "description": "Current overall pick number; when omitted it is inferred from your roster and Yahoo draft slot",
+                        },
+                        "use_rookie_intelligence": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Opt in to reviewed 2026 first-year PPR outlook for exact rookie matches",
+                        },
+                        "rookie_only": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": "Return only exact current-class rookie matches; implies rookie intelligence and never falls back to veterans",
                         },
                     },
                     "required": ["league_key"],
@@ -1458,29 +1488,75 @@ async def _get_draft_context(league_key: str, current_pick: Optional[int]) -> di
 
 
 async def get_draft_recommendation_simple(
-    league_key: str, strategy: str, num_recommendations: int, current_pick: Optional[int] = None
+    league_key: str,
+    strategy: str,
+    num_recommendations: int,
+    current_pick: Optional[int] = None,
+    use_rookie_intelligence: bool = False,
+    rookie_only: bool = False,
 ) -> dict:
     """Simplified draft recommendation using available data."""
     try:
+        use_rookie_intelligence = use_rookie_intelligence or rookie_only
         # Get available players using existing waiver wire function
         available_players = await get_waiver_wire_players(league_key, count=100)
         draft_rankings = await get_draft_rankings(league_key, count=50)
         draft_context = await _get_draft_context(league_key, current_pick)
+        rookie_evidence = None
+        if use_rookie_intelligence:
+            try:
+                rookie_context = apply_rookie_intelligence(
+                    draft_rankings,
+                    context="draft",
+                    rookie_only=rookie_only,
+                )
+                draft_rankings = rookie_context["players"]
+                rookie_evidence = rookie_context["evidence"]
+            except Exception as exc:
+                if rookie_only:
+                    draft_rankings = []
+                rookie_evidence = {
+                    "enabled": False,
+                    "rookie_only": rookie_only,
+                    "warnings": [f"Rookie intelligence unavailable: {exc}"],
+                    "opponent_aware": False,
+                    "influence": "None; reviewed rookie data failed closed.",
+                }
 
         # Simple scoring based on rankings and availability
         recommendations = []
 
-        # Create a quick lookup for available players
         available_names = {p.get("name", "").lower() for p in available_players}
+        available_candidates: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        if use_rookie_intelligence:
+            # Rookie requests use the board's exact name+position identity and
+            # quarantine duplicates. Opt-out keeps the legacy name-only join.
+            for available_player in available_players:
+                identity = rookie_identity_key(
+                    available_player.get("name"), available_player.get("position")
+                )
+                if all(identity):
+                    available_candidates.setdefault(identity, []).append(available_player)
 
         for player in draft_rankings:
             player_name = player.get("name", "").lower()
-            if player_name in available_names:
+            available_matches = available_candidates.get(
+                rookie_identity_key(player.get("name"), player.get("position")), []
+            )
+            is_available = (
+                len(available_matches) == 1
+                if use_rookie_intelligence
+                else player_name in available_names
+            )
+            if is_available:
                 # Simple scoring based on strategy
                 rank = _number(
                     player.get("rank"),
                     _number(player.get("average_draft_position"), 999),
                 )
+                rookie_outlook = player.get("rookie_intelligence", {})
+                if rookie_only and rookie_outlook.get("status") == "matched":
+                    rank = _number(rookie_outlook.get("base_rank"), rank)
                 adp = _number(player.get("average_draft_position"), rank)
                 base_score = max(0, 100 - rank)
                 strategy_bonus = 0.0
@@ -1542,6 +1618,11 @@ async def get_draft_recommendation_simple(
                     context_reasons.append("unlikely to last until your next snake-draft pick")
                 if context_reasons:
                     reasoning = f"{reasoning}; " + ", ".join(context_reasons)
+                if rookie_outlook.get("status") == "matched":
+                    reasoning = (
+                        f"Reviewed rookie-year PPR rank #{rookie_outlook['base_rank']} "
+                        f"(tier {rookie_outlook['tier']}); {reasoning}"
+                    )
 
                 score = base_score + strategy_bonus + need_bonus + scoring_bonus + timing_bonus
                 recommendations.append(
@@ -1558,9 +1639,28 @@ async def get_draft_recommendation_simple(
                         },
                     }
                 )
+                if rookie_outlook:
+                    recommendations[-1]["rookie_intelligence"] = rookie_outlook
+                    recommendations[-1]["score_breakdown"]["base_rank_source"] = (
+                        "reviewed rookie-year PPR rank"
+                        if rookie_only and rookie_outlook.get("status") == "matched"
+                        else "Yahoo rank/ADP"
+                    )
 
         # Sort by score and take top N
         recommendations.sort(key=lambda x: x["score"], reverse=True)
+        if use_rookie_intelligence and not rookie_only:
+            rookie_slots = [
+                index
+                for index, pick in enumerate(recommendations)
+                if pick.get("rookie_intelligence", {}).get("status") == "matched"
+            ]
+            ordered_rookies = sorted(
+                (recommendations[index] for index in rookie_slots),
+                key=lambda pick: pick["rookie_intelligence"]["base_rank"],
+            )
+            for index, rookie_pick in zip(rookie_slots, ordered_rookies):
+                recommendations[index] = rookie_pick
         top_picks = recommendations[:num_recommendations]
 
         try:
@@ -1580,7 +1680,7 @@ async def get_draft_recommendation_simple(
                 {"espn": [], "rotowire": [], "espn_athlete_refs": []},
             )
 
-        return {
+        result = {
             "status": "success",
             "league_key": league_key,
             "strategy": strategy,
@@ -1602,6 +1702,12 @@ async def get_draft_recommendation_simple(
                 "Attached recent ESPN and RotoWire evidence for recommended players when available",
             ],
         }
+        if rookie_evidence is not None:
+            result["decision_evidence"]["rookie_intelligence"] = rookie_evidence
+            result["insights"].append(
+                "Used reviewed first-year PPR outlook only for exact current-class rookie matches"
+            )
+        return result
 
     except Exception as e:
         return {

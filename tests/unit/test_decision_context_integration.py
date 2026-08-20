@@ -7,6 +7,7 @@ import pytest
 import lineup_optimizer
 from lineup_optimizer import Player
 from src.handlers import matchup_handlers
+from src.services.rookie_intelligence import rookie_identity_key
 
 
 def _optimization(starter, bench):
@@ -127,3 +128,60 @@ async def test_lineup_news_failure_is_a_warning_not_a_lineup_failure():
     assert result["status"] == "success"
     assert result["optimal_lineup"]["QB"]["name"] == "Josh Allen"
     assert result["warnings"] == ["Decision news unavailable: offline"]
+
+
+@pytest.mark.asyncio
+async def test_lineup_rookie_context_is_opt_in_and_passed_as_near_tie_evidence():
+    starter = Player(name="Rookie QB", position="QB", team="NYJ", yahoo_projection=20)
+    bench = Player(name="Veteran QB", position="BN", team="BUF", yahoo_projection=20)
+    rookie_context = {
+        "players": [],
+        "by_identity": {
+            rookie_identity_key("Rookie QB", "QB"): {
+                "status": "matched",
+                "base_rank": 2,
+                "outlook_scope": "season-long; not a weekly projection",
+            },
+            rookie_identity_key("Veteran QB", "BN"): {
+                "status": "quarantined",
+                "match_method": "none",
+            },
+        },
+        "evidence": {
+            "enabled": True,
+            "warnings": [],
+            "opponent_aware": False,
+            "influence": "near tie only",
+        },
+    }
+    optimizer = lineup_optimizer.lineup_optimizer
+    optimize = AsyncMock(return_value=_optimization(starter, bench))
+    with (
+        patch.object(matchup_handlers, "get_user_team_key", AsyncMock(return_value="t.1")),
+        patch.object(matchup_handlers, "yahoo_api_call", AsyncMock(return_value={})),
+        patch.object(optimizer, "parse_yahoo_roster", AsyncMock(return_value=[starter, bench])),
+        patch.object(
+            optimizer,
+            "enhance_with_external_data",
+            AsyncMock(return_value=[starter, bench]),
+        ),
+        patch.object(optimizer, "optimize_lineup_smart", optimize),
+        patch.object(
+            matchup_handlers,
+            "get_decision_news_context",
+            AsyncMock(return_value={"by_player": {}, "sources": [], "warnings": []}),
+        ),
+        patch.object(
+            matchup_handlers,
+            "apply_rookie_intelligence",
+            return_value=rookie_context,
+        ) as apply_rookies,
+    ):
+        result = await matchup_handlers.handle_ff_build_lineup(
+            {"league_key": "league.test", "use_rookie_intelligence": True}
+        )
+
+    assert result["optimal_lineup"]["QB"]["rookie_intelligence"]["base_rank"] == 2
+    assert result["analysis"]["rookie_intelligence"]["opponent_aware"] is False
+    assert optimize.await_args.kwargs["rookie_intelligence"] == rookie_context["by_identity"]
+    apply_rookies.assert_called_once()

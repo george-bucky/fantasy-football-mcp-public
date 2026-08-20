@@ -72,6 +72,8 @@ async def handle_ff_get_draft_recommendation(arguments: dict) -> dict:
             - strategy: "conservative", "aggressive", or "balanced" (default: "balanced")
             - num_recommendations: Number of recommendations (default: 10, max: 20)
             - current_pick: Current pick number (optional; inferred when possible)
+            - use_rookie_intelligence: Use reviewed first-year PPR outlook (default: False)
+            - rookie_only: Return only exact current-class rookie matches (default: False)
 
     Returns:
         Dict with draft recommendations
@@ -87,11 +89,15 @@ async def handle_ff_get_draft_recommendation(arguments: dict) -> dict:
         strategy = arguments.get("strategy", "balanced")
         num_recommendations = arguments.get("num_recommendations", 10)
         current_pick = arguments.get("current_pick")
+        use_rookie_intelligence = arguments.get("use_rookie_intelligence", False)
+        rookie_only = arguments.get("rookie_only", False)
         return await get_draft_recommendation_simple(
             league_key,
             strategy,
             num_recommendations,
             current_pick,
+            use_rookie_intelligence,
+            rookie_only,
         )
     except Exception as exc:
         return {

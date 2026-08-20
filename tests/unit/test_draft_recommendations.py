@@ -63,8 +63,15 @@ async def _recommend(
     current_pick=5,
     draft_position=5,
     decision_news=None,
+    use_rookie_intelligence=False,
+    rookie_only=False,
+    rookie_context=None,
+    available=None,
 ):
-    available = [{"name": player["name"], "owned_pct": 50} for player in rankings]
+    available = available or [
+        {"name": player["name"], "position": player["position"], "owned_pct": 50}
+        for player in rankings
+    ]
 
     async def yahoo_call(endpoint):
         if endpoint.endswith("/settings"):
@@ -112,9 +119,22 @@ async def _recommend(
                 }
             ),
         ),
+        patch.object(
+            server,
+            "apply_rookie_intelligence",
+            return_value=(
+                rookie_context
+                or {"players": rankings, "by_player": {}, "evidence": {"enabled": True}}
+            ),
+        ),
     ):
         return await server.get_draft_recommendation_simple(
-            "league.test", "balanced", 10, current_pick
+            "league.test",
+            "balanced",
+            10,
+            current_pick,
+            use_rookie_intelligence,
+            rookie_only,
         )
 
 
@@ -238,6 +258,154 @@ def test_snake_timing_uses_upcoming_pick_when_clock_is_before_team_slot():
     assert timing["picks_until_next"] == 3
 
 
+@pytest.mark.asyncio
+async def test_opt_in_rookie_rank_orders_only_rookie_slots_and_keeps_yahoo_scoring():
+    rankings = [
+        {"name": "Lower Yahoo Rookie", "position": "WR", "average_draft_position": 40},
+        {"name": "Veteran", "position": "WR", "average_draft_position": 10},
+        {"name": "Higher Yahoo Rookie", "position": "WR", "average_draft_position": 10},
+    ]
+    rookie_players = [
+        {
+            **rankings[0],
+            "rookie_intelligence": {
+                "status": "matched",
+                "base_rank": 1,
+                "tier": 1,
+            },
+        },
+        rankings[1],
+        {
+            **rankings[2],
+            "rookie_intelligence": {
+                "status": "matched",
+                "base_rank": 20,
+                "tier": 3,
+            },
+        },
+    ]
+    context = {
+        "players": rookie_players,
+        "by_player": {},
+        "evidence": {"enabled": True, "warnings": [], "opponent_aware": False},
+    }
+
+    result = await _recommend(
+        roster=[],
+        rankings=rankings,
+        settings=_settings(),
+        use_rookie_intelligence=True,
+        rookie_context=context,
+    )
+
+    assert [pick["player"]["name"] for pick in result["recommendations"][:3]] == [
+        "Veteran",
+        "Lower Yahoo Rookie",
+        "Higher Yahoo Rookie",
+    ]
+    lower_rookie = result["recommendations"][1]
+    assert lower_rookie["score_breakdown"]["base_rank"] == 60
+    assert lower_rookie["score_breakdown"]["base_rank_source"] == "Yahoo rank/ADP"
+    assert result["decision_evidence"]["rookie_intelligence"]["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_draft_availability_join_requires_exact_name_and_position():
+    rankings = [
+        {"name": "Same Name", "position": "RB", "average_draft_position": 1},
+        {"name": "Same Name", "position": "WR", "average_draft_position": 2},
+    ]
+
+    result = await _recommend(
+        roster=[],
+        rankings=rankings,
+        settings=_settings(),
+        available=[{"name": "Same Name", "position": "WR", "owned_pct": 7}],
+        use_rookie_intelligence=True,
+    )
+
+    assert [pick["player"]["position"] for pick in result["recommendations"]] == ["WR"]
+
+
+@pytest.mark.asyncio
+async def test_opt_out_draft_keeps_legacy_name_only_availability_join():
+    rankings = [
+        {"name": "Same Name", "position": "RB", "average_draft_position": 1},
+        {"name": "Same Name", "position": "WR", "average_draft_position": 2},
+    ]
+
+    result = await _recommend(
+        roster=[],
+        rankings=rankings,
+        settings=_settings(),
+        available=[{"name": "Same Name", "position": "WR", "owned_pct": 7}],
+    )
+
+    assert [pick["player"]["position"] for pick in result["recommendations"]] == ["RB", "WR"]
+
+
+@pytest.mark.asyncio
+async def test_rookie_only_implies_opt_in_and_never_returns_veterans():
+    rankings = [{"name": "Veteran", "position": "WR", "average_draft_position": 1}]
+    context = {
+        "players": [],
+        "by_player": {},
+        "evidence": {
+            "enabled": True,
+            "rookie_only": True,
+            "warnings": ["No exact current-class rookie matches; no veterans were returned"],
+            "opponent_aware": False,
+        },
+    }
+
+    result = await _recommend(
+        roster=[],
+        rankings=rankings,
+        settings=_settings(),
+        rookie_only=True,
+        rookie_context=context,
+    )
+
+    assert result["recommendations"] == []
+    assert result["total_analyzed"] == 0
+    assert result["decision_evidence"]["rookie_intelligence"]["rookie_only"] is True
+
+
+@pytest.mark.asyncio
+async def test_rookie_only_scoring_uses_reviewed_rookie_rank():
+    rankings = [
+        {"name": "Rookie One", "position": "WR", "average_draft_position": 40},
+        {"name": "Rookie Two", "position": "WR", "average_draft_position": 10},
+    ]
+    context = {
+        "players": [
+            {
+                **rankings[0],
+                "rookie_intelligence": {"status": "matched", "base_rank": 1, "tier": 1},
+            },
+            {
+                **rankings[1],
+                "rookie_intelligence": {"status": "matched", "base_rank": 20, "tier": 3},
+            },
+        ],
+        "evidence": {"enabled": True, "rookie_only": True, "warnings": []},
+    }
+
+    result = await _recommend(
+        roster=[],
+        rankings=rankings,
+        settings=_settings(),
+        rookie_only=True,
+        rookie_context=context,
+    )
+
+    assert result["recommendations"][0]["player"]["name"] == "Rookie One"
+    assert result["recommendations"][0]["score_breakdown"]["base_rank"] == 99
+    assert result["recommendations"][0]["score_breakdown"]["base_rank_source"] == (
+        "reviewed rookie-year PPR rank"
+    )
+
+
 def test_natural_positions_override_selected_bench_and_flex_slots():
     roster_data = {
         "players": {
@@ -349,7 +517,7 @@ async def test_missing_yahoo_context_falls_back_without_losing_recommendations()
         patch.object(
             server,
             "get_waiver_wire_players",
-            AsyncMock(return_value=[{"name": "Player One", "owned_pct": 50}]),
+            AsyncMock(return_value=[{"name": "Player One", "position": "RB", "owned_pct": 50}]),
         ),
         patch.object(server, "get_draft_rankings", AsyncMock(return_value=rankings)),
         patch.object(server, "discover_leagues", AsyncMock(side_effect=RuntimeError("offline"))),
