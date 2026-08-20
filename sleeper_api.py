@@ -362,6 +362,7 @@ class SleeperAPI:
                     continue
                 if player.get("position") in positions_set:
                     proj_data = dict(proj_data)
+                    proj_data["projection_source"] = "sleeper_api"
                     proj_data["player_name"] = (
                         f"{player.get('first_name', '')} {player.get('last_name', '')}".strip()
                     )
@@ -372,6 +373,7 @@ class SleeperAPI:
 
         # Enrich without filtering
         for player_id, proj_data in list(real_projections.items()):
+            proj_data["projection_source"] = "sleeper_api"
             player = all_players.get(player_id)
             if player:
                 proj_data["player_name"] = (

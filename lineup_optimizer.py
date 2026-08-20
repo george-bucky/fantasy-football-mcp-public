@@ -258,9 +258,323 @@ class Player:
     performance_flags: List[str] = field(default_factory=list)  # ["BREAKOUT", "TRENDING_UP", etc]
     enhancement_context: str = ""  # Human-readable context message
     adjusted_projection: float = 0.0  # Projection adjusted based on recent performance
+    # Appended to preserve positional compatibility for the original Player fields.
+    roster_position: str = ""
+    sleeper_projection_source: str = ""
+    sleeper_depth_chart_order: int = 0
+    scoring_format: str = "ppr"
+    scoring_format_source: str = "fallback_default_ppr"
 
     def is_valid(self) -> bool:
         return bool(self.name and self.team)
+
+
+_STRATEGY_WEIGHTS = {
+    "balanced": {"yahoo": 0.50, "sleeper": 0.30, "recent_avg": 0.20},
+    "conservative": {
+        "yahoo": 0.35,
+        "sleeper": 0.15,
+        "recent_avg": 0.20,
+        "recent_floor": 0.30,
+    },
+    "aggressive": {
+        "yahoo": 0.35,
+        "sleeper": 0.15,
+        "recent_avg": 0.15,
+        "recent_ceiling": 0.35,
+    },
+}
+
+_FLEX_ELIGIBILITY = {
+    "FLEX": {"RB", "WR", "TE"},
+    "W/R/T": {"RB", "WR", "TE"},
+    "W/R": {"WR", "RB"},
+    "W/T": {"WR", "TE"},
+    "R/T": {"RB", "TE"},
+    "Q/W/R/T": {"QB", "RB", "WR", "TE"},
+    "SUPERFLEX": {"QB", "RB", "WR", "TE"},
+    "OP": {"QB", "RB", "WR", "TE"},
+}
+
+_NEWS_RISK_TERMS = (
+    "ruled out",
+    "will not play",
+    "won't play",
+    "not expected to play",
+    "unlikely to play",
+    "not cleared to play",
+    "did not practice",
+    "limited practice",
+    "doubtful",
+    "questionable",
+    "injury concern",
+    "reduced role",
+    "fewer snaps",
+    "demoted",
+)
+_NEWS_POSITIVE_TERMS = (
+    "full practice",
+    "cleared to play",
+    "expected to play",
+    "starting role",
+    "expanded role",
+    "more touches",
+)
+
+
+def _recent_actual_points(player: Player) -> List[float]:
+    recent = player.recent_performance_data
+    weeks_data = getattr(recent, "weeks_data", None)
+    if not isinstance(weeks_data, list):
+        return []
+
+    points: List[float] = []
+    for week in weeks_data:
+        if not isinstance(week, dict) or isinstance(week.get("points"), bool):
+            continue
+        value = _coerce_float(week.get("points"))
+        if value >= 0 and week.get("points") is not None:
+            points.append(value)
+    return points
+
+
+def _sleeper_projection_for_format(player: Player) -> float:
+    scoring_format = player.scoring_format.lower()
+    if scoring_format == "standard":
+        return player.sleeper_projection_std or player.sleeper_projection
+    if scoring_format == "half-ppr":
+        return player.sleeper_projection_half_ppr
+    return player.sleeper_projection_ppr
+
+
+def _availability_multiplier(player: Player, strategy: str) -> tuple[float, List[str]]:
+    statuses = {
+        str(value).strip().upper()
+        for value in (
+            player.status,
+            player.injury_status,
+            player.sleeper_status,
+            player.sleeper_injury_status,
+        )
+        if str(value or "").strip()
+    }
+    if player.on_bye or "ON_BYE" in player.performance_flags:
+        return 0.0, ["Bye week"]
+    unavailable = statuses & {"O", "OUT", "IR", "IR+", "INACTIVE", "PUP", "SUSPENDED"}
+    if unavailable:
+        return 0.0, [f"Unavailable status: {', '.join(sorted(unavailable))}"]
+    doubtful = statuses & {"D", "DOUBTFUL"}
+    if doubtful:
+        factor = 0.45 if strategy == "conservative" else 0.60
+        return factor, [f"Doubtful status: {', '.join(sorted(doubtful))}"]
+    questionable = statuses & {"Q", "QUESTIONABLE"}
+    if questionable:
+        factor = {"balanced": 0.88, "conservative": 0.78, "aggressive": 0.94}[strategy]
+        return factor, [f"Questionable status: {', '.join(sorted(questionable))}"]
+    return 1.0, []
+
+
+def _role_multiplier(player: Player, strategy: str) -> tuple[float, List[str]]:
+    multiplier = 1.0
+    inputs: List[str] = []
+    flags = set(player.performance_flags)
+
+    flag_adjustments = {
+        "balanced": {
+            "CONSISTENT": 0.03,
+            "TRENDING_UP": 0.04,
+            "BREAKOUT_CANDIDATE": 0.04,
+            "DECLINING_ROLE": -0.08,
+            "TRENDING_DOWN": -0.05,
+        },
+        "conservative": {
+            "CONSISTENT": 0.07,
+            "DECLINING_ROLE": -0.14,
+            "TRENDING_DOWN": -0.08,
+        },
+        "aggressive": {
+            "HIGH_CEILING": 0.10,
+            "BREAKOUT_CANDIDATE": 0.08,
+            "TRENDING_UP": 0.06,
+            "DECLINING_ROLE": -0.05,
+        },
+    }
+    applied_flags = sorted(flags & flag_adjustments[strategy].keys())
+    if applied_flags:
+        multiplier += sum(flag_adjustments[strategy][flag] for flag in applied_flags)
+        inputs.append(f"Sleeper recent-performance flags: {', '.join(applied_flags)}")
+
+    if player.sleeper_depth_chart_order > 0:
+        order = player.sleeper_depth_chart_order
+        if order == 1:
+            multiplier += {"balanced": 0.03, "conservative": 0.05, "aggressive": 0.02}[strategy]
+        elif order >= 3:
+            multiplier -= {"balanced": 0.05, "conservative": 0.10, "aggressive": 0.03}[strategy]
+        inputs.append(f"Sleeper depth-chart order: {order}")
+
+    if 0 < player.snap_count_pct <= 100:
+        multiplier += (player.snap_count_pct - 60.0) / 1000.0
+        inputs.append(f"Snap share: {player.snap_count_pct:g}%")
+    if 0 < player.target_share <= 100:
+        multiplier += (player.target_share - 15.0) / 1000.0
+        inputs.append(f"Target share: {player.target_share:g}%")
+    if player.trending_score not in (0, 50):
+        direction = "adds" if player.trending_score > 50 else "drops"
+        adjustment = 0.02 if direction == "adds" else -0.02
+        if strategy == "aggressive":
+            adjustment *= 1.5
+        multiplier += adjustment
+        inputs.append(f"Sleeper trending {direction}")
+
+    return max(0.0, multiplier), inputs
+
+
+def _news_signals(news_context: Dict[str, Any]) -> List[Dict[str, str]]:
+    signals: List[Dict[str, str]] = []
+    for source_key in ("espn", "rotowire"):
+        for item in news_context.get(source_key, []):
+            if not isinstance(item, dict):
+                continue
+            headline = str(item.get("headline") or "")
+            text = f"{headline} {item.get('summary') or ''}".casefold()
+            signal = ""
+            if any(term in text for term in _NEWS_RISK_TERMS):
+                signal = "availability_or_role_risk"
+            elif any(term in text for term in _NEWS_POSITIVE_TERMS):
+                signal = "availability_or_role_positive"
+            if signal:
+                signals.append(
+                    {
+                        "signal": signal,
+                        "source": str(item.get("source") or source_key.upper()),
+                        "headline": headline,
+                    }
+                )
+    return signals
+
+
+def _strategy_score(
+    player: Player,
+    strategy: str,
+    news_context: Optional[Dict[str, Any]] = None,
+) -> tuple[float, Dict[str, Any]]:
+    recent_points = _recent_actual_points(player)
+    recent_avg = sum(recent_points) / len(recent_points) if recent_points else 0.0
+    available_values: Dict[str, float] = {}
+    inputs: List[str] = []
+    fallbacks: List[str] = []
+
+    if player.yahoo_projection > 0:
+        available_values["yahoo"] = player.yahoo_projection
+        inputs.append("Yahoo projection")
+    else:
+        fallbacks.append("Yahoo projection unavailable")
+
+    sleeper_projection = _sleeper_projection_for_format(player)
+    if player.sleeper_projection_source == "sleeper_api":
+        if sleeper_projection > 0:
+            available_values["sleeper"] = sleeper_projection
+            inputs.append(f"Sleeper real {player.scoring_format} projection")
+        else:
+            fallbacks.append(f"Sleeper real {player.scoring_format} projection unavailable")
+    elif player.sleeper_projection_source:
+        fallbacks.append(
+            f"Sleeper projection omitted: {player.sleeper_projection_source} is not a real projection"
+        )
+    else:
+        fallbacks.append("Sleeper real projection unavailable")
+
+    if recent_points:
+        available_values.update(
+            {
+                "recent_avg": recent_avg,
+                "recent_floor": min(recent_points),
+                "recent_ceiling": max(recent_points),
+            }
+        )
+        inputs.append(f"Sleeper recent actuals ({len(recent_points)} weeks)")
+    else:
+        fallbacks.append("Sleeper recent actuals unavailable")
+
+    if player.scoring_format_source == "yahoo_settings":
+        inputs.append(f"Yahoo league scoring format: {player.scoring_format}")
+    elif player.scoring_format_source == "fallback_custom_ppr":
+        fallbacks.append("Yahoo custom reception scoring unsupported; PPR fallback used")
+    else:
+        fallbacks.append("Yahoo scoring format unavailable; PPR fallback used")
+
+    weights = _STRATEGY_WEIGHTS[strategy]
+    used_weight = sum(weights[key] for key in weights if key in available_values)
+    expected_score = (
+        sum(weights[key] * available_values[key] for key in weights if key in available_values)
+        / used_weight
+        if used_weight
+        else 0.0
+    )
+
+    availability, health_flags = _availability_multiplier(player, strategy)
+    role, role_inputs = _role_multiplier(player, strategy)
+    inputs.extend(role_inputs)
+    if not role_inputs:
+        fallbacks.append("Roster/role evidence unavailable")
+
+    news_context = news_context or {}
+    news_signals = _news_signals(news_context)
+    if news_context.get("espn") or news_context.get("rotowire"):
+        inputs.append("Attributed ESPN/RotoWire news (qualitative only)")
+    else:
+        fallbacks.append("ESPN/RotoWire player evidence unavailable")
+
+    evidence_groups = sum(
+        (
+            bool(player.yahoo_projection > 0),
+            bool(sleeper_projection > 0 and player.sleeper_projection_source == "sleeper_api"),
+            bool(recent_points),
+            bool(role_inputs),
+            bool(news_context.get("espn") or news_context.get("rotowire")),
+        )
+    )
+    confidence = "high" if evidence_groups >= 4 else "medium" if evidence_groups >= 2 else "low"
+    if health_flags or any(
+        signal["signal"] == "availability_or_role_risk" for signal in news_signals
+    ):
+        confidence = {"high": "medium", "medium": "low", "low": "low"}[confidence]
+
+    strategy_score = -1.0 if availability == 0 else expected_score * availability * role
+    return strategy_score, {
+        "strategy_score": round(strategy_score, 3),
+        "inputs_used": inputs,
+        "fallbacks": fallbacks,
+        "health_flags": health_flags,
+        "news_signals": news_signals,
+        "confidence": confidence,
+        "opponent_aware": False,
+        "news_scoring_note": (
+            "Attributed news can flag qualitative risk or confidence; headlines are not converted to points."
+        ),
+    }
+
+
+def _natural_positions(player: Player) -> set[str]:
+    raw = player.position.upper().replace("D/ST", "DEF").replace("DST", "DEF")
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _eligible_for_slot(player: Player, slot: str) -> bool:
+    normalized_slot = slot.upper().replace("D/ST", "DEF").replace("DST", "DEF")
+    positions = _natural_positions(player)
+    eligible = _FLEX_ELIGIBILITY.get(normalized_slot)
+    return bool(positions & eligible) if eligible else normalized_slot in positions
+
+
+def _slot_label(slot: str) -> str:
+    return {
+        "W/R/T": "FLEX",
+        "Q/W/R/T": "SUPERFLEX",
+        "OP": "SUPERFLEX",
+        "D/ST": "DEF",
+        "DST": "DEF",
+    }.get(slot.upper(), slot.upper())
 
 
 class LineupOptimizer:
@@ -303,16 +617,23 @@ class LineupOptimizer:
                 or entry.get("team_abbreviation")
                 or ""
             ).strip()
-            position = _normalize_position(
-                entry.get("position")
-                or entry.get("selected_position")
-                or entry.get("display_position")
+            roster_position = _normalize_position(
+                entry.get("selected_position")
+                or entry.get("roster_position")
+                or entry.get("position")
                 or "BN"
+            )
+            position = _normalize_position(
+                entry.get("display_position")
+                or entry.get("eligible_position")
+                or entry.get("position")
+                or roster_position
             )
             player = Player(
                 name=name,
                 position=position,
                 team=team,
+                roster_position=roster_position,
                 opponent=str(entry.get("opponent") or entry.get("opponent_abbr") or ""),
                 status=str(entry.get("status") or "OK"),
                 yahoo_projection=_coerce_float(
@@ -322,9 +643,15 @@ class LineupOptimizer:
                 sleeper_projection_std=_coerce_float(entry.get("sleeper_projection_std")),
                 sleeper_projection_ppr=_coerce_float(entry.get("sleeper_projection_ppr")),
                 sleeper_projection_half_ppr=_coerce_float(entry.get("sleeper_projection_half_ppr")),
+                sleeper_projection_source=str(entry.get("sleeper_projection_source") or ""),
                 sleeper_id=str(entry.get("sleeper_id") or ""),
                 sleeper_status=str(entry.get("sleeper_status") or ""),
                 sleeper_injury_status=str(entry.get("sleeper_injury_status") or ""),
+                sleeper_depth_chart_order=_coerce_int(entry.get("sleeper_depth_chart_order")),
+                scoring_format=str(entry.get("scoring_format") or "ppr"),
+                scoring_format_source=str(
+                    entry.get("scoring_format_source") or "fallback_default_ppr"
+                ),
                 sleeper_match_method=str(entry.get("sleeper_match_method") or ""),
                 player_tier=str(entry.get("player_tier") or "starter"),
                 matchup_score=_coerce_int(entry.get("matchup_score"), default=50),
@@ -373,6 +700,10 @@ class LineupOptimizer:
 
             current_season = await get_current_season()
             current_week = await get_current_week()
+            try:
+                sleeper_players = await sleeper_client.get_all_players()
+            except Exception:
+                sleeper_players = {}
 
             for player in players:
                 # Create a copy to avoid modifying the original
@@ -380,6 +711,7 @@ class LineupOptimizer:
                     name=player.name,
                     position=player.position,
                     team=player.team,
+                    roster_position=player.roster_position,
                     opponent=player.opponent,
                     status=player.status,
                     yahoo_projection=player.yahoo_projection,
@@ -387,9 +719,13 @@ class LineupOptimizer:
                     sleeper_projection_std=player.sleeper_projection_std,
                     sleeper_projection_ppr=player.sleeper_projection_ppr,
                     sleeper_projection_half_ppr=player.sleeper_projection_half_ppr,
+                    sleeper_projection_source=player.sleeper_projection_source,
                     sleeper_id=player.sleeper_id,
                     sleeper_status=player.sleeper_status,
                     sleeper_injury_status=player.sleeper_injury_status,
+                    sleeper_depth_chart_order=player.sleeper_depth_chart_order,
+                    scoring_format=player.scoring_format,
+                    scoring_format_source=player.scoring_format_source,
                     sleeper_match_method=player.sleeper_match_method,
                     player_tier=player.player_tier,
                     matchup_score=player.matchup_score,
@@ -443,6 +779,14 @@ class LineupOptimizer:
                         enhanced_player.sleeper_id = sleeper_id
                         enhanced_player.sleeper_match_method = "api"
                         enhanced_player.bye = player.bye
+                        sleeper_player = sleeper_players.get(str(sleeper_id), {})
+                        enhanced_player.sleeper_status = str(sleeper_player.get("status") or "")
+                        enhanced_player.sleeper_injury_status = str(
+                            sleeper_player.get("injury_status") or ""
+                        )
+                        enhanced_player.sleeper_depth_chart_order = _coerce_int(
+                            sleeper_player.get("depth_chart_order")
+                        )
 
                         # Fetch projections for this player
                         try:
@@ -451,6 +795,12 @@ class LineupOptimizer:
                             )
                             if sleeper_id in projections:
                                 proj_data = projections[sleeper_id]
+                                projection_source = str(proj_data.get("projection_source") or "")
+                                enhanced_player.sleeper_projection_source = projection_source
+                                if projection_source != "sleeper_api":
+                                    raise ValueError(
+                                        f"Unsupported Sleeper projection source: {projection_source or 'unknown'}"
+                                    )
                                 # Sleeper projections typically have 'projected_stats' with 'pts' or position-specific
                                 stats = proj_data.get("projected_stats", {})
                                 if isinstance(stats, list):
@@ -473,22 +823,20 @@ class LineupOptimizer:
                                         stats.get("pts") or proj_data.get("pts", 0)
                                     )
                                     enhanced_player.sleeper_projection_std = _coerce_float(
-                                        stats.get("pts_std") or proj_data.get("pts_std", 0)
+                                        stats.get("pts_std")
+                                        or proj_data.get("pts_std")
+                                        or enhanced_player.sleeper_projection
                                     )
                                     enhanced_player.sleeper_projection_ppr = _coerce_float(
-                                        stats.get("pts_ppr")
-                                        or proj_data.get(
-                                            "pts_ppr", enhanced_player.sleeper_projection
-                                        )
+                                        stats.get("pts_ppr") or proj_data.get("pts_ppr", 0)
                                     )
                                     enhanced_player.sleeper_projection_half_ppr = _coerce_float(
                                         stats.get("pts_half_ppr")
-                                        or proj_data.get(
-                                            "pts_half_ppr", enhanced_player.sleeper_projection
-                                        )
+                                        or proj_data.get("pts_half_ppr", 0)
                                     )
                         except Exception:
-                            enhanced_player.sleeper_projection = 0.0  # Fallback if projections fail
+                            # Ranking-derived or unavailable Sleeper points are not treated as real projections.
+                            enhanced_player.sleeper_projection = 0.0
 
                         # Get expert advice for this player
                         advice = await sleeper_client.get_expert_advice(player.name, week=use_week)
@@ -690,45 +1038,88 @@ class LineupOptimizer:
         strategy: str = "balanced",
         week: Optional[int] = None,
         use_llm: bool = False,
+        decision_news: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Return a deterministic starter/bench split without heavy math."""
+        """Return a deterministic, evidence-labeled starter/bench split."""
 
-        starters: Dict[str, Player] = {}
-        bench: List[Player] = []
-        bench_ids: set[int] = set()
+        aliases = {"floor": "conservative", "ceiling": "aggressive"}
+        requested_strategy = str(strategy or "balanced").lower()
+        strategy_used = aliases.get(requested_strategy, requested_strategy)
+        strategy_fallback = None
+        if strategy_used not in _STRATEGY_WEIGHTS:
+            strategy_fallback = f"Unknown strategy '{strategy}'; balanced used"
+            strategy_used = "balanced"
+
+        decision_news = decision_news or {}
+        scores: Dict[int, float] = {}
+        player_evidence: Dict[str, Dict[str, Any]] = {}
+        for player in players:
+            score, evidence = _strategy_score(
+                player,
+                strategy_used,
+                decision_news.get(player.name),
+            )
+            scores[id(player)] = score
+            player_evidence[player.name] = evidence
+
+        active_slots = [
+            (index, (player.roster_position or player.position).upper())
+            for index, player in enumerate(players)
+            if (player.roster_position or player.position).upper() not in BENCH_SLOTS
+        ]
+        unavailable_reserve_slots = BENCH_SLOTS - {"BN", "BENCH"}
+        candidates = [
+            player
+            for player in players
+            if (player.roster_position or player.position).upper() not in unavailable_reserve_slots
+        ]
+
+        # Fill restrictive positions before FLEX/SUPERFLEX so broad slots cannot
+        # consume the only eligible player for a narrow slot.
+        assignment_order = sorted(
+            active_slots,
+            key=lambda item: (len(_FLEX_ELIGIBILITY.get(item[1], {item[1]})), item[0]),
+        )
         selected_ids: set[int] = set()
-
-        for player in players:
-            slot = player.position.upper()
-            if slot in BENCH_SLOTS:
-                bench.append(player)
-                bench_ids.add(id(player))
+        selected_by_index: Dict[int, Player] = {}
+        for index, slot in assignment_order:
+            eligible = [
+                player
+                for player in candidates
+                if id(player) not in selected_ids and _eligible_for_slot(player, slot)
+            ]
+            if not eligible:
                 continue
+            selected = max(eligible, key=lambda player: scores[id(player)])
+            selected_ids.add(id(selected))
+            selected_by_index[index] = selected
 
-            existing = starters.get(slot)
-            if existing is None:
-                starters[slot] = player
-                selected_ids.add(id(player))
+        label_totals: Dict[str, int] = {}
+        for _, slot in active_slots:
+            label = _slot_label(slot)
+            label_totals[label] = label_totals.get(label, 0) + 1
+        label_seen: Dict[str, int] = {}
+        starters: Dict[str, Player] = {}
+        for index, slot in active_slots:
+            selected = selected_by_index.get(index)
+            if selected is None:
                 continue
+            label = _slot_label(slot)
+            label_seen[label] = label_seen.get(label, 0) + 1
+            output_label = f"{label}{label_seen[label]}" if label_totals[label] > 1 else label
+            starters[output_label] = selected
 
-            # Prefer the player with the higher projection
-            if player.yahoo_projection > existing.yahoo_projection:
-                bench.append(existing)
-                bench_ids.add(id(existing))
-                starters[slot] = player
-                selected_ids.add(id(player))
-            else:
-                bench.append(player)
-                bench_ids.add(id(player))
-
-        for player in players:
-            pid = id(player)
-            if pid in selected_ids or pid in bench_ids:
-                continue
-            bench.append(player)
-            bench_ids.add(pid)
+        bench = [player for player in players if id(player) not in selected_ids]
 
         recommendations = [f"Start {p.name} at {pos}" for pos, p in starters.items()]
+        all_inputs = sorted(
+            {value for evidence in player_evidence.values() for value in evidence["inputs_used"]}
+        )
+        all_fallbacks = sorted(
+            {value for evidence in player_evidence.values() for value in evidence["fallbacks"]}
+        )
+        if strategy_fallback:
+            all_fallbacks.append(strategy_fallback)
         data_quality = {
             "total_players": len(players),
             "valid_players": sum(1 for p in players if p.is_valid()),
@@ -752,13 +1143,24 @@ class LineupOptimizer:
 
         return {
             "status": "success",
-            "strategy_used": strategy,
+            "strategy_used": strategy_used,
+            "strategy_requested": strategy,
             "week": week or "current",
             "starters": starters,
             "bench": bench,
             "recommendations": recommendations,
             "errors": [],
             "data_quality": data_quality,
+            "player_evidence": player_evidence,
+            "strategy_summary": {
+                "inputs_used": all_inputs,
+                "fallbacks": all_fallbacks,
+                "opponent_aware": False,
+                "note": (
+                    "Selection uses Yahoo plus provenance-gated Sleeper evidence. "
+                    "Attributed news affects qualitative confidence/risk only."
+                ),
+            },
         }
 
 

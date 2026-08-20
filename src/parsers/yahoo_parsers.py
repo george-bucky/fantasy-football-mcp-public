@@ -77,9 +77,27 @@ def parse_team_roster(data: Dict) -> List[Dict]:
                         pos = _extract_position(container.get("selected_position"))
                         if pos:
                             info["position"] = pos
-                    # Fallback to display position if selected_position not found
-                    if "position" not in info and "display_position" in container:
-                        info["position"] = container.get("display_position")
+                    # Preserve the natural position as well as Yahoo's selected slot.
+                    if "display_position" in container:
+                        info["display_position"] = container.get("display_position")
+                        if "position" not in info:
+                            info["position"] = container.get("display_position")
+
+                    # Only accept fields explicitly labeled as projected points.
+                    for projection_key in (
+                        "player_projected_points",
+                        "projected_points",
+                        "yahoo_projection",
+                    ):
+                        projection = container.get(projection_key)
+                        if isinstance(projection, dict):
+                            projection = projection.get("total") or projection.get("value")
+                        try:
+                            if projection not in (None, ""):
+                                info["yahoo_projection"] = float(projection)
+                                break
+                        except (TypeError, ValueError):
+                            continue
 
                     if "team" not in info:
                         team_value: Optional[str] = None
