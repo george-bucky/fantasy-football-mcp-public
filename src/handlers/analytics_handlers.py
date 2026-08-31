@@ -4,6 +4,7 @@ from src.services import (
     analyze_reddit_sentiment,
     get_espn_nfl_news,
     get_rotowire_player_news,
+    get_sportsbook_odds,
 )
 
 
@@ -55,3 +56,14 @@ async def handle_ff_get_espn_nfl_news(arguments: dict) -> dict:
             "source": "ESPN NFL News API",
             "error": str(exc),
         }
+
+
+async def handle_ff_get_sportsbook_odds(arguments: dict) -> dict:
+    """Get normalized NFL sportsbook odds from PropLine."""
+    return await get_sportsbook_odds(
+        players=arguments.get("players"),
+        teams=arguments.get("teams"),
+        scope=arguments.get("scope", "auto"),
+        markets=arguments.get("markets"),
+        bookmakers=arguments.get("bookmakers"),
+    )

@@ -17,6 +17,7 @@ from mcp.types import TextContent, Tool
 from src.api import get_access_token, refresh_yahoo_token, set_access_token, yahoo_api_call
 from src.parsers import parse_team_roster, parse_yahoo_free_agent_players
 from src.services import (
+    SPORTSBOOK_ODDS_INPUT_SCHEMA,
     analyze_reddit_sentiment,
     apply_rookie_intelligence,
     get_decision_news_context,
@@ -54,6 +55,7 @@ from src.handlers import (
     handle_ff_get_player_news,
     handle_ff_get_players,
     handle_ff_get_roster,
+    handle_ff_get_sportsbook_odds,
     handle_ff_get_standings,
     handle_ff_get_teams,
     handle_ff_get_waiver_wire,
@@ -918,6 +920,14 @@ async def list_tools() -> list[Tool]:
                 },
             },
         ),
+        Tool(
+            name="ff_get_sportsbook_odds",
+            description=(
+                "Get read-only NFL futures and next-game sportsbook odds from "
+                "PropLine; no Yahoo credentials required"
+            ),
+            inputSchema=SPORTSBOOK_ODDS_INPUT_SCHEMA,
+        ),
     ]
 
     # Add draft tools if available
@@ -1033,6 +1043,7 @@ TOOL_HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
     "ff_analyze_reddit_sentiment": handle_ff_analyze_reddit_sentiment,
     "ff_get_player_news": handle_ff_get_player_news,
     "ff_get_espn_nfl_news": handle_ff_get_espn_nfl_news,
+    "ff_get_sportsbook_odds": handle_ff_get_sportsbook_odds,
 }
 
 
