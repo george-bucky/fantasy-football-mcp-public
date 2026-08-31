@@ -44,6 +44,7 @@ from .analytics_handlers import (
     handle_ff_analyze_reddit_sentiment,
     handle_ff_get_espn_nfl_news,
     handle_ff_get_player_news,
+    handle_ff_get_sportsbook_odds,
 )
 
 
@@ -147,6 +148,7 @@ __all__ = [
     "handle_ff_analyze_reddit_sentiment",
     "handle_ff_get_espn_nfl_news",
     "handle_ff_get_player_news",
+    "handle_ff_get_sportsbook_odds",
     # Injection functions
     "inject_roster_dependencies",
     "inject_matchup_dependencies",
