@@ -576,6 +576,42 @@ async def test_player_parenthetical_suffix_matches_and_distinct_identity_is_ambi
 
 
 @pytest.mark.asyncio
+async def test_internal_player_team_context_restricts_draft_event_matching() -> None:
+    routes = {
+        "/v1/sports/football_nfl/events": [
+            FakeResponse(
+                [
+                    event("bills"),
+                    event(
+                        "other",
+                        hours=2,
+                        home_key="miami_dolphins",
+                        home_name="Miami Dolphins",
+                        away_key="new_york_jets",
+                        away_name="New York Jets",
+                    ),
+                ]
+            )
+        ],
+        "/v1/sports/football_nfl/events/bills/odds": [
+            FakeResponse(game_odds("bills", player="Josh Allen (BUF)", player_id="17"))
+        ],
+    }
+    service, factory, _ = make_service(routes)
+
+    result = await service.get_sportsbook_odds(
+        players=["Josh Allen"],
+        scope="next_game",
+        player_context={"Josh Allen": {"team": "BUF", "position": "QB"}},
+    )
+
+    assert result["status"] == "ok"
+    assert len(result["results"]) == 1
+    assert result["results"][0]["event_id"] == "bills"
+    assert not any("/other/" in url for url, _ in factory.calls)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("odds_payload", "kwargs", "reason"),
     [

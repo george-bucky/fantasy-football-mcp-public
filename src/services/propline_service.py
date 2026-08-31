@@ -1016,6 +1016,7 @@ class PropLineService:
         scope: Any = "auto",
         markets: Any = None,
         bookmakers: Any = None,
+        player_context: dict[str, dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """Return normalized PropLine odds for requested NFL players or teams."""
         response = self._base_response(scope)
@@ -1106,13 +1107,29 @@ class PropLineService:
                         )
                         event_cap_truncated = len(upcoming) > MAX_EVENTS
                         retained = upcoming[:MAX_EVENTS]
+                        player_team_names = [
+                            player_context[player]["team"]
+                            for player in player_names
+                            if player_context
+                            and player in player_context
+                            and player_context[player].get("team")
+                        ]
+                        unrestricted_player = any(
+                            not player_context
+                            or player not in player_context
+                            or not player_context[player].get("team")
+                            for player in player_names
+                        )
                         eligible = (
                             retained
-                            if player_names
+                            if unrestricted_player
                             else [
                                 event
                                 for event in retained
-                                if any(self._event_matches_team(event, team) for team in team_names)
+                                if any(
+                                    self._event_matches_team(event, team)
+                                    for team in [*team_names, *player_team_names]
+                                )
                             ]
                         )
                         default_markets = [
@@ -1213,9 +1230,24 @@ class PropLineService:
                 matched.extend(season_matches)
                 reasons.append(season_reason)
             if scope in {"auto", "next_game"}:
+                player_game_rows = game_rows
+                if (
+                    player_context
+                    and player in player_context
+                    and player_context[player].get("team")
+                ):
+                    player_game_rows = [
+                        row
+                        for event_id, rows in event_rows_by_id.items()
+                        if event_id in events_by_id
+                        and self._event_matches_team(
+                            events_by_id[event_id], player_context[player]["team"]
+                        )
+                        for row in rows
+                    ]
                 game_matches, game_reason = self._match_player(
                     player,
-                    game_rows,
+                    player_game_rows,
                     market_keys or list(PLAYER_MARKETS),
                     bookmaker_keys,
                     explicit_filters=bool(market_keys or bookmaker_keys),
@@ -1329,6 +1361,7 @@ async def get_sportsbook_odds(
     scope: Any = "auto",
     markets: Any = None,
     bookmakers: Any = None,
+    player_context: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """Fetch sportsbook odds through the shared PropLine service instance."""
     return await propline_service.get_sportsbook_odds(
@@ -1337,6 +1370,7 @@ async def get_sportsbook_odds(
         scope=scope,
         markets=markets,
         bookmakers=bookmakers,
+        player_context=player_context,
     )
 
 

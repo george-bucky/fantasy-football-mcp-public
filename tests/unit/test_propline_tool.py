@@ -8,6 +8,7 @@ import pytest
 import fantasy_football_multi_league as legacy_server
 import fastmcp_server
 from src.handlers.analytics_handlers import handle_ff_get_sportsbook_odds
+from src.handlers.draft_handlers import handle_ff_get_draft_recommendation
 from src.services.propline_service import SPORTSBOOK_ODDS_INPUT_SCHEMA, propline_service
 
 
@@ -102,6 +103,103 @@ async def test_fastmcp_advertises_identical_schema_and_forwards_defaults():
         markets=None,
         bookmakers=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_draft_sportsbook_contract_is_aligned_and_delegates():
+    legacy_tools = {tool.name: tool for tool in await legacy_server.list_tools()}
+    schema = legacy_tools["ff_get_draft_recommendation"].inputSchema
+
+    assert fastmcp_server.ff_get_draft_recommendation.parameters == schema
+    assert schema["properties"]["include_sportsbook_odds"] == {
+        "type": "boolean",
+        "default": False,
+        "description": "Opt in to attributed PropLine context for the final draft shortlist",
+    }
+    assert schema["properties"]["sportsbook_scope"]["enum"] == [
+        "auto",
+        "season",
+        "next_game",
+    ]
+    assert schema["properties"]["sportsbook_shortlist_size"]["minimum"] == 1
+    assert schema["properties"]["sportsbook_shortlist_size"]["maximum"] == 5
+
+    expected = {"status": "success", "recommendations": []}
+    with patch.object(
+        fastmcp_server,
+        "_call_legacy_tool",
+        AsyncMock(return_value=expected),
+    ) as call_legacy:
+        result = await fastmcp_server.ff_get_draft_recommendation.fn(
+            None,
+            league_key="league.test",
+            include_sportsbook_odds=True,
+            sportsbook_scope="season",
+            sportsbook_shortlist_size=3,
+        )
+
+    assert result == expected
+    call_legacy.assert_awaited_once_with(
+        "ff_get_draft_recommendation",
+        ctx=None,
+        league_key="league.test",
+        strategy="balanced",
+        num_recommendations=10,
+        current_pick=None,
+        use_rookie_intelligence=False,
+        rookie_only=False,
+        include_sportsbook_odds=True,
+        sportsbook_scope="season",
+        sportsbook_shortlist_size=3,
+    )
+
+
+@pytest.mark.asyncio
+async def test_draft_handler_threads_sportsbook_arguments_into_recommendation_flow():
+    expected = {"status": "success", "recommendations": []}
+    with patch(
+        "src.handlers.draft_handlers.get_draft_recommendation_simple",
+        AsyncMock(return_value=expected),
+    ) as recommend:
+        result = await handle_ff_get_draft_recommendation(
+            {
+                "league_key": "league.test",
+                "include_sportsbook_odds": True,
+                "sportsbook_scope": "next_game",
+                "sportsbook_shortlist_size": 4,
+            }
+        )
+
+    assert result == expected
+    recommend.assert_awaited_once_with(
+        "league.test",
+        "balanced",
+        10,
+        None,
+        False,
+        False,
+        True,
+        "next_game",
+        4,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shortlist_size", [0, 6, True, 2.5])
+async def test_draft_handler_rejects_invalid_sportsbook_shortlist_size(shortlist_size):
+    with patch(
+        "src.handlers.draft_handlers.get_draft_recommendation_simple",
+        AsyncMock(),
+    ) as recommend:
+        result = await handle_ff_get_draft_recommendation(
+            {
+                "league_key": "league.test",
+                "sportsbook_shortlist_size": shortlist_size,
+            }
+        )
+
+    assert result == {"error": "sportsbook_shortlist_size must be an integer between 1 and 5"}
+    recommend.assert_not_awaited()
 
 
 @pytest.mark.asyncio

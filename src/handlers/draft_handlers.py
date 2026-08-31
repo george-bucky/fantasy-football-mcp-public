@@ -74,6 +74,9 @@ async def handle_ff_get_draft_recommendation(arguments: dict) -> dict:
             - current_pick: Current pick number (optional; inferred when possible)
             - use_rookie_intelligence: Use reviewed first-year PPR outlook (default: False)
             - rookie_only: Return only exact current-class rookie matches (default: False)
+            - include_sportsbook_odds: Attach PropLine context (default: False)
+            - sportsbook_scope: "auto", "season", or "next_game" (default: "auto")
+            - sportsbook_shortlist_size: Final candidates to enrich (default: 5, max: 5)
 
     Returns:
         Dict with draft recommendations
@@ -91,6 +94,15 @@ async def handle_ff_get_draft_recommendation(arguments: dict) -> dict:
         current_pick = arguments.get("current_pick")
         use_rookie_intelligence = arguments.get("use_rookie_intelligence", False)
         rookie_only = arguments.get("rookie_only", False)
+        include_sportsbook_odds = arguments.get("include_sportsbook_odds", False)
+        sportsbook_scope = arguments.get("sportsbook_scope", "auto")
+        sportsbook_shortlist_size = arguments.get("sportsbook_shortlist_size", 5)
+        if (
+            isinstance(sportsbook_shortlist_size, bool)
+            or not isinstance(sportsbook_shortlist_size, int)
+            or not 1 <= sportsbook_shortlist_size <= 5
+        ):
+            return {"error": "sportsbook_shortlist_size must be an integer between 1 and 5"}
         return await get_draft_recommendation_simple(
             league_key,
             strategy,
@@ -98,6 +110,9 @@ async def handle_ff_get_draft_recommendation(arguments: dict) -> dict:
             current_pick,
             use_rookie_intelligence,
             rookie_only,
+            include_sportsbook_odds,
+            sportsbook_scope,
+            sportsbook_shortlist_size,
         )
     except Exception as exc:
         return {

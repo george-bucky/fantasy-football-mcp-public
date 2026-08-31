@@ -67,6 +67,9 @@ async def _recommend(
     rookie_only=False,
     rookie_context=None,
     available=None,
+    include_sportsbook_odds=False,
+    sportsbook_scope="auto",
+    sportsbook_shortlist_size=5,
 ):
     available = available or [
         {"name": player["name"], "position": player["position"], "owned_pct": 50}
@@ -135,6 +138,9 @@ async def _recommend(
             current_pick,
             use_rookie_intelligence,
             rookie_only,
+            include_sportsbook_odds,
+            sportsbook_scope,
+            sportsbook_shortlist_size,
         )
 
 
@@ -228,6 +234,131 @@ async def test_recommendations_attach_attributed_news_without_changing_scores():
     ] == "9"
     assert recommendation["score_breakdown"]["base_rank"] == 90
     assert result["decision_evidence"]["news_sources"] == ["ESPN NFL News API"]
+
+
+@pytest.mark.asyncio
+async def test_sportsbook_enrichment_is_opt_in_and_preserves_rankings():
+    rankings = [
+        {
+            "name": f"Player {index}",
+            "position": "WR",
+            "team": "BUF" if index < 3 else "KC",
+            "average_draft_position": index,
+        }
+        for index in range(1, 7)
+    ]
+    sportsbook_response = {
+        "status": "ok",
+        "provider": "propline",
+        "served_at": "2026-08-31T12:00:00Z",
+        "scope_requested": "next_game",
+        "sources": [
+            {
+                "id": "event:1",
+                "kind": "event_odds",
+                "fetched_at": "2026-08-31T11:59:00Z",
+                "served_from_cache": False,
+                "cache_age_seconds": 0,
+                "cache_ttl_seconds": 60,
+            }
+        ],
+        "results": [],
+        "unmatched": [],
+        "warnings": [],
+        "quota": {"source": "live", "as_of": "2026-08-31T12:00:00Z"},
+    }
+
+    with patch.object(
+        server, "get_sportsbook_odds", AsyncMock(return_value=sportsbook_response)
+    ) as get_odds:
+        disabled = await _recommend(roster=[], rankings=rankings, settings=_settings())
+        get_odds.assert_not_awaited()
+        enabled = await _recommend(
+            roster=[],
+            rankings=rankings,
+            settings=_settings(),
+            include_sportsbook_odds=True,
+            sportsbook_scope="next_game",
+            sportsbook_shortlist_size=5,
+        )
+
+    disabled_ranking = [
+        (pick["player"]["name"], pick["score"]) for pick in disabled["recommendations"]
+    ]
+    enabled_ranking = [
+        (pick["player"]["name"], pick["score"]) for pick in enabled["recommendations"]
+    ]
+    assert enabled_ranking == disabled_ranking
+    assert "sportsbook_context" not in disabled
+    assert "sportsbook_warnings" not in disabled
+    get_odds.assert_awaited_once_with(
+        players=["Player 1", "Player 2", "Player 3", "Player 4", "Player 5"],
+        teams=["BUF", "KC"],
+        scope="next_game",
+        player_context={
+            "Player 1": {"team": "BUF", "position": "WR"},
+            "Player 2": {"team": "BUF", "position": "WR"},
+            "Player 3": {"team": "KC", "position": "WR"},
+            "Player 4": {"team": "KC", "position": "WR"},
+            "Player 5": {"team": "KC", "position": "WR"},
+        },
+    )
+    assert [entry["name"] for entry in enabled["sportsbook_context"]["players"]] == [
+        "Player 1",
+        "Player 2",
+        "Player 3",
+        "Player 4",
+        "Player 5",
+    ]
+    assert [entry["team"] for entry in enabled["sportsbook_context"]["teams"]] == [
+        "BUF",
+        "KC",
+    ]
+    assert enabled["sportsbook_context"]["sources"] == sportsbook_response["sources"]
+
+
+@pytest.mark.asyncio
+async def test_sportsbook_provider_failure_degrades_to_explicit_warning():
+    rankings = [
+        {
+            "name": "Available QB",
+            "position": "QB",
+            "team": "BUF",
+            "average_draft_position": 10,
+        }
+    ]
+    provider_failure = {
+        "status": "error",
+        "provider": "propline",
+        "served_at": "2026-08-31T12:00:00Z",
+        "scope_requested": "auto",
+        "sources": [],
+        "results": [],
+        "unmatched": [{"query": "Available QB", "entity_type": "player", "reason": "no_market"}],
+        "warnings": [],
+        "error": {
+            "code": "rate_limited",
+            "message": "PropLine rate limit reached",
+            "stage": "events",
+        },
+    }
+
+    with patch.object(server, "get_sportsbook_odds", AsyncMock(return_value=provider_failure)):
+        result = await _recommend(
+            roster=[],
+            rankings=rankings,
+            settings=_settings(),
+            include_sportsbook_odds=True,
+        )
+
+    assert result["status"] == "success"
+    assert result["recommendations"][0]["player"]["name"] == "Available QB"
+    assert result["sportsbook_context"]["status"] == "error"
+    assert result["sportsbook_context"]["error"] == provider_failure["error"]
+    assert result["sportsbook_warnings"] == [
+        "PropLine rate_limited: PropLine rate limit reached",
+        "No sportsbook context for player 'Available QB': no_market",
+    ]
 
 
 def test_snake_timing_uses_current_pick_or_infers_it_from_roster():
