@@ -141,9 +141,34 @@ the old static Sleeper defensive rankings.
 - `ff_analyze_reddit_sentiment` – Social media sentiment analysis for player buzz and injury updates
 - `ff_get_player_news` – Recent RotoWire NFL RSS updates, optionally filtered by player (no credentials required)
 - `ff_get_espn_nfl_news` – Broader ESPN NFL reporting and analysis from a public JSON endpoint (no credentials required)
+- `ff_get_sportsbook_odds` – Read-only NFL player, team, and futures odds from PropLine
 - `ff_get_api_status` – Monitor cache performance and Yahoo API rate limiting
 - `ff_clear_cache` – Clear cached responses for fresh data (with pattern support)
 - `ff_refresh_token` – Automatically refresh Yahoo OAuth tokens
+
+### Optional PropLine Sportsbook Odds
+
+Set `PROPLINE_API_KEY` to use `ff_get_sportsbook_odds`. This standalone,
+read-only tool does not require Yahoo credentials and does not change draft
+recommendations, projections, or scores.
+
+- Provide at least one `players` or `teams` entry (up to 10 of each, with names
+  no longer than 100 characters).
+- Choose `scope="season"` for futures, `scope="next_game"` for upcoming-game
+  odds, or the default `scope="auto"` for both.
+- Optionally filter to as many as 10 `bookmakers`. Custom `markets` are also
+  limited to 10, work only with `season` or `next_game`, and are rejected with
+  `auto`. Market and bookmaker keys must be unique, nonempty, lowercase
+  letters, numbers, or underscores (up to 64 characters). Next-game custom
+  markets must be supported team or player markets.
+- Player names and team aliases are matched exactly after normalization. The
+  response reports unmatched or ambiguous queries instead of guessing.
+- Requests use a 15-second overall limit, at most 16 upcoming events, and at
+  most 500 normalized results. Event and next-game odds are cached for 60
+  seconds; futures are cached for one hour.
+
+Provider failures can return a partial response when another requested source
+completed successfully. Rate limits are reported without automatic retries.
 
 ## 📦 Installation
 
@@ -176,9 +201,15 @@ YAHOO_GUID=your_yahoo_guid
 REDDIT_CLIENT_ID=your_reddit_client_id
 REDDIT_CLIENT_SECRET=your_reddit_client_secret
 REDDIT_USERNAME=your_reddit_username
+
+# PropLine API Credentials (Optional - for sportsbook odds)
+PROPLINE_API_KEY=your_propline_api_key_here
 ```
 
-**Note**: Reddit credentials are optional. The app will work without them, but Reddit sentiment analysis features will be unavailable. See [Reddit API Setup Guide](docs/REDDIT_API_SETUP.md) for detailed instructions.
+**Note**: Reddit and PropLine credentials are optional. Without them, their
+respective sentiment and sportsbook-odds tools are unavailable; other features
+continue to work. See [Reddit API Setup Guide](docs/REDDIT_API_SETUP.md) for
+detailed Reddit instructions.
 
 ### Initial Authentication
 
@@ -361,4 +392,6 @@ MIT License - see LICENSE file for details
 
 ---
 
-**Note**: This server requires active Yahoo Fantasy Football leagues and valid API credentials. Ensure you have proper authorization before accessing league data.
+**Note**: League tools require active Yahoo Fantasy Football leagues and valid
+Yahoo API credentials. The standalone PropLine sportsbook-odds tool does not.
+Ensure you have proper authorization before accessing provider data.

@@ -6,6 +6,12 @@ from .nflverse_matchups import (
     MatchupEvidenceError,
     weekly_matchup_evidence_service,
 )
+from .propline_service import (
+    SPORTSBOOK_ODDS_INPUT_SCHEMA,
+    PropLineService,
+    get_sportsbook_odds,
+    propline_service,
+)
 from .reddit_service import analyze_reddit_sentiment
 from .rookie_add_recommendations import (
     RookieAddContextError,
@@ -25,6 +31,10 @@ __all__ = [
     "get_espn_nfl_news",
     "MatchupEvidenceError",
     "weekly_matchup_evidence_service",
+    "SPORTSBOOK_ODDS_INPUT_SCHEMA",
+    "PropLineService",
+    "get_sportsbook_odds",
+    "propline_service",
     "RookieAddContextError",
     "build_rookie_add_recommendations",
     "apply_rookie_intelligence",
