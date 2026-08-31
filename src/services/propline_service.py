@@ -300,8 +300,16 @@ class PropLineService:
 
     @staticmethod
     def _cache_key(
-        endpoint: str, markets: Sequence[str], bookmakers: Sequence[str]
+        endpoint: str,
+        kind: str,
+        markets: Sequence[str],
+        bookmakers: Sequence[str],
     ) -> tuple[Any, ...]:
+        if kind == "events":
+            markets = ()
+            bookmakers = ()
+        elif kind == "futures":
+            markets = ()
         return (endpoint, SPORT, tuple(sorted(markets)), tuple(sorted(bookmakers)))
 
     async def _cache_get(
@@ -485,7 +493,7 @@ class PropLineService:
         ttl_seconds: int,
         event_id: str | None = None,
     ) -> Component:
-        key = self._cache_key(endpoint, markets, bookmakers)
+        key = self._cache_key(endpoint, kind, markets, bookmakers)
         cached = await self._cache_get(key, source_id=source_id, kind=kind, event_id=event_id)
         if cached is not None:
             return cached
@@ -531,36 +539,45 @@ class PropLineService:
         component_sink: list[Component] | None = None,
         failure_sink: list[ProviderFailure] | None = None,
     ) -> tuple[list[Component], list[ProviderFailure], bool]:
-        pending = deque(factories)
-        active: set[asyncio.Task[Component]] = set()
-        completed: list[Component] = []
-        failures: list[ProviderFailure] = []
+        pending = deque(enumerate(factories))
+        active: dict[asyncio.Task[Component], int] = {}
+        outcomes: list[tuple[int, Component | ProviderFailure]] = []
         halted = False
 
-        def record_component(component: Component) -> None:
-            completed.append(component)
-            if component_sink is not None:
-                component_sink.append(component)
-
-        def record_failure(failure: ProviderFailure) -> None:
-            failures.append(failure)
-            if failure_sink is not None:
-                failure_sink.append(failure)
+        def record(ordinal: int, outcome: Component | ProviderFailure) -> None:
+            outcomes.append((ordinal, outcome))
 
         def launch() -> None:
             while pending and len(active) < MAX_CONCURRENCY and not halted:
-                active.add(asyncio.create_task(pending.popleft()()))
+                ordinal, factory = pending.popleft()
+                active[asyncio.create_task(factory())] = ordinal
+
+        def flush() -> tuple[list[Component], list[ProviderFailure]]:
+            completed: list[Component] = []
+            failures: list[ProviderFailure] = []
+            # Planned request order is the stable tie-break for concurrent outcomes.
+            for _, outcome in sorted(outcomes, key=lambda item: item[0]):
+                if isinstance(outcome, Component):
+                    completed.append(outcome)
+                    if component_sink is not None:
+                        component_sink.append(outcome)
+                else:
+                    failures.append(outcome)
+                    if failure_sink is not None:
+                        failure_sink.append(outcome)
+            return completed, failures
 
         launch()
         try:
             while active:
-                done, active = await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
+                done, still_active = await asyncio.wait(active, return_when=asyncio.FIRST_COMPLETED)
                 batch_failures: list[ProviderFailure] = []
-                for task in done:
+                for task in sorted(done, key=active.__getitem__):
+                    ordinal = active.pop(task)
                     try:
-                        record_component(task.result())
+                        record(ordinal, task.result())
                     except ProviderFailure as exc:
-                        record_failure(exc)
+                        record(ordinal, exc)
                         batch_failures.append(exc)
                     except asyncio.CancelledError:
                         pass
@@ -568,19 +585,23 @@ class PropLineService:
                         failure = ProviderFailure(
                             "provider_error", "PropLine request failed", "request"
                         )
-                        record_failure(failure)
+                        record(ordinal, failure)
                         batch_failures.append(failure)
+                active = {task: active[task] for task in still_active}
                 if any(failure.code == "rate_limited" for failure in batch_failures):
                     halted = True
                     for task in active:
                         task.cancel()
                     if active:
-                        cancelled_results = await asyncio.gather(*active, return_exceptions=True)
-                        for result in cancelled_results:
+                        ordered_active = sorted(active, key=active.__getitem__)
+                        cancelled_results = await asyncio.gather(
+                            *ordered_active, return_exceptions=True
+                        )
+                        for task, result in zip(ordered_active, cancelled_results):
                             if isinstance(result, Component):
-                                record_component(result)
+                                record(active[task], result)
                             elif isinstance(result, ProviderFailure):
-                                record_failure(result)
+                                record(active[task], result)
                     active.clear()
                     pending.clear()
                     break
@@ -589,13 +610,16 @@ class PropLineService:
             for task in active:
                 task.cancel()
             if active:
-                cancelled_results = await asyncio.gather(*active, return_exceptions=True)
-                for result in cancelled_results:
+                ordered_active = sorted(active, key=active.__getitem__)
+                cancelled_results = await asyncio.gather(*ordered_active, return_exceptions=True)
+                for task, result in zip(ordered_active, cancelled_results):
                     if isinstance(result, Component):
-                        record_component(result)
+                        record(active[task], result)
                     elif isinstance(result, ProviderFailure):
-                        record_failure(result)
+                        record(active[task], result)
+            flush()
             raise
+        completed, failures = flush()
         return completed, failures, halted
 
     @staticmethod
@@ -824,12 +848,13 @@ class PropLineService:
         bookmakers: Sequence[str],
         *,
         explicit_filters: bool,
+        across_futures: bool = False,
     ) -> tuple[list[dict[str, Any]], str | None]:
         wanted = _normalized_player(query)
         matching = [row for row in rows if row["subject_normalized"] == wanted]
         identities = {
             (
-                row["event_id"],
+                None if across_futures else row["event_id"],
                 (
                     ("id", row["provider_entity_id"])
                     if row.get("provider_entity_id")
@@ -906,12 +931,9 @@ class PropLineService:
 
         identities = {
             (
-                row["event_id"],
-                (
-                    ("id", row["provider_entity_id"])
-                    if row.get("provider_entity_id")
-                    else ("subject", row["subject_normalized"])
-                ),
+                ("id", row["provider_entity_id"])
+                if row.get("provider_entity_id")
+                else ("subject", row["subject_normalized"])
             )
             for row in matching
         }
@@ -961,6 +983,7 @@ class PropLineService:
 
     @staticmethod
     def _primary_failure(failures: Sequence[ProviderFailure]) -> ProviderFailure:
+        # Rate limiting stops new work; otherwise the earliest planned failure wins.
         return next(
             (failure for failure in failures if failure.code == "rate_limited"),
             failures[0],
@@ -1185,6 +1208,7 @@ class PropLineService:
                     selected_futures,
                     bookmaker_keys,
                     explicit_filters=bool(market_keys or bookmaker_keys),
+                    across_futures=True,
                 )
                 matched.extend(season_matches)
                 reasons.append(season_reason)
