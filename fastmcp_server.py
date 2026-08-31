@@ -10,13 +10,26 @@ This module wraps the existing Yahoo Fantasy Football tooling defined in
 import json
 import os
 from collections.abc import Iterable
+from copy import deepcopy
 from dataclasses import asdict, is_dataclass
-from typing import Any, Awaitable, Callable, Dict, Literal, Optional, Sequence, Union
+from typing import Annotated, Any, Awaitable, Callable, Dict, Literal, Optional, Sequence, Union
 
 from fastmcp import Context, FastMCP
 from mcp.types import ContentBlock, TextContent
+from pydantic import Field
 
 import fantasy_football_multi_league
+
+
+_OddsName = Annotated[str, Field(min_length=1, max_length=100)]
+_OddsNames = Annotated[list[_OddsName], Field(min_length=1, max_length=10)]
+_OddsKey = Annotated[
+    str, Field(min_length=1, max_length=64, pattern=r"^[a-z0-9_]+$")
+]
+_OddsKeys = Annotated[
+    list[_OddsKey],
+    Field(min_length=1, max_length=10, json_schema_extra={"uniqueItems": True}),
+]
 
 # REMOVED: enhanced_mcp_tools imports - no longer using wrapper tools
 
@@ -152,6 +165,11 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "Get up to ten recent ESPN NFL reports and analysis articles, optionally "
         "filtered by player using ESPN metadata and article text. Uses an "
         "undocumented public JSON endpoint and requires no Yahoo credentials."
+    ),
+    "ff_get_sportsbook_odds": (
+        "Get bounded, read-only NFL futures and next-game odds from PropLine. "
+        "Provide 1-10 players and/or teams; auto combines scopes and does not "
+        "accept custom markets. Requires PROPLINE_API_KEY, not Yahoo credentials."
     ),
 }
 
@@ -888,6 +906,40 @@ async def ff_get_espn_nfl_news(
         players=list(players) if players is not None else None,
         limit=limit,
     )
+
+
+@server.tool(
+    name="ff_get_sportsbook_odds",
+    description=(
+        "Get read-only NFL futures and next-game sportsbook odds from PropLine, "
+        "with bounded player, team, market, and bookmaker filters."
+    ),
+    meta=_tool_meta("ff_get_sportsbook_odds"),
+)
+async def ff_get_sportsbook_odds(
+    ctx: Context,
+    players: _OddsNames | None = None,
+    teams: _OddsNames | None = None,
+    scope: Literal["auto", "season", "next_game"] = "auto",
+    markets: _OddsKeys | None = None,
+    bookmakers: _OddsKeys | None = None,
+) -> Dict[str, Any]:
+    return await _call_legacy_tool(
+        "ff_get_sportsbook_odds",
+        ctx=ctx,
+        players=list(players) if players is not None else None,
+        teams=list(teams) if teams is not None else None,
+        scope=scope,
+        markets=list(markets) if markets is not None else None,
+        bookmakers=list(bookmakers) if bookmakers is not None else None,
+    )
+
+
+# FastMCP infers equivalent constraints but adds nullable/title wrappers. Use the shared
+# public schema so both active entrypoints advertise the exact same contract.
+ff_get_sportsbook_odds.parameters = deepcopy(
+    fantasy_football_multi_league.SPORTSBOOK_ODDS_INPUT_SCHEMA
+)
 
 
 # ============================================================================
@@ -1820,6 +1872,7 @@ __all__ = [
     "ff_analyze_reddit_sentiment",
     "ff_get_player_news",
     "ff_get_espn_nfl_news",
+    "ff_get_sportsbook_odds",
     # Prompts - Pre-built prompt templates for LLMs
     "analyze_roster_strengths",
     "draft_strategy_advice",
