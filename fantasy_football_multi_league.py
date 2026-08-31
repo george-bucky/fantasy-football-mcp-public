@@ -21,6 +21,7 @@ from src.services import (
     analyze_reddit_sentiment,
     apply_rookie_intelligence,
     get_decision_news_context,
+    get_sportsbook_odds,
     rookie_identity_key,
 )
 from src.services.league_context import YahooLeagueContextService
@@ -69,6 +70,63 @@ from src.handlers import (
 
 # Draft functionality is built-in (no complex imports needed)
 DRAFT_AVAILABLE = True
+
+DRAFT_RECOMMENDATION_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "league_key": {
+            "type": "string",
+            "description": "League key (e.g., 'nfl.l.XXXXXX')",
+        },
+        "strategy": {
+            "type": "string",
+            "description": "Draft strategy: 'conservative', 'aggressive', or 'balanced' (default: balanced)",
+            "enum": ["conservative", "aggressive", "balanced"],
+            "default": "balanced",
+        },
+        "num_recommendations": {
+            "type": "integer",
+            "description": "Number of top recommendations to return (1-20, default: 10)",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 10,
+        },
+        "current_pick": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Current overall pick number; when omitted it is inferred from your roster and Yahoo draft slot",
+        },
+        "use_rookie_intelligence": {
+            "type": "boolean",
+            "default": False,
+            "description": "Opt in to reviewed 2026 first-year PPR outlook for exact rookie matches",
+        },
+        "rookie_only": {
+            "type": "boolean",
+            "default": False,
+            "description": "Return only exact current-class rookie matches; implies rookie intelligence and never falls back to veterans",
+        },
+        "include_sportsbook_odds": {
+            "type": "boolean",
+            "default": False,
+            "description": "Opt in to attributed PropLine context for the final draft shortlist",
+        },
+        "sportsbook_scope": {
+            "type": "string",
+            "enum": ["auto", "season", "next_game"],
+            "default": "auto",
+            "description": "Sportsbook evidence scope; season and next-game markets remain distinct",
+        },
+        "sportsbook_shortlist_size": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "default": 5,
+            "description": "Number of final candidates to enrich (1-5, default: 5)",
+        },
+    },
+    "required": ["league_key"],
+}
 
 # Load environment from project root
 load_dotenv(dotenv_path=ENV_FILE_PATH)
@@ -936,44 +994,7 @@ async def list_tools() -> list[Tool]:
             Tool(
                 name="ff_get_draft_recommendation",
                 description="Get live draft recommendations using your roster needs, reception and passing-TD scoring, roster settings, and draft timing",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "league_key": {
-                            "type": "string",
-                            "description": "League key (e.g., 'nfl.l.XXXXXX')",
-                        },
-                        "strategy": {
-                            "type": "string",
-                            "description": "Draft strategy: 'conservative', 'aggressive', or 'balanced' (default: balanced)",
-                            "enum": ["conservative", "aggressive", "balanced"],
-                            "default": "balanced",
-                        },
-                        "num_recommendations": {
-                            "type": "integer",
-                            "description": "Number of top recommendations to return (1-20, default: 10)",
-                            "minimum": 1,
-                            "maximum": 20,
-                            "default": 10,
-                        },
-                        "current_pick": {
-                            "type": "integer",
-                            "minimum": 1,
-                            "description": "Current overall pick number; when omitted it is inferred from your roster and Yahoo draft slot",
-                        },
-                        "use_rookie_intelligence": {
-                            "type": "boolean",
-                            "default": False,
-                            "description": "Opt in to reviewed 2026 first-year PPR outlook for exact rookie matches",
-                        },
-                        "rookie_only": {
-                            "type": "boolean",
-                            "default": False,
-                            "description": "Return only exact current-class rookie matches; implies rookie intelligence and never falls back to veterans",
-                        },
-                    },
-                    "required": ["league_key"],
-                },
+                inputSchema=DRAFT_RECOMMENDATION_INPUT_SCHEMA,
             ),
             Tool(
                 name="ff_analyze_draft_state",
@@ -1504,6 +1525,131 @@ async def _get_draft_context(league_key: str, current_pick: Optional[int]) -> di
     }
 
 
+def _sportsbook_warning_messages(response: dict) -> list[str]:
+    warnings = [str(warning) for warning in response.get("warnings", [])]
+    error = response.get("error")
+    if isinstance(error, dict):
+        code = error.get("code", "provider_error")
+        message = error.get("message", "PropLine context unavailable")
+        warnings.append(f"PropLine {code}: {message}")
+    for unmatched in response.get("unmatched", []):
+        if not isinstance(unmatched, dict):
+            continue
+        entity_type = unmatched.get("entity_type", "entity")
+        query = unmatched.get("query", "unknown")
+        reason = unmatched.get("reason", "not_found")
+        warnings.append(f"No sportsbook context for {entity_type} '{query}': {reason}")
+    return list(dict.fromkeys(warnings))
+
+
+async def _get_draft_sportsbook_context(
+    top_picks: list[dict], scope: str, shortlist_size: int
+) -> tuple[dict, list[str]]:
+    shortlist = top_picks[: max(1, min(5, shortlist_size))]
+    players = [pick["player"].get("name", "") for pick in shortlist]
+    players = [name for name in players if name]
+    teams = []
+    seen_teams = set()
+    player_context = {}
+    for pick in shortlist:
+        player_name = str(pick["player"].get("name", "")).strip()
+        team = str(pick["player"].get("team", "")).strip()
+        team_key = team.casefold()
+        if not team or team_key in {"fa", "n/a", "na"}:
+            continue
+        if player_name:
+            player_context[player_name] = {
+                "team": team,
+                "position": str(pick["player"].get("position", "")),
+            }
+        if team_key in seen_teams:
+            continue
+        seen_teams.add(team_key)
+        teams.append(team)
+
+    try:
+        response = await get_sportsbook_odds(
+            players=players,
+            teams=teams or None,
+            scope=scope,
+            player_context=player_context or None,
+        )
+    except Exception:
+        response = {
+            "status": "error",
+            "provider": "propline",
+            "scope_requested": scope,
+            "sources": [],
+            "results": [],
+            "unmatched": [],
+            "warnings": [],
+            "error": {
+                "code": "provider_error",
+                "message": "Sportsbook context unavailable",
+                "stage": "enrichment",
+            },
+        }
+
+    context = {
+        key: response[key]
+        for key in (
+            "status",
+            "provider",
+            "served_at",
+            "scope_requested",
+            "sources",
+            "quota",
+            "error",
+        )
+        if key in response
+    }
+    results = response.get("results", [])
+    unmatched = response.get("unmatched", [])
+    context["players"] = [
+        {
+            "name": pick["player"].get("name", ""),
+            "team": pick["player"].get("team"),
+            "position": pick["player"].get("position"),
+            "results": [
+                row
+                for row in results
+                if isinstance(row, dict)
+                and row.get("entity_type") == "player"
+                and row.get("query") == pick["player"].get("name", "")
+            ],
+            "unmatched": [
+                row
+                for row in unmatched
+                if isinstance(row, dict)
+                and row.get("entity_type") == "player"
+                and row.get("query") == pick["player"].get("name", "")
+            ],
+        }
+        for pick in shortlist
+    ]
+    context["teams"] = [
+        {
+            "team": team,
+            "results": [
+                row
+                for row in results
+                if isinstance(row, dict)
+                and row.get("entity_type") == "team"
+                and row.get("query") == team
+            ],
+            "unmatched": [
+                row
+                for row in unmatched
+                if isinstance(row, dict)
+                and row.get("entity_type") == "team"
+                and row.get("query") == team
+            ],
+        }
+        for team in teams
+    ]
+    return context, _sportsbook_warning_messages(response)
+
+
 async def get_draft_recommendation_simple(
     league_key: str,
     strategy: str,
@@ -1511,6 +1657,9 @@ async def get_draft_recommendation_simple(
     current_pick: Optional[int] = None,
     use_rookie_intelligence: bool = False,
     rookie_only: bool = False,
+    include_sportsbook_odds: bool = False,
+    sportsbook_scope: str = "auto",
+    sportsbook_shortlist_size: int = 5,
 ) -> dict:
     """Simplified draft recommendation using available data."""
     try:
@@ -1724,6 +1873,14 @@ async def get_draft_recommendation_simple(
             result["insights"].append(
                 "Used reviewed first-year PPR outlook only for exact current-class rookie matches"
             )
+        if include_sportsbook_odds:
+            sportsbook_context, sportsbook_warnings = await _get_draft_sportsbook_context(
+                top_picks,
+                sportsbook_scope,
+                sportsbook_shortlist_size,
+            )
+            result["sportsbook_context"] = sportsbook_context
+            result["sportsbook_warnings"] = sportsbook_warnings
         return result
 
     except Exception as e:
