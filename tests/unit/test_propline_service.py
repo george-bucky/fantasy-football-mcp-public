@@ -362,6 +362,26 @@ async def test_futures_identity_spans_multiple_legitimate_containers() -> None:
 
 
 @pytest.mark.asyncio
+async def test_futures_exact_name_with_distinct_provider_ids_is_ambiguous() -> None:
+    player_mvp = futures_odds(subject="Josh Allen", player_id="player-17", market="mvp")
+    player_mvp["id"] = "award-mvp"
+    player_opoy = futures_odds(
+        subject="Josh Allen", player_id="player-99", market="offensive_player_of_year"
+    )
+    player_opoy["id"] = "award-opoy"
+    routes = {"/v1/sports/football_nfl/futures": [FakeResponse([player_mvp, player_opoy])]}
+    service, _, _ = make_service(routes)
+
+    result = await service.get_sportsbook_odds(players=["Josh Allen"], scope="season")
+
+    assert result["status"] == "ok"
+    assert result["results"] == []
+    assert result["unmatched"] == [
+        {"query": "Josh Allen", "entity_type": "player", "reason": "ambiguous"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_futures_cache_ignores_locally_applied_market_filter() -> None:
     mvp = futures_odds(subject="Josh Allen", market="mvp", book="fanduel")
     champion = futures_odds(
