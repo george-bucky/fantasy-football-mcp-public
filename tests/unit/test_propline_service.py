@@ -324,6 +324,81 @@ async def test_season_matches_team_futures_as_team_results() -> None:
 
 
 @pytest.mark.asyncio
+async def test_futures_identity_spans_multiple_legitimate_containers() -> None:
+    player_mvp = futures_odds(subject="Josh Allen", player_id="player-17", market="mvp")
+    player_mvp["id"] = "award-mvp"
+    player_opoy = futures_odds(
+        subject="Josh Allen", player_id="player-17", market="offensive_player_of_year"
+    )
+    player_opoy["id"] = "award-opoy"
+    team_super_bowl = futures_odds(
+        subject="Buffalo Bills", player_id="team-17", market="super_bowl_winner"
+    )
+    team_super_bowl["id"] = "championship-super-bowl"
+    team_conference = futures_odds(
+        subject="Buffalo Bills", player_id="team-17", market="afc_winner"
+    )
+    team_conference["id"] = "championship-afc"
+    routes = {
+        "/v1/sports/football_nfl/futures": [
+            FakeResponse([player_mvp, player_opoy, team_super_bowl, team_conference])
+        ]
+    }
+    service, _, _ = make_service(routes)
+
+    result = await service.get_sportsbook_odds(
+        players=["Josh Allen"], teams=["BUF"], scope="season"
+    )
+
+    assert result["status"] == "ok"
+    assert result["unmatched"] == []
+    player_rows = [row for row in result["results"] if row["entity_type"] == "player"]
+    team_rows = [row for row in result["results"] if row["entity_type"] == "team"]
+    assert {row["event_id"] for row in player_rows} == {"award-mvp", "award-opoy"}
+    assert {row["event_id"] for row in team_rows} == {
+        "championship-super-bowl",
+        "championship-afc",
+    }
+
+
+@pytest.mark.asyncio
+async def test_futures_cache_ignores_locally_applied_market_filter() -> None:
+    mvp = futures_odds(subject="Josh Allen", market="mvp", book="fanduel")
+    champion = futures_odds(
+        subject="Buffalo Bills",
+        player_id="team-17",
+        market="super_bowl_winner",
+        book="fanduel",
+    )
+    routes = {
+        "/v1/sports/football_nfl/futures": [
+            FakeResponse([mvp, champion], headers=quota_headers(77))
+        ]
+    }
+    service, factory, _ = make_service(routes)
+
+    first = await service.get_sportsbook_odds(
+        players=["Josh Allen"],
+        scope="season",
+        markets=["mvp"],
+        bookmakers=["fanduel"],
+    )
+    second = await service.get_sportsbook_odds(
+        teams=["BUF"],
+        scope="season",
+        markets=["super_bowl_winner"],
+        bookmakers=["fanduel"],
+    )
+
+    assert first["status"] == second["status"] == "ok"
+    assert factory.calls_by_path["/v1/sports/football_nfl/futures"] == 1
+    assert second["sources"][0]["served_from_cache"] is True
+    assert second["results"][0]["market_key"] == "super_bowl_winner"
+    assert second["quota"]["source"] == "cache"
+    assert second["quota"]["remaining"] == 77
+
+
+@pytest.mark.asyncio
 async def test_next_game_sorts_events_combines_queries_and_matches_team_key() -> None:
     events = [
         event("later", hours=3, home_key="miami_dolphins", home_name="Miami Dolphins"),
@@ -367,6 +442,51 @@ async def test_next_game_sorts_events_combines_queries_and_matches_team_key() ->
     params = next(kwargs["params"] for url, kwargs in factory.calls if url.endswith("/first/odds"))
     assert "h2h" in params["markets"]
     assert "player_pass_yds" in params["markets"]
+
+
+@pytest.mark.asyncio
+async def test_events_cache_ignores_filters_not_sent_to_discovery() -> None:
+    team_market = game_odds(
+        "one",
+        market="h2h",
+        book="fanduel",
+        outcomes=[
+            {
+                "name": "Buffalo Bills",
+                "description": "Buffalo Bills",
+                "price": -125,
+            }
+        ],
+    )
+    routes = {
+        "/v1/sports/football_nfl/events": [FakeResponse([event("one")], headers=quota_headers(80))],
+        "/v1/sports/football_nfl/events/one/odds": [
+            FakeResponse(game_odds("one"), headers=quota_headers(70)),
+            FakeResponse(team_market, headers=quota_headers(60)),
+        ],
+    }
+    service, factory, _ = make_service(routes)
+
+    first = await service.get_sportsbook_odds(
+        players=["Josh Allen"],
+        scope="next_game",
+        markets=["player_pass_yds"],
+        bookmakers=["draftkings"],
+    )
+    second = await service.get_sportsbook_odds(
+        teams=["BUF"],
+        scope="next_game",
+        markets=["h2h"],
+        bookmakers=["fanduel"],
+    )
+
+    assert first["status"] == second["status"] == "ok"
+    assert factory.calls_by_path["/v1/sports/football_nfl/events"] == 1
+    assert factory.calls_by_path["/v1/sports/football_nfl/events/one/odds"] == 2
+    events_source = next(source for source in second["sources"] if source["id"] == "events")
+    assert events_source["served_from_cache"] is True
+    assert second["quota"]["source"] == "live"
+    assert second["quota"]["remaining"] == 60
 
 
 @pytest.mark.asyncio
@@ -747,6 +867,95 @@ async def test_first_429_stops_scheduling_cancels_inflight_and_never_retries() -
     assert len(set(event_odds_calls)) == len(event_odds_calls)
     assert tracker.cancelled == MAX_CONCURRENCY - 1
     assert result["quota"]["remaining"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reverse", [False, True])
+async def test_concurrent_failure_precedence_is_deterministic(reverse: bool) -> None:
+    service, _, _ = make_service({})
+    failures = [
+        propline_service.ProviderFailure(
+            "rate_limited",
+            "PropLine rate limit reached",
+            "event:z",
+            http_status=429,
+            retry_after_seconds=3,
+        ),
+        propline_service.ProviderFailure(
+            "provider_error",
+            "PropLine request failed",
+            "event:b",
+            http_status=503,
+        ),
+        propline_service.ProviderFailure(
+            "rate_limited",
+            "PropLine rate limit reached",
+            "event:a",
+            http_status=429,
+            retry_after_seconds=11,
+        ),
+    ]
+    if reverse:
+        failures.reverse()
+    expected = next(failure for failure in failures if failure.code == "rate_limited")
+
+    for _ in range(12):
+        started = 0
+        release = asyncio.Event()
+
+        def factory(
+            failure: propline_service.ProviderFailure,
+            barrier: asyncio.Event = release,
+        ):
+            async def fail() -> propline_service.Component:
+                nonlocal started
+                started += 1
+                if started == len(failures):
+                    barrier.set()
+                await barrier.wait()
+                raise failure
+
+            return fail
+
+        _, recorded, halted = await service._run_rolling([factory(failure) for failure in failures])
+        selected = service._primary_failure(recorded)
+
+        assert halted is True
+        assert selected.envelope() == expected.envelope()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_non_rate_limit_failures_use_planned_order() -> None:
+    service, _, _ = make_service({})
+    release = asyncio.Event()
+    started = 0
+    failures = [
+        propline_service.ProviderFailure(
+            "provider_timeout", "PropLine request timed out", "event:first"
+        ),
+        propline_service.ProviderFailure(
+            "invalid_credentials",
+            "PropLine rejected the configured API key",
+            "event:second",
+            http_status=401,
+        ),
+    ]
+
+    def factory(failure: propline_service.ProviderFailure):
+        async def fail() -> propline_service.Component:
+            nonlocal started
+            started += 1
+            if started == len(failures):
+                release.set()
+            await release.wait()
+            raise failure
+
+        return fail
+
+    _, recorded, halted = await service._run_rolling([factory(failure) for failure in failures])
+
+    assert halted is False
+    assert service._primary_failure(recorded).envelope() == failures[0].envelope()
 
 
 @pytest.mark.asyncio
