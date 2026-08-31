@@ -148,9 +148,20 @@ the old static Sleeper defensive rankings.
 
 ### Optional PropLine Sportsbook Odds
 
-Set `PROPLINE_API_KEY` to use `ff_get_sportsbook_odds`. This standalone,
-read-only tool does not require Yahoo credentials and does not change draft
-recommendations, projections, or scores.
+Set `PROPLINE_API_KEY` to use `ff_get_sportsbook_odds` or the optional draft
+enrichment. Sportsbook evidence is read-only and does not change draft
+recommendations, projections, scores, or ordering.
+
+For draft recommendations, set `include_sportsbook_odds=true`. The optional
+`sportsbook_scope` accepts `auto`, `season`, or `next_game`, and
+`sportsbook_shortlist_size` accepts 1-5 (default 5). The recommendation is
+ranked and truncated first; only that final shortlist and its deduplicated NFL
+teams are queried. Player and team results are returned separately in
+`sportsbook_context`, with provider failures, ambiguous identities, and absent
+markets reported in `sportsbook_warnings` without failing the recommendation.
+Season futures and next-game markets retain their original scope and should not
+be treated as equivalent projections. Omitting the option makes no PropLine
+request.
 
 - Provide at least one `players` or `teams` entry (up to 10 of each, with names
   no longer than 100 characters).
@@ -393,5 +404,6 @@ MIT License - see LICENSE file for details
 ---
 
 **Note**: League tools require active Yahoo Fantasy Football leagues and valid
-Yahoo API credentials. The standalone PropLine sportsbook-odds tool does not.
-Ensure you have proper authorization before accessing provider data.
+Yahoo API credentials. The standalone PropLine sportsbook-odds tool does not;
+draft enrichment still requires the normal Yahoo draft context. Ensure you have
+proper authorization before accessing provider data.

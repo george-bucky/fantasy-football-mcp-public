@@ -30,6 +30,7 @@ _OddsKeys = Annotated[
     list[_OddsKey],
     Field(min_length=1, max_length=10, json_schema_extra={"uniqueItems": True}),
 ]
+_DraftSportsbookShortlist = Annotated[int, Field(ge=1, le=5)]
 
 # REMOVED: enhanced_mcp_tools imports - no longer using wrapper tools
 
@@ -811,6 +812,9 @@ async def ff_get_draft_recommendation(
     current_pick: Optional[int] = None,
     use_rookie_intelligence: bool = False,
     rookie_only: bool = False,
+    include_sportsbook_odds: bool = False,
+    sportsbook_scope: Literal["auto", "season", "next_game"] = "auto",
+    sportsbook_shortlist_size: _DraftSportsbookShortlist = 5,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_get_draft_recommendation",
@@ -821,7 +825,15 @@ async def ff_get_draft_recommendation(
         current_pick=current_pick,
         use_rookie_intelligence=use_rookie_intelligence,
         rookie_only=rookie_only,
+        include_sportsbook_odds=include_sportsbook_odds,
+        sportsbook_scope=sportsbook_scope,
+        sportsbook_shortlist_size=sportsbook_shortlist_size,
     )
+
+
+ff_get_draft_recommendation.parameters = deepcopy(
+    fantasy_football_multi_league.DRAFT_RECOMMENDATION_INPUT_SCHEMA
+)
 
 
 @server.tool(
