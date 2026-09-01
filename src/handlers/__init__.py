@@ -25,6 +25,9 @@ from .matchup_handlers import (
     handle_ff_get_matchup,
 )
 
+# Credential-free manual draft preparation
+from .manual_draft_handlers import handle_ff_prepare_manual_draft
+
 # Player handlers (need dependency injection)
 from .player_handlers import (
     handle_ff_get_players,
@@ -144,6 +147,7 @@ __all__ = [
     "handle_ff_get_draft_rankings",
     "handle_ff_get_draft_recommendation",
     "handle_ff_analyze_draft_state",
+    "handle_ff_prepare_manual_draft",
     # Analytics handlers (extracted, minimal dependencies)
     "handle_ff_analyze_reddit_sentiment",
     "handle_ff_get_espn_nfl_news",
