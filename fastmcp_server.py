@@ -32,6 +32,7 @@ _OddsKeys = Annotated[
 ]
 _DraftSportsbookShortlist = Annotated[int, Field(ge=1, le=5)]
 _ManualDraftPreviewLimit = Annotated[int, Field(ge=1, le=100)]
+_ManualDraftAlternativeCount = Annotated[int, Field(ge=1, le=10)]
 
 # REMOVED: enhanced_mcp_tools imports - no longer using wrapper tools
 
@@ -80,9 +81,9 @@ server = FastMCP(
     name="fantasy-football",
     instructions=(
         "Yahoo Fantasy Football operations including league discovery, roster "
-        "analysis, waiver insights, Yahoo-free manual draft preparation, draft tools, "
+        "analysis, waiver insights, Yahoo-free manual draft preparation and advice, draft tools, "
         "Reddit sentiment checks, and RotoWire and ESPN NFL news. Yahoo-backed tools require "
-        "YAHOO_* environment variables; ff_prepare_manual_draft does not."
+        "YAHOO_* environment variables; manual draft preparation and advice do not."
     ),
 )
 
@@ -152,6 +153,10 @@ _TOOL_PROMPTS: Dict[str, str] = {
         "Uses public ESPN, DynastyProcess/nflverse, Fantasy Football Calculator, Sleeper, "
         "and nflverse evidence; it never requires or calls Yahoo."
     ),
+    "ff_get_manual_draft_recommendation": (
+        "Recommend a live manual pick from a persisted board plus the complete drafted-player "
+        "list and current roster. This path is deterministic and makes no required network call."
+    ),
     "ff_get_draft_recommendation": (
         "Recommend players to draft at the current or upcoming pick based on "
         "your strategy and league context."
@@ -198,7 +203,7 @@ async def _call_legacy_tool(
     filtered_args = {key: value for key, value in arguments.items() if value is not None}
 
     if ctx is not None:
-        if name == "ff_prepare_manual_draft":
+        if name in {"ff_prepare_manual_draft", "ff_get_manual_draft_recommendation"}:
             await ctx.info(f"Calling credential-free tool: {name}")
         else:
             await ctx.info(f"Calling legacy Yahoo tool: {name}")
@@ -871,6 +876,40 @@ async def ff_prepare_manual_draft(
 # Keep the two active transports on one exact public JSON schema.
 ff_prepare_manual_draft.parameters = deepcopy(
     fantasy_football_multi_league.MANUAL_DRAFT_INPUT_SCHEMA
+)
+
+
+@server.tool(
+    name="ff_get_manual_draft_recommendation",
+    description=(
+        "Recommend a live pick offline from a prepared manual-draft snapshot and complete "
+        "screenshot-derived draft state."
+    ),
+    meta=_tool_meta("ff_get_manual_draft_recommendation"),
+)
+async def ff_get_manual_draft_recommendation(
+    ctx: Context,
+    prepared_id: str,
+    current_overall_pick: int,
+    drafted_players: list[Any],
+    roster: list[Any],
+    optional_evidence: Optional[list[Dict[str, Any]]] = None,
+    alternative_count: _ManualDraftAlternativeCount = 4,
+) -> Dict[str, Any]:
+    return await _call_legacy_tool(
+        "ff_get_manual_draft_recommendation",
+        ctx=ctx,
+        prepared_id=prepared_id,
+        current_overall_pick=current_overall_pick,
+        drafted_players=drafted_players,
+        roster=roster,
+        optional_evidence=optional_evidence,
+        alternative_count=alternative_count,
+    )
+
+
+ff_get_manual_draft_recommendation.parameters = deepcopy(
+    fantasy_football_multi_league.MANUAL_DRAFT_RECOMMENDATION_INPUT_SCHEMA
 )
 
 
@@ -1918,6 +1957,7 @@ __all__ = [
     "ff_get_waiver_wire",
     "ff_get_draft_rankings",
     "ff_get_draft_recommendation",
+    "ff_get_manual_draft_recommendation",
     "ff_prepare_manual_draft",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
