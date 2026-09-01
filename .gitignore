@@ -127,6 +127,7 @@ hooks/
 PERSONAL_*.md
 PRIVATE_*.md
 TODO_*.md
+data/league_rosters/
 
 # Runtime and deployment artifacts
 *.pid
