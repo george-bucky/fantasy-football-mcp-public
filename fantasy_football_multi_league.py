@@ -25,6 +25,7 @@ from src.services import (
     rookie_identity_key,
 )
 from src.services.league_context import YahooLeagueContextService
+from src.services.manual_draft_service import MANUAL_DRAFT_INPUT_SCHEMA
 
 # Import rate limiting and caching utilities
 from src.api.yahoo_utils import rate_limiter, response_cache
@@ -60,6 +61,7 @@ from src.handlers import (
     handle_ff_get_standings,
     handle_ff_get_teams,
     handle_ff_get_waiver_wire,
+    handle_ff_prepare_manual_draft,
     handle_ff_refresh_token,
     inject_draft_dependencies,
     inject_league_helpers,
@@ -931,6 +933,14 @@ async def list_tools() -> list[Tool]:
             },
         ),
         Tool(
+            name="ff_prepare_manual_draft",
+            description=(
+                "Prepare and persist a Yahoo-free, source-attributed manual draft value board "
+                "from an explicit reusable league profile"
+            ),
+            inputSchema=MANUAL_DRAFT_INPUT_SCHEMA,
+        ),
+        Tool(
             name="ff_get_player_news",
             description=(
                 "Get recent RotoWire NFL player news from the public RSS feed; "
@@ -1060,6 +1070,7 @@ TOOL_HANDLERS: dict[str, Callable[[dict], Awaitable[dict]]] = {
     "ff_get_waiver_wire": handle_ff_get_waiver_wire,
     "ff_get_draft_rankings": handle_ff_get_draft_rankings,
     "ff_get_draft_recommendation": handle_ff_get_draft_recommendation,
+    "ff_prepare_manual_draft": handle_ff_prepare_manual_draft,
     "ff_analyze_draft_state": handle_ff_analyze_draft_state,
     "ff_analyze_reddit_sentiment": handle_ff_analyze_reddit_sentiment,
     "ff_get_player_news": handle_ff_get_player_news,
