@@ -198,6 +198,81 @@ async def test_restart_reload_excludes_drafted_and_reports_unknown_or_ambiguous_
 
 
 @pytest.mark.asyncio
+async def test_restart_reload_accepts_unscored_defense_rows(tmp_path) -> None:
+    board = _board()
+    board[-1]["base_board_score"] = None
+    assert board[-1]["position"] == "DEF"
+    _write_snapshot(tmp_path, board)
+    service = ManualDraftRecommendationService(snapshot_dir=tmp_path, now=lambda: NOW)
+
+    result = await service.recommend(
+        prepared_id="gotham-2026",
+        current_overall_pick=11,
+        drafted_players=[f"Player {index}" for index in range(1, 11)],
+        roster=[],
+    )
+
+    assert result["status"] == "success"
+    assert result["snapshot"]["profile_id"] == "gotham-2026"
+
+    missing_defense_score = _board()
+    assert missing_defense_score[-1]["position"] == "DEF"
+    del missing_defense_score[-1]["base_board_score"]
+    _write_snapshot(tmp_path, missing_defense_score)
+    with pytest.raises(recommendation_module.ManualDraftRecommendationError):
+        service.load_snapshot("gotham-2026")
+
+    board[0]["base_board_score"] = None
+    _write_snapshot(tmp_path, board)
+    with pytest.raises(recommendation_module.ManualDraftRecommendationError):
+        service.load_snapshot("gotham-2026")
+
+    del board[0]["base_board_score"]
+    _write_snapshot(tmp_path, board)
+    with pytest.raises(recommendation_module.ManualDraftRecommendationError):
+        service.load_snapshot("gotham-2026")
+
+
+@pytest.mark.asyncio
+async def test_duplicate_drafted_players_and_wrong_roster_size_are_rejected(tmp_path) -> None:
+    _write_snapshot(tmp_path, _board())
+    service = ManualDraftRecommendationService(snapshot_dir=tmp_path, now=lambda: NOW)
+
+    with pytest.raises(
+        recommendation_module.ManualDraftRecommendationError,
+        match="must not contain duplicate players",
+    ):
+        await service.recommend(
+            prepared_id="gotham-2026",
+            current_overall_pick=11,
+            drafted_players=[f"Player {index}" for index in range(1, 10)] + ["Player 9"],
+            roster=[],
+        )
+
+    with pytest.raises(
+        recommendation_module.ManualDraftRecommendationError,
+        match="must not contain duplicate players",
+    ):
+        await service.recommend(
+            prepared_id="gotham-2026",
+            current_overall_pick=14,
+            drafted_players=[f"Player {index}" for index in range(1, 14)],
+            roster=["Player 1", "Player 1"],
+        )
+
+    with pytest.raises(
+        recommendation_module.ManualDraftRecommendationError,
+        match="roster must contain exactly 1 prior user picks",
+    ):
+        await service.recommend(
+            prepared_id="gotham-2026",
+            current_overall_pick=14,
+            drafted_players=[f"Player {index}" for index in range(1, 14)],
+            roster=[],
+        )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("current_pick", "next_pick"),
     [(11, 14), (14, 35)],
@@ -212,7 +287,7 @@ async def test_snake_turn_and_adp_distribution_survival_are_explicit(
         prepared_id="gotham-2026",
         current_overall_pick=current_pick,
         drafted_players=[f"Player {index}" for index in range(1, current_pick)],
-        roster=[],
+        roster=[] if current_pick == 11 else ["Player 1"],
         alternative_count=10,
     )
     assert result["pick_context"]["next_user_pick"] == next_pick
@@ -237,12 +312,12 @@ async def test_snake_turn_and_adp_distribution_survival_are_explicit(
 
 @pytest.mark.asyncio
 async def test_resolved_roster_reduces_base_and_both_flex_needs(tmp_path) -> None:
-    _write_snapshot(tmp_path, _board())
+    _write_snapshot(tmp_path, _board(100))
     service = ManualDraftRecommendationService(snapshot_dir=tmp_path, now=lambda: NOW)
     result = await service.recommend(
         prepared_id="gotham-2026",
-        current_overall_pick=35,
-        drafted_players=[f"Player {index}" for index in range(1, 35)],
+        current_overall_pick=83,
+        drafted_players=[f"Player {index}" for index in range(1, 83)],
         roster=[
             "Player 1",
             "Player 2",

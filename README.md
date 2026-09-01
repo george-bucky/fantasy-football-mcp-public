@@ -1,14 +1,26 @@
 # Fantasy Football MCP Server
 
-A comprehensive Model Context Protocol (MCP) server for Yahoo Fantasy Football that provides intelligent lineup optimization, draft assistance, and league management through AI-powered tools.
+A read-only Model Context Protocol (MCP) server for fantasy-football decisions before, during, and
+after the draft. It can prepare a Yahoo-free, league-adjusted draft board from public projections,
+expert consensus, ADP, availability data, news, rookie context, and bounded sportsbook evidence. It
+also provides optional authenticated Yahoo tools for league, roster, waiver, matchup, and draft
+analysis.
+
+The manual live-draft workflow is built for draft rooms where Yahoo API access is unavailable. Slow
+sources are refreshed and cached before the draft; during the one-minute pick clock, provide the
+complete drafted-player list from screenshots, your current roster, and the current pick to receive
+a fast recommendation without required network calls. The server does not read screenshots itself,
+submit picks, place wagers, or treat ADP or betting markets as standalone player projections.
 
 ## 🚀 Features
 
 ### Core Capabilities
-- **Multi-League Support** – Automatically discovers and manages all Yahoo Fantasy Football leagues associated with your account
+- **Yahoo-Free Manual Draft Assistant** – Builds a league-specific cached board and turns screenshot-supplied draft state into fast recommendations
+- **Evidence-Based Rankings** – Combines custom scoring, replacement value, projections, expert consensus, ADP timing, availability, and bounded supporting context
+- **Multi-League Yahoo Support** – Optionally discovers and analyzes Yahoo Fantasy Football leagues associated with your account
 - **🆕 Player Enhancement Layer** – Intelligent projection adjustments with bye week detection, recent performance stats, and breakout/declining player flags
 - **Intelligent Lineup Optimization** – Advanced algorithms considering matchups, expert projections, and position-normalized value
-- **Draft Assistant** – Real-time draft recommendations with strategy-based analysis and VORP calculations
+- **Draft Assistant** – Manual and Yahoo-backed draft recommendations with roster strategy and VORP analysis
 - **Comprehensive Analytics** – Reddit sentiment analysis, team comparisons, and performance metrics
 - **Multiple Deployment Options** – FastMCP, traditional MCP, Docker, and cloud deployment support
 
@@ -17,7 +29,7 @@ A comprehensive Model Context Protocol (MCP) server for Yahoo Fantasy Football t
 - **Multi-Source Projections** – Combines Yahoo and Sleeper expert rankings with matchup analysis
 - **Strategy-Based Optimization** – Conservative, aggressive, and balanced approaches
 - **Volatility Scoring** – Floor vs ceiling analysis for consistent or boom-bust plays
-- **Live Draft Support** – Real-time recommendations during active drafts
+- **Live Draft Support** – Cached recommendations during active drafts without a required provider call on the pick clock
 
 ## 🆕 Player Enhancement Layer
 
@@ -308,7 +320,7 @@ pip install -r requirements.txt
 Create a `.env` file with your API credentials:
 
 ```env
-# Yahoo API Credentials (Required)
+# Yahoo API Credentials (required only for Yahoo-backed tools)
 YAHOO_CLIENT_ID=your_consumer_key_here
 YAHOO_CLIENT_SECRET=your_consumer_secret_here
 YAHOO_ACCESS_TOKEN=your_access_token
@@ -388,7 +400,7 @@ The server includes multiple compatibility layers for various cloud platforms:
 ## 🧪 Testing
 
 ```bash
-# Verify the local MCP installation (safe before Yahoo approval)
+# Verify setup; makes a live Yahoo request when an access token is configured
 .venv/bin/python utils/verify_setup.py
 
 # Run full test suite
