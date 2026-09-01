@@ -173,7 +173,16 @@ def _resolve_players(
         if len(candidates) == 1:
             row = dict(candidates[0])
             player_id = str(row.get("player_id") or "")
-            if player_id and player_id not in seen_ids:
+            if player_id in seen_ids:
+                unmatched.append(
+                    {
+                        "input": original,
+                        "normalized_name": name,
+                        "status": "duplicate",
+                        "candidates": [],
+                    }
+                )
+            elif player_id:
                 resolved.append(row)
                 seen_ids.add(player_id)
             continue
@@ -247,7 +256,15 @@ class ManualDraftRecommendationService:
                 return None
             if not all(row.get(field) for field in ("player_id", "name", "position")):
                 return None
-            if _number(row.get("base_board_score")) is None or not isinstance(row.get("rank"), int):
+            if "base_board_score" not in row:
+                return None
+            score = row.get("base_board_score")
+            if score is None:
+                if normalize_position(row.get("position")) != "DEF":
+                    return None
+            elif _number(score) is None:
+                return None
+            if not isinstance(row.get("rank"), int):
                 return None
         return value
 
@@ -415,6 +432,10 @@ class ManualDraftRecommendationService:
 
         resolved_drafted, unmatched_drafted = _resolve_players(drafted_players, board)
         resolved_roster, unmatched_roster = _resolve_players(roster, board)
+        if any(row["status"] == "duplicate" for row in [*unmatched_drafted, *unmatched_roster]):
+            raise ManualDraftRecommendationError(
+                "drafted_players and roster must not contain duplicate players"
+            )
         drafted_ids = {str(player.get("player_id")) for player in resolved_drafted}
         roster_ids = {str(player.get("player_id")) for player in resolved_roster}
         warnings = list(snapshot.get("warnings") or [])
@@ -436,6 +457,11 @@ class ManualDraftRecommendationService:
         if expected_pick != current_overall_pick:
             raise ManualDraftRecommendationError(
                 f"current_overall_pick is not the prepared profile's turn; expected {expected_pick}"
+            )
+        expected_roster_size = current_round - 1
+        if len(roster) != expected_roster_size:
+            raise ManualDraftRecommendationError(
+                f"roster must contain exactly {expected_roster_size} prior user picks"
             )
         next_pick = (
             _snake_pick(current_round + 1, team_count, slot)
