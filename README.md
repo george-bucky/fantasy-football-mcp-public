@@ -84,6 +84,7 @@ The enhancement layer is **non-breaking** and automatically applies to:
 - `ff_get_draft_rankings` – Access Yahoo's pre-draft rankings and ADP data
 
 ### Draft Assistant Tools
+- `ff_prepare_manual_draft` – Build and persist a Yahoo-free 2026 manual-draft value board from an explicit league profile
 - `ff_get_draft_recommendation` – AI-powered draft pick suggestions with strategy analysis
 - `ff_analyze_draft_state` – Real-time roster needs and positional analysis during drafts
 - `ff_get_draft_results` – Post-draft analysis with grades and team summaries
@@ -113,6 +114,87 @@ projection and does not include opponent context.
   falls back to veterans.
 
 Normal redraft behavior is unchanged when these options are omitted.
+
+### Yahoo-Free Manual Draft Board
+
+`ff_prepare_manual_draft` prepares an independently useful preseason board without a
+Yahoo league key, Yahoo credentials, or a live draft. Supply the full league profile
+directly. For example, this is the 12-team Gotham profile with the 11th pick, two
+W/R/T slots, no kicker, and its custom half-PPR bonuses:
+
+```json
+{
+  "profile": {
+    "profile_id": "gotham-2026",
+    "season": 2026,
+    "team_count": 12,
+    "draft": {"type": "snake", "slot": 11},
+    "roster_slots": {
+      "QB": 1,
+      "RB": 2,
+      "WR": 2,
+      "TE": 1,
+      "W/R/T": 2,
+      "DEF": 1,
+      "BN": 5
+    },
+    "scoring": {
+      "passing_yards": 0.04,
+      "passing_touchdowns": 4,
+      "interceptions": -2,
+      "passing_40_yard_touchdowns": 1,
+      "fumbles_lost": -2,
+      "rushing_yards": 0.1,
+      "rushing_touchdowns": 6,
+      "receiving_yards": 0.1,
+      "receiving_touchdowns": 6,
+      "receptions": 0.5,
+      "two_point_conversions": 2,
+      "rushing_yard_milestones": {"100": 1, "150": 2, "200": 3},
+      "receiving_yard_milestones": {"100": 1, "150": 2, "200": 3}
+    }
+  },
+  "preview_limit": 25
+}
+```
+
+Milestone values are mutually exclusive tier totals: 100 means 100-149 yards, 150
+means 150-199 yards, and 200 means 200 or more yards. A 200-yard game earns the
+configured 200-yard bonus only.
+
+The board scores ESPN's raw 2026 season projections with the supplied rules, then
+calculates FLEX-aware replacement levels and VORP. Its transparent 0-100 score uses
+55% league-adjusted projection value, 25% current redraft ECR, 15% current 12-team
+half-PPR ADP, and 5% structured availability context. Missing evidence is omitted and
+the remaining weights are rebalanced; it is never silently scored as zero. ADP is
+market-timing evidence rather than the primary ranking.
+
+Sources are fetched independently with fixed endpoints, response limits, timeouts,
+and local cache TTLs:
+
+- ESPN's community-documented public fantasy endpoint supplies raw season stat
+  projections (`statSourceId=1`, `statSplitTypeId=0`). Its applied total is used only
+  for server-side ordering of the bounded active-player request, never for league
+  scoring or board value.
+- DynastyProcess's open-data `db_fpecr_latest.csv` supplies current FantasyPros
+  redraft-overall ECR.
+- Fantasy Football Calculator supplies current 12-team half-PPR ADP.
+- Sleeper's public API supplies exact player identity, roster status, depth chart, and
+  trending context. Sleeper projections are not used because its preseason projection
+  feed returned empty rows during live testing.
+- nflverse weekly player stats (CC BY 4.0) estimate milestone categories that are not
+  directly projected, especially 150-yard games. Position-level fallbacks are labeled.
+
+Exact normalized name, position, and team matches are used when those fields are
+available. Ambiguous identities are quarantined; the service never fuzzy-guesses.
+Every score component, source timestamp/checksum, estimate, unsupported scoring field,
+coverage warning, and quarantine is returned for inspection.
+
+A last-known-good snapshot is stored under `.cache/manual_draft/` and is reused after a
+process restart or a provider outage. This directory is ignored by Git. Delete only the
+specific profile snapshot if you intentionally want to discard it, or pass
+`force_refresh=true` to bypass the in-memory/source caches. No draft picks or manual
+drafted-player state are recorded in this PR.
 
 ### Optional Weekly Matchup Evidence
 
@@ -221,6 +303,9 @@ PROPLINE_API_KEY=your_propline_api_key_here
 respective sentiment and sportsbook-odds tools are unavailable; other features
 continue to work. See [Reddit API Setup Guide](docs/REDDIT_API_SETUP.md) for
 detailed Reddit instructions.
+
+`ff_prepare_manual_draft` also requires no credentials. Yahoo credentials remain
+required only for tools that read Yahoo leagues, rosters, waivers, or live draft state.
 
 ### Initial Authentication
 
@@ -398,12 +483,15 @@ MIT License - see LICENSE file for details
 
 - Yahoo Fantasy Sports API for comprehensive league data
 - Sleeper API for expert rankings and defensive analysis
+- ESPN public fantasy data for raw preseason stat projections
+- DynastyProcess and nflverse open data for redraft ECR and historical player stats
+- Fantasy Football Calculator for 12-team half-PPR ADP
 - Reddit API for player sentiment analysis
 - Model Context Protocol (MCP) framework
 
 ---
 
 **Note**: League tools require active Yahoo Fantasy Football leagues and valid
-Yahoo API credentials. The standalone PropLine sportsbook-odds tool does not;
-draft enrichment still requires the normal Yahoo draft context. Ensure you have
-proper authorization before accessing provider data.
+Yahoo API credentials. The standalone manual-draft and PropLine sportsbook-odds
+tools do not; Yahoo-backed live draft enrichment still requires normal Yahoo draft
+context. Ensure you have proper authorization before accessing provider data.
