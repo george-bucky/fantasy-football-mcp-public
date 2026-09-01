@@ -85,6 +85,7 @@ The enhancement layer is **non-breaking** and automatically applies to:
 
 ### Draft Assistant Tools
 - `ff_prepare_manual_draft` – Build and persist a Yahoo-free 2026 manual-draft value board from an explicit league profile
+- `ff_get_manual_draft_recommendation` – Recommend a live manual pick offline from that prepared board and complete screenshot-derived state
 - `ff_get_draft_recommendation` – AI-powered draft pick suggestions with strategy analysis
 - `ff_analyze_draft_state` – Real-time roster needs and positional analysis during drafts
 - `ff_get_draft_results` – Post-draft analysis with grades and team summaries
@@ -195,6 +196,30 @@ process restart or a provider outage. This directory is ignored by Git. Delete o
 specific profile snapshot if you intentionally want to discard it, or pass
 `force_refresh=true` to bypass the in-memory/source caches. No draft picks or manual
 drafted-player state are recorded in this PR.
+
+### Manual Live-Draft Workflow
+
+Before the draft, call `ff_prepare_manual_draft` with the complete profile above and keep
+its `profile_id` or `snapshot_id`. When your pick is on the clock, read the draft-room
+screenshots outside the MCP, then call `ff_get_manual_draft_recommendation` with:
+
+- `prepared_id`: that profile or snapshot identifier;
+- `current_overall_pick`: your current overall pick;
+- `drafted_players`: the complete list of every prior drafted player visible across the
+  screenshots, including your picks; and
+- `roster`: your complete current roster.
+
+The recommendation reloads the persisted board and makes no required network call. It
+returns unmatched or ambiguous names instead of guessing; correct those names before
+trusting roster-specific advice. Cached news or comparable season-long PropLine evidence
+may be supplied through `optional_evidence`, but stale/missing evidence never blocks the
+pick, raw headlines and next-game props remain context only, and all optional evidence is
+capped at three points in total.
+
+The same repository and MCP can reuse the snapshot from a fresh Codex chat or task because
+the snapshot is on disk. Conversation state itself is not shared, so every call must still
+include the complete drafted-player list, current roster, and current pick. The MCP does no
+OCR and never submits a Yahoo pick; the user remains in control of the draft room.
 
 ### Optional Weekly Matchup Evidence
 
