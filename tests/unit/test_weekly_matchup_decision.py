@@ -5,9 +5,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-import fastmcp_server
 import fantasy_football_multi_league
-from lineup_optimizer import LineupOptimizer, Player, lineup_optimizer as shared_optimizer
+import fastmcp_server
+from lineup_optimizer import LineupOptimizer, Player
+from lineup_optimizer import lineup_optimizer as shared_optimizer
 from src.handlers import matchup_handlers
 from src.services.rookie_intelligence import rookie_identity_key
 
@@ -32,6 +33,8 @@ def _quarterbacks():
         team="BUF",
         roster_position="QB",
         yahoo_projection=20.04,
+        sleeper_projection_ppr=20.04,
+        sleeper_projection_source="sleeper_api",
     )
     challenger = Player(
         name="Challenger QB",
@@ -39,6 +42,8 @@ def _quarterbacks():
         team="NYJ",
         roster_position="BN",
         yahoo_projection=20.0,
+        sleeper_projection_ppr=20.0,
+        sleeper_projection_source="sleeper_api",
     )
     return veteran, challenger
 
@@ -55,9 +60,7 @@ def test_schedule_evidence_never_mutates_existing_bye_score_inputs():
     matched = {**_evidence(50, available=False), "opponent": "MIA"}
     bye = {**_evidence(None, available=False, schedule="bye"), "opponent": None}
 
-    matchup_handlers._apply_weekly_matchup_evidence(
-        [existing_bye, schedule_bye], [matched, bye]
-    )
+    matchup_handlers._apply_weekly_matchup_evidence([existing_bye, schedule_bye], [matched, bye])
 
     assert existing_bye.on_bye is True
     assert "ON_BYE" in existing_bye.performance_flags
@@ -93,9 +96,7 @@ async def test_matchup_gap_below_threshold_and_schedule_only_never_influence():
         [veteran, challenger], use_matchup_evidence=True
     )
 
-    challenger.weekly_matchup_evidence = _evidence(
-        100.0, available=False, schedule="matched"
-    )
+    challenger.weekly_matchup_evidence = _evidence(100.0, available=False, schedule="matched")
     schedule_only = await LineupOptimizer().optimize_lineup_smart(
         [veteran, challenger], use_matchup_evidence=True
     )
@@ -115,6 +116,8 @@ async def test_threshold_compares_winner_to_runner_up_not_the_weakest_option():
         team="MIA",
         roster_position="BN",
         yahoo_projection=20.0,
+        sleeper_projection_ppr=20.0,
+        sleeper_projection_source="sleeper_api",
     )
     veteran.weekly_matchup_evidence = _evidence(65.0)
     challenger.weekly_matchup_evidence = _evidence(70.0)
@@ -170,15 +173,13 @@ async def test_started_game_and_incomparable_or_zero_scores_never_use_matchup():
         [veteran, challenger], use_matchup_evidence=True
     )
 
-    challenger.yahoo_projection = 0
-    challenger.recent_performance_data = type(
-        "Recent", (), {"weeks_data": [{"points": 20.0}]}
-    )()
+    challenger.sleeper_projection_ppr = 0
+    challenger.recent_performance_data = type("Recent", (), {"weeks_data": [{"points": 20.0}]})()
     incomparable = await LineupOptimizer().optimize_lineup_smart(
         [veteran, challenger], use_matchup_evidence=True
     )
 
-    veteran.yahoo_projection = 0
+    veteran.sleeper_projection_ppr = 0
     challenger.recent_performance_data = None
     zero = await LineupOptimizer().optimize_lineup_smart(
         [veteran, challenger], use_matchup_evidence=True
@@ -224,13 +225,19 @@ async def test_matchup_precedes_rookie_outlook_and_rookie_remains_final_tiebreak
 
 @pytest.mark.asyncio
 async def test_sleeper_week_fallback_requires_exact_yahoo_season():
-    with patch("sleeper_api.sleeper_client.get_nfl_state", AsyncMock(return_value={"season": 2025, "week": 5})):
+    with patch(
+        "sleeper_api.sleeper_client.get_nfl_state",
+        AsyncMock(return_value={"season": 2025, "week": 5}),
+    ):
         with pytest.raises(Exception, match="does not match"):
             await matchup_handlers._resolve_matchup_period(
                 season=2026, requested_week=None, yahoo_current_week=None
             )
 
-    with patch("sleeper_api.sleeper_client.get_nfl_state", AsyncMock(return_value={"season": 2026, "week": 5})):
+    with patch(
+        "sleeper_api.sleeper_client.get_nfl_state",
+        AsyncMock(return_value={"season": 2026, "week": 5}),
+    ):
         assert await matchup_handlers._resolve_matchup_period(
             season=2026, requested_week=7, yahoo_current_week=None
         ) == (2026, 7, 4)
@@ -260,10 +267,18 @@ async def test_opt_out_preserves_output_and_does_not_call_matchup_service():
         patch.object(matchup_handlers, "get_user_team_key", AsyncMock(return_value="t.1")),
         patch.object(matchup_handlers, "yahoo_api_call", AsyncMock(return_value={})),
         patch.object(optimizer, "parse_yahoo_roster", AsyncMock(return_value=[starter, bench])),
-        patch.object(optimizer, "enhance_with_external_data", AsyncMock(return_value=[starter, bench])),
+        patch.object(
+            optimizer, "enhance_with_external_data", AsyncMock(return_value=[starter, bench])
+        ),
         patch.object(optimizer, "optimize_lineup_smart", AsyncMock(return_value=optimization)),
-        patch.object(matchup_handlers, "get_decision_news_context", AsyncMock(return_value={"by_player": {}, "sources": [], "warnings": []})),
-        patch.object(matchup_handlers.weekly_matchup_evidence_service, "get_evidence", AsyncMock()) as get_evidence,
+        patch.object(
+            matchup_handlers,
+            "get_decision_news_context",
+            AsyncMock(return_value={"by_player": {}, "sources": [], "warnings": []}),
+        ),
+        patch.object(
+            matchup_handlers.weekly_matchup_evidence_service, "get_evidence", AsyncMock()
+        ) as get_evidence,
     ):
         result = await matchup_handlers.handle_ff_build_lineup({"league_key": "461.l.1"})
 
@@ -277,6 +292,7 @@ async def test_opt_out_preserves_output_and_does_not_call_matchup_service():
 async def test_matchup_failure_is_reported_but_normal_lineup_still_returns():
     starter, bench = _quarterbacks()
     optimizer = shared_optimizer
+
     async def optimize(players, *args, **kwargs):
         return {
             "status": "success",
@@ -294,14 +310,29 @@ async def test_matchup_failure_is_reported_but_normal_lineup_still_returns():
             "strategy_summary": {"inputs_used": [], "opponent_aware": False},
             "player_evidence": {},
         }
+
     with (
         patch.object(matchup_handlers, "get_user_team_key", AsyncMock(return_value="t.1")),
-        patch.object(matchup_handlers, "yahoo_api_call", AsyncMock(return_value={"season": 2026, "current_week": 5})),
+        patch.object(
+            matchup_handlers,
+            "yahoo_api_call",
+            AsyncMock(return_value={"season": 2026, "current_week": 5}),
+        ),
         patch.object(optimizer, "parse_yahoo_roster", AsyncMock(return_value=[starter, bench])),
-        patch.object(optimizer, "enhance_with_external_data", AsyncMock(return_value=[starter, bench])),
+        patch.object(
+            optimizer, "enhance_with_external_data", AsyncMock(return_value=[starter, bench])
+        ),
         patch.object(optimizer, "optimize_lineup_smart", optimize),
-        patch.object(matchup_handlers, "get_decision_news_context", AsyncMock(return_value={"by_player": {}, "sources": [], "warnings": []})),
-        patch.object(matchup_handlers.weekly_matchup_evidence_service, "get_evidence", AsyncMock(side_effect=RuntimeError("offline"))),
+        patch.object(
+            matchup_handlers,
+            "get_decision_news_context",
+            AsyncMock(return_value={"by_player": {}, "sources": [], "warnings": []}),
+        ),
+        patch.object(
+            matchup_handlers.weekly_matchup_evidence_service,
+            "get_evidence",
+            AsyncMock(side_effect=RuntimeError("offline")),
+        ),
     ):
         result = await matchup_handlers.handle_ff_build_lineup(
             {"league_key": "461.l.1", "use_matchup_evidence": True}
@@ -315,9 +346,12 @@ async def test_matchup_failure_is_reported_but_normal_lineup_still_returns():
 
 @pytest.mark.asyncio
 async def test_both_transports_expose_default_off_flag():
-    assert inspect.signature(fastmcp_server.ff_build_lineup.fn).parameters[
-        "use_matchup_evidence"
-    ].default is False
+    assert (
+        inspect.signature(fastmcp_server.ff_build_lineup.fn)
+        .parameters["use_matchup_evidence"]
+        .default
+        is False
+    )
     tools = await fantasy_football_multi_league.list_tools()
     tool = next(tool for tool in tools if tool.name == "ff_build_lineup")
     flag = tool.inputSchema["properties"]["use_matchup_evidence"]

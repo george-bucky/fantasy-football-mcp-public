@@ -26,7 +26,7 @@ submit picks, place wagers, or treat ADP or betting markets as standalone player
 
 ### Advanced Analytics
 - **Position Normalization** – Smart FLEX decisions accounting for different position baselines
-- **Multi-Source Projections** – Combines Yahoo and Sleeper expert rankings with matchup analysis
+- **Weekly Forecasts** – Uses genuine Sleeper forecasts with separately labeled recent-performance, market, and game-condition evidence; Yahoo observations are comparison-only
 - **Strategy-Based Optimization** – Conservative, aggressive, and balanced approaches
 - **Volatility Scoring** – Floor vs ceiling analysis for consistent or boom-bust plays
 - **Live Draft Support** – Cached recommendations during active drafts without a required provider call on the pick clock
@@ -48,9 +48,12 @@ The enhancement layer enriches player data with real-world context to fix stale 
 - `HIGH_CEILING` – Explosive upside potential
 - `CONSISTENT` – Reliable, steady performance
 
-✅ **Adjusted Projections** – Blends recent reality with stale projections for more accurate start/sit decisions (60/40 or 70/30 weighting based on confidence)
+✅ **Legacy Enhancement Diagnostics** – Retains separately labeled recent-performance estimates in `adjusted_projection`. Canonical weekly expected points come from the Sleeper-based assessment below; historical actuals do not replace a missing forecast.
 
 ### Example
+
+This example illustrates retained legacy diagnostic fields; `adjusted_projection`
+is not the canonical weekly baseline or final expected-points field.
 
 **Before Enhancement:**
 ```json
@@ -235,18 +238,32 @@ OCR and never submits a Yahoo pick; the user remains in control of the draft roo
 
 ### Optional Weekly Matchup Evidence
 
-Enhanced `ff_get_roster` and `ff_build_lineup` now use Yahoo and genuine Sleeper
-point forecasts as the canonical baseline. When both are available, the existing
-relative weighting becomes 62.5% Yahoo / 37.5% Sleeper; a missing source is
-excluded and remaining weights renormalize. Prior actual performance is supporting
-evidence, never a substitute baseline forecast.
+Enhanced `ff_get_roster` and `ff_build_lineup` use only a genuine, compatible Sleeper
+point forecast as the canonical baseline, with effective source weight 1.0. Yahoo
+raw values and optional visible-projection snapshots are comparison-only: neither
+receives forecast or strategy-utility weight. If the Sleeper forecast is missing,
+stale, invalid, or incompatible, canonical expected points remain unavailable; Yahoo
+values, rankings, and recent actual performance do not substitute for it.
+
+Yahoo still supplies league scoring configuration/class, roster membership, selected
+positions, eligibility, and reported actual points. Forecast compatibility currently
+covers standard, half-PPR, and PPR scoring classes; it does not promise exact custom
+Yahoo bonuses or modifiers. Unsupported custom scoring omits incompatible PPR
+inputs. When league scoring is unresolved, the existing default-PPR path may retain
+a forecast explicitly labeled provisional; it is not verified custom-league scoring.
+Sleeper's weekly projection endpoint is undocumented, so availability and schema
+changes are explicit operational risks rather than grounds for a silent fallback.
 
 Current-game player-prop adjustments are enabled by default on these enhanced
 paths. Set `include_market_adjustments=false` to retain the provider baseline
-without market effects. Basic/Yahoo-only views and `include_external_data=false`
-remain free of external market effects. Existing separate strategy utility can
-still express recent-performance and risk preferences; expected points and
-selection scores are labeled separately.
+without market effects. Basic views and `include_external_data=false`
+remain free of external market effects. The sequence is Sleeper baseline →
+accepted bounded Vegas/market and weather adjustments → strategy blend of final
+expected points with recent actuals → health/role multipliers → eligibility/lock
+constraints and global lineup assignment. Strategy acts on the final adjusted
+forecast, not the unadjusted baseline. Context deltas are included once, never
+added as an unweighted bonus after the blend. Raw provider values and final
+expected points are strategy-independent; selection utility is labeled separately.
 
 - Each recommendation refreshes odds subject to a short bounded cache; there is
   no continuous background watcher. Every calculation starts from unchanged
@@ -258,8 +275,8 @@ selection scores are labeled separately.
   difference with a shared absolute two-point budget per player.
 - These shrinkage/cap settings are provisional heuristics, not backtested weights.
   The historical distribution's shape is assumed stable, and applying a
-  Sleeper-relative signal to the blended baseline may overlap information already
-  in provider forecasts. The assessment exposes each component, source, settings,
+  Sleeper-relative signal may overlap information already reflected in the
+  Sleeper forecast. The assessment exposes each component, source, settings,
   and limitation. Historical betting archives are optional.
 - Player/event/kickoff identity, current NFL week, source freshness and supported
   scoring must be verified. Missing, ambiguous, stale or sparse data keeps the
@@ -282,7 +299,7 @@ selection scores are labeled separately.
 - Fresh player-prop adjustments take precedence over game and weather adjustments
   to limit overlapping information. Otherwise game effects apply to TD components
   and weather to passing/receiving volume; their combined absolute budget is two
-  points. Raw Yahoo and Sleeper forecasts remain unchanged.
+  points. Raw Sleeper forecasts and optional Yahoo comparison values remain unchanged.
 - `include_environment_adjustments=false` disables weather effects independently
   from `include_market_adjustments=false`. Disabling both avoids these input
   collectors; disabling weather alone also skips the venue registry and NWS calls.
@@ -520,16 +537,28 @@ fantasy-football-mcp-public/
 
 ## 🔧 Advanced Configuration
 
-### Strategy Weights (Balanced Default)
-```python
-{
-    "yahoo": 0.40,     # Yahoo expert projections
-    "sleeper": 0.40,   # Sleeper expert rankings
-    "matchup": 0.10,   # Defensive matchup analysis
-    "trending": 0.05,  # Player trending data
-    "momentum": 0.05   # Recent performance
-}
-```
+### Weekly Forecast and Strategy Utility Weights
+
+Canonical baseline expected points give the genuine compatible Sleeper forecast
+weight **1.0**. Accepted bounded market/weather effects produce final expected
+points. Strategy utility then blends that final forecast with historical actuals:
+
+| Strategy | Final expected points | Recent average | Recent minimum | Recent maximum |
+| --- | ---: | ---: | ---: | ---: |
+| Balanced | 0.80 | 0.20 | 0 | 0 |
+| Conservative | 0.50 | 0.20 | 0.30 | 0 |
+| Aggressive | 0.50 | 0.15 | 0 | 0.35 |
+
+Weights normalize over available supported inputs. Without historical inputs,
+the final forecast has effective utility weight 1.0. Effective weights and
+missing-input limitations are exposed. Yahoo raw/snapshot values have no forecast
+or strategy-utility weight; historical actuals never replace a missing forecast.
+
+For example, a Sleeper baseline of 10 plus an accepted context delta of +2 yields
+final expected points of 12, independent of strategy. With a recent average of
+15, balanced base utility is `0.80 * 12 + 0.20 * 15 = 12.6`, before health/role
+multipliers and eligibility/lock constraints. A missing Sleeper forecast remains
+unavailable rather than becoming estimated points from recent performance.
 
 ### Draft Strategies
 - **Conservative**: Prioritize proven players, minimize risk

@@ -18,13 +18,22 @@ from src.services.player_enhancement import calculate_recent_avg
 
 
 def player(name, position, projection, slot="BN", **kwargs):
+    fields = {
+        "sleeper_projection_ppr": projection,
+        "sleeper_projection_source": "sleeper_api",
+        "projection_context": {
+            "sleeper_projection_present": projection != 0,
+            "sleeper_projection_scoring_format": "ppr",
+        },
+    }
+    fields.update(kwargs)
     return Player(
         name=name,
         position=position,
         team="BUF",
         yahoo_projection=projection,
         roster_position=slot,
-        **kwargs,
+        **fields,
     )
 
 
@@ -144,7 +153,8 @@ def test_custom_scoring_omits_ppr_actuals_and_derived_flags():
     )
     value.recent_performance_data = SimpleNamespace(weeks_data=[{"points": 100}])
     score, evidence = _strategy_score(value, "balanced")
-    assert score == 10
+    assert score == 0
+    assert evidence["projection_assessment"]["baseline_expected_points"] is None
     assert any("incompatible" in x for x in evidence["fallbacks"])
 
 

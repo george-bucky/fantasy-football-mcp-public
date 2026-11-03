@@ -425,10 +425,10 @@ async def test_roster_and_lineup_share_canonical_points_and_actual_selection_uti
         )
     starter = lineup["optimal_lineup"]["QB"]
     same_player = result["all_players"][0]
-    assert starter["expected_points"] == same_player["expected_points"] == 16.25
-    assert same_player["expected_points_if_available"] == 16.25
-    assert same_player["roster_analysis"]["projected_points"] == 16.2
-    assert result["overall_analysis"]["total_projected_points"] == 25.5
+    assert starter["expected_points"] == same_player["expected_points"] == 10
+    assert same_player["expected_points_if_available"] == 10
+    assert same_player["roster_analysis"]["projected_points"] == 10
+    assert result["overall_analysis"]["total_projected_points"] == 18
     assert (
         result["overall_analysis"]["projection_scope"]
         == "entire_roster_including_bench_not_selected_lineup"
@@ -558,9 +558,9 @@ async def test_bye_display_does_not_destroy_source_values_or_hide_projection_sem
     assert entry["projection_semantics"] == "conditional_on_availability"
     assert entry["eligibility"]["eligible"] is False
     assert entry["selection_score"] is None
-    assert entry["expected_points_if_available"] == 16.25
+    assert entry["expected_points_if_available"] == 10
     assert entry["roster_analysis"]["projected_points"] == 0
-    assert result["overall_analysis"]["total_projected_points"] == 9.2
+    assert result["overall_analysis"]["total_projected_points"] == 8
 
 
 @pytest.mark.parametrize("all_unknown", [False, True])
@@ -596,7 +596,7 @@ async def test_missing_roster_estimates_have_explicit_partial_coverage_not_fake_
     assert summary["projection_coverage"]["complete"] is False
     assert summary["projection_coverage"]["known"] == (0 if all_unknown else 1)
     assert summary["projection_coverage"]["missing"] == (2 if all_unknown else 1)
-    assert summary["known_projected_points_total"] == (None if all_unknown else 16.2)
+    assert summary["known_projected_points_total"] == (None if all_unknown else 10)
 
 
 @pytest.mark.parametrize(
@@ -646,7 +646,7 @@ async def test_known_bye_is_not_masked_by_external_output_toggle(view):
         {"data_level": "full", "include_external_data": False},
     ],
 )
-async def test_external_disabled_is_yahoo_only_in_values_effects_and_attribution(view):
+async def test_external_disabled_has_no_forecast_or_yahoo_fallback(view):
     from types import SimpleNamespace
 
     players = _projected_players()
@@ -680,17 +680,20 @@ async def test_external_disabled_is_yahoo_only_in_values_effects_and_attribution
         )
     entry = result["all_players"][0]
     assessment = entry["projection_assessment"]
-    assert entry["expected_points_if_available"] == 20
-    assert entry["selection_score"] == 20
+    assert entry["expected_points_if_available"] is None
+    # Neutral utility remains distinct from an unavailable point forecast.
+    assert entry["selection_score"] == 0
     assert entry["eligibility"]["eligible"] is True
-    assert assessment["effective_source_weights"] == {"yahoo": 1.0}
+    assert assessment["effective_source_weights"] == {}
+    assert "yahoo" not in assessment["configured_source_weights"]
     assert assessment["raw_provider_values"]["sleeper"] is None
     assert assessment["raw_source_values"]["sleeper"] is None
     assert "recent_avg" not in assessment["raw_source_values"]
     assert assessment["supporting_evidence"]["recent_actuals"]["status"] == "disabled_by_request"
     assert assessment["missing_sources"]["sleeper"] == "disabled_by_request"
     assert "recent_avg" not in assessment["missing_sources"]
-    assert assessment["strategy_trace"]["utility_source_values"] == {"yahoo": 20}
+    assert assessment["strategy_trace"]["utility_source_values"] == {}
+    assert "yahoo" not in assessment["strategy_trace"]["utility_source_weights"]
     assert assessment["strategy_trace"]["role_multiplier"] == 1
     assert assessment["strategy_trace"]["availability_multiplier"] == 1
     assert set(assessment["source_provenance"]) <= {"yahoo"}

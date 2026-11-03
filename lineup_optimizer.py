@@ -281,16 +281,14 @@ class Player:
 
 
 _STRATEGY_WEIGHTS = {
-    "balanced": {"yahoo": 0.50, "sleeper": 0.30, "recent_avg": 0.20},
+    "balanced": {"sleeper": 0.80, "recent_avg": 0.20},
     "conservative": {
-        "yahoo": 0.35,
-        "sleeper": 0.15,
+        "sleeper": 0.50,
         "recent_avg": 0.20,
         "recent_floor": 0.30,
     },
     "aggressive": {
-        "yahoo": 0.35,
-        "sleeper": 0.15,
+        "sleeper": 0.50,
         "recent_avg": 0.15,
         "recent_ceiling": 0.35,
     },
@@ -422,12 +420,21 @@ def _recent_actual_points(player: Player) -> List[float]:
 
 
 def _sleeper_projection_for_format(player: Player) -> float:
-    scoring_format = player.scoring_format.lower()
+    scoring_format = player.scoring_format.lower().replace("-", "_")
     if scoring_format == "standard":
-        return player.sleeper_projection_std or player.sleeper_projection
-    if scoring_format == "half-ppr":
+        return player.sleeper_projection_std
+    if scoring_format == "half_ppr":
         return player.sleeper_projection_half_ppr
-    return player.sleeper_projection_ppr
+    if scoring_format == "ppr":
+        return player.sleeper_projection_ppr
+    return 0.0
+
+
+def _sleeper_projection_explicitly_present(player: Player) -> bool:
+    context = player.projection_context if isinstance(player.projection_context, dict) else {}
+    return context.get("sleeper_projection_present") is True and context.get(
+        "sleeper_projection_scoring_format"
+    ) == player.scoring_format.lower().replace("-", "_")
 
 
 def _availability_multiplier(player: Player, strategy: str) -> tuple[float, List[str]]:
@@ -547,7 +554,10 @@ def _strategy_components(
     strategy: str,
     news_context: Optional[Dict[str, Any]] = None,
 ) -> tuple[float, Dict[str, Any]]:
-    compatible_scoring = player.scoring_format_source != "fallback_custom_ppr"
+    compatible_scoring = (
+        player.scoring_format_source != "fallback_custom_ppr"
+        and player.scoring_format.lower().replace("-", "_") in {"standard", "half_ppr", "ppr"}
+    )
     recent_points = _recent_actual_points(player) if compatible_scoring else []
     recent_avg = (
         math.fsum(value / len(recent_points) for value in recent_points) if recent_points else 0.0
@@ -557,18 +567,12 @@ def _strategy_components(
     fallbacks: List[str] = []
 
     context = player.projection_context if isinstance(player.projection_context, dict) else {}
-    yahoo_projection = _finite_number(player.yahoo_projection)
-    if yahoo_projection is not None and (
-        yahoo_projection > 0 or context.get("yahoo_projection_present") is True
-    ):
-        available_values["yahoo"] = yahoo_projection
-        inputs.append("Yahoo projection")
-    else:
-        fallbacks.append("Yahoo projection unavailable")
-
     sleeper_projection = _finite_number(_sleeper_projection_for_format(player))
     if player.sleeper_projection_source == "sleeper_api" and compatible_scoring:
-        if sleeper_projection is not None and sleeper_projection > 0:
+        if sleeper_projection is not None and (
+            _sleeper_projection_explicitly_present(player)
+            or ("sleeper_projection_present" not in context and sleeper_projection > 0)
+        ):
             available_values["sleeper"] = sleeper_projection
             inputs.append(f"Sleeper real {player.scoring_format} projection")
         else:
@@ -632,8 +636,6 @@ def _strategy_components(
             if source not in checked["effective_source_weights"]:
                 available_values.pop(source)
                 fallbacks.append(f"{source} omitted: {checked['missing_sources'][source]}")
-    if "yahoo" not in available_values:
-        inputs = [item for item in inputs if item != "Yahoo projection"]
     if "sleeper" not in available_values:
         inputs = [item for item in inputs if not item.startswith("Sleeper real ")]
     if "recent_avg" not in available_values:
@@ -670,7 +672,6 @@ def _strategy_components(
 
     evidence_groups = sum(
         (
-            "yahoo" in available_values,
             "sleeper" in available_values,
             "recent_avg" in available_values,
             bool(role_inputs),
@@ -756,11 +757,9 @@ def assess_player_projection(
     request = _assessment_request(player)
     scoring_basis = request["scoring_basis"]
     identity = request["player_id"]
-    # Point forecasts come only from the two providers. Recent actuals remain
-    # supporting evidence for the explicitly separate legacy utility policy.
-    baseline_weights = {
-        source: _STRATEGY_WEIGHTS["balanced"][source] for source in ("yahoo", "sleeper")
-    }
+    # Sleeper alone supplies player point forecasts. Yahoo values are retained
+    # for comparison, and recent actuals support the separate utility policy.
+    baseline_weights = {"sleeper": 1.0}
     values = {source: available.get(source) for source in baseline_weights}
     # Preserve valid numeric provider values even if provenance excludes them
     # from the weighted baseline; availability/missingness is separately stated.
@@ -781,12 +780,24 @@ def assess_player_projection(
         provenance = None
     from src.services.weekly_projection_runtime import weekly_context_adjustments
 
-    adjustments, policy, market_estimate, context_estimate = weekly_context_adjustments(context, request)
+    adjustments, policy, market_estimate, context_estimate = weekly_context_adjustments(
+        context, request
+    )
+    strategy_weights = _STRATEGY_WEIGHTS[strategy_used]
+    available_weight = math.fsum(
+        weight for source, weight in strategy_weights.items() if source in available
+    )
+    effective_utility_weights = {
+        source: weight / available_weight
+        for source, weight in strategy_weights.items()
+        if source in available and available_weight > 0
+    }
     assessment = assess_projection(
         values,
         baseline_weights,
         **request,
         strategy_base_utility=components["strategy_base_utility"],
+        strategy_projection_weight=effective_utility_weights.get("sleeper", 0.0),
         utility_multiplier=availability * role,
         eligible=availability > 0 and not constraints,
         constraints=constraints,
@@ -797,13 +808,15 @@ def assess_player_projection(
     )
     assessment["market_estimate"] = market_estimate
     assessment["context_estimate"] = context_estimate
-    assessment["market_input_status"] = context.get("market_input_status", {
-        "status": "unavailable", "reason": "No live current-game market inputs collected"
-    })
+    assessment["market_input_status"] = context.get(
+        "market_input_status",
+        {"status": "unavailable", "reason": "No live current-game market inputs collected"},
+    )
     assessment["raw_provider_values"] = raw_values
     assessment["baseline_source_policy"] = {
-        "sources": ["yahoo", "sleeper"],
-        "status": "configurable_legacy_heuristic_not_calibrated",
+        "sources": ["sleeper"],
+        "comparison_only_sources": ["yahoo"],
+        "status": "sleeper_primary_provider_forecast_not_calibrated",
     }
     assessment["supporting_evidence"] = {
         "recent_actuals": {
@@ -815,14 +828,20 @@ def assess_player_projection(
     }
     if assessment["baseline_expected_points"] is None:
         assessment["limitations"].append(
-            "No provider point forecast available; recent actuals can inform legacy utility only"
+            "Sleeper point forecast unavailable; Yahoo is comparison only; "
+            "recent actuals can inform legacy utility only"
         )
     assessment["strategy"] = strategy_used
+    adjusted_utility_values = dict(available)
+    if "sleeper" in adjusted_utility_values:
+        adjusted_utility_values["sleeper"] = assessment["final_expected_points"]
     assessment["strategy_trace"].update(
         availability_multiplier=availability,
         role_multiplier=role,
         utility_source_weights=dict(_STRATEGY_WEIGHTS[strategy_used]),
-        utility_source_values=dict(available),
+        effective_utility_source_weights=effective_utility_weights,
+        raw_utility_source_values=dict(available),
+        utility_source_values=adjusted_utility_values,
     )
     assessment["limitations"].extend(evidence["fallbacks"])
     assessment["limitations"].append(
@@ -843,10 +862,7 @@ def assess_player_projection(
         assessment["limitations"].append(
             "Historical enrichment does not establish immutable pregame forecast or status snapshots"
         )
-    invalid_forecast = any(
-        _finite_number(value) is None
-        for value in (player.yahoo_projection, _sleeper_projection_for_format(player))
-    )
+    invalid_forecast = _finite_number(_sleeper_projection_for_format(player)) is None
     if (invalid_forecast and not available) or (
         assessment["eligibility"]["eligible"] and assessment["strategy_utility"] is None
     ):
@@ -1220,8 +1236,15 @@ class LineupOptimizer:
 
                 # A failed refresh cannot present a previous period as current.
                 enhanced_player.raw.pop("weekly_projection", None)
+                enhanced_player.projection_context.pop("sleeper_projection_present", None)
+                enhanced_player.projection_context.pop("sleeper_projection_scoring_format", None)
                 enhanced_player.sleeper_projection_source = ""
-                for field_name in ("sleeper_projection", "sleeper_projection_std", "sleeper_projection_ppr", "sleeper_projection_half_ppr"):
+                for field_name in (
+                    "sleeper_projection",
+                    "sleeper_projection_std",
+                    "sleeper_projection_ppr",
+                    "sleeper_projection_half_ppr",
+                ):
                     setattr(enhanced_player, field_name, 0.0)
                 enhanced_player.recent_performance_data = None
                 enhanced_player.recent_performance = []
@@ -1274,39 +1297,50 @@ class LineupOptimizer:
                                     raise ValueError(
                                         f"Unsupported Sleeper projection source: {projection_source or 'unknown'}"
                                     )
-                                # Sleeper projections typically have 'projected_stats' with 'pts' or position-specific
                                 stats = proj_data.get("projected_stats", {})
+                                fields = {
+                                    "pts": "sleeper_projection",
+                                    "pts_std": "sleeper_projection_std",
+                                    "pts_ppr": "sleeper_projection_ppr",
+                                    "pts_half_ppr": "sleeper_projection_half_ppr",
+                                }
+                                present = set()
                                 if isinstance(stats, list):
-                                    # Validate the complete aggregate before publishing any format.
-                                    totals = {
-                                        key: _projection_sum(stats, key)
-                                        for key in ("pts", "pts_std", "pts_ppr", "pts_half_ppr")
-                                    }
-                                    enhanced_player.sleeper_projection = totals["pts"]
-                                    enhanced_player.sleeper_projection_std = totals["pts_std"]
-                                    enhanced_player.sleeper_projection_ppr = totals["pts_ppr"]
-                                    enhanced_player.sleeper_projection_half_ppr = totals[
-                                        "pts_half_ppr"
-                                    ]
-                                else:
-                                    # Dict or direct pts
-                                    enhanced_player.sleeper_projection = _projection_number(
-                                        stats.get("pts") or proj_data.get("pts", 0)
-                                    )
-                                    enhanced_player.sleeper_projection_std = _projection_number(
-                                        stats.get("pts_std")
-                                        or proj_data.get("pts_std")
-                                        or enhanced_player.sleeper_projection
-                                    )
-                                    enhanced_player.sleeper_projection_ppr = _projection_number(
-                                        stats.get("pts_ppr") or proj_data.get("pts_ppr", 0)
-                                    )
-                                    enhanced_player.sleeper_projection_half_ppr = (
-                                        _projection_number(
-                                            stats.get("pts_half_ppr")
-                                            or proj_data.get("pts_half_ppr", 0)
+                                    totals = {key: _projection_sum(stats, key) for key in fields}
+                                    present = {
+                                        key
+                                        for key in fields
+                                        if stats
+                                        and all(
+                                            isinstance(row, dict)
+                                            and row.get(key) is not None
+                                            and row.get(key) != ""
+                                            for row in stats
                                         )
-                                    )
+                                    }
+                                elif isinstance(stats, dict):
+                                    totals = {}
+                                    for key in fields:
+                                        raw = stats[key] if key in stats else proj_data.get(key)
+                                        totals[key] = _projection_number(raw)
+                                        if raw is not None and raw != "":
+                                            present.add(key)
+                                else:
+                                    raise ValueError("Invalid Sleeper projected stats")
+                                for key, field_name in fields.items():
+                                    setattr(enhanced_player, field_name, totals[key])
+                                scoring_format = enhanced_player.scoring_format.lower().replace(
+                                    "-", "_"
+                                )
+                                selected_field = {
+                                    "standard": "pts_std",
+                                    "ppr": "pts_ppr",
+                                    "half_ppr": "pts_half_ppr",
+                                }.get(scoring_format)
+                                enhanced_player.projection_context.update(
+                                    sleeper_projection_present=selected_field in present,
+                                    sleeper_projection_scoring_format=scoring_format,
+                                )
                                 from copy import deepcopy
 
                                 enhanced_player.raw["weekly_projection"] = deepcopy(proj_data)
@@ -1315,6 +1349,12 @@ class LineupOptimizer:
                         except Exception:
                             # Reject the entire malformed aggregate, including cached format fields.
                             enhanced_player.raw.pop("weekly_projection", None)
+                            enhanced_player.projection_context.pop(
+                                "sleeper_projection_present", None
+                            )
+                            enhanced_player.projection_context.pop(
+                                "sleeper_projection_scoring_format", None
+                            )
                             for projection_field in (
                                 "sleeper_projection",
                                 "sleeper_projection_std",
@@ -1332,10 +1372,13 @@ class LineupOptimizer:
                         # Get expert advice for this player
                         advice = (
                             await sleeper_client.get_expert_advice(
-                                player.name, week=use_week,
-                                scoring_format=(enhanced_player.scoring_format
+                                player.name,
+                                week=use_week,
+                                scoring_format=(
+                                    enhanced_player.scoring_format
                                     if enhanced_player.scoring_format_source == "yahoo_settings"
-                                    else "unknown"),
+                                    else "unknown"
+                                ),
                             )
                             if not historical_period
                             else {}
@@ -1721,7 +1764,6 @@ class LineupOptimizer:
             best_weekly_sources = {
                 source
                 for source, available in (
-                    ("yahoo_projection", selected.yahoo_projection > 0),
                     (
                         "sleeper_projection",
                         _sleeper_projection_for_format(selected) > 0
@@ -1763,7 +1805,6 @@ class LineupOptimizer:
                         & {
                             source
                             for source, available in (
-                                ("yahoo_projection", player.yahoo_projection > 0),
                                 (
                                     "sleeper_projection",
                                     _sleeper_projection_for_format(player) > 0
