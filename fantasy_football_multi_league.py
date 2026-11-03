@@ -15,6 +15,7 @@ from mcp.types import TextContent, Tool
 
 # Import extracted modules
 from src.api import get_access_token, refresh_yahoo_token, set_access_token, yahoo_api_call
+from src.api.yahoo_client import initialize_token_store
 from src.parsers import parse_team_roster, parse_yahoo_free_agent_players
 from src.services import (
     SPORTSBOOK_ODDS_INPUT_SCHEMA,
@@ -135,11 +136,14 @@ DRAFT_RECOMMENDATION_INPUT_SCHEMA = {
 }
 
 # Load environment from project root
-load_dotenv(dotenv_path=ENV_FILE_PATH)
+if os.getenv("FANTASY_CLOUD_RUNTIME") != "1":
+    load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 # Initialize access token in the API module
 if os.getenv("YAHOO_ACCESS_TOKEN"):
     set_access_token(os.getenv("YAHOO_ACCESS_TOKEN"))
+
+initialize_token_store()
 
 # Create server instance
 server = Server("fantasy-football")
@@ -2086,7 +2090,21 @@ inject_draft_dependencies(
 
 async def main():
     """Run the MCP server."""
-    # Use stdio transport
+    if os.getenv("FANTASY_CLOUD_RUNTIME") == "1":
+        import sys
+        from contextlib import redirect_stdout
+        from io import TextIOWrapper
+
+        import anyio
+
+        # Keep protocol output bound to the original UTF-8 stream while noisy
+        # legacy provider diagnostics go to stderr during cloud tool execution.
+        protocol_stdout = anyio.wrap_file(TextIOWrapper(sys.stdout.buffer, encoding="utf-8"))
+        with redirect_stdout(sys.stderr):
+            async with stdio_server(stdout=protocol_stdout) as (read_stream, write_stream):
+                await server.run(read_stream, write_stream, server.create_initialization_options())
+        return
+    # Keep the established local transport behavior.
     async with stdio_server() as (read_stream, write_stream):
         await server.run(read_stream, write_stream, server.create_initialization_options())
 
