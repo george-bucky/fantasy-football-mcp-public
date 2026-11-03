@@ -256,13 +256,26 @@ async def enrich_weekly_projection_inputs(
                 context.update(game_id=row["event_id"], kickoff=row["kickoff"], as_of=finished)
             context["market_adjustments_enabled"] = enabled is True
             context["environment_adjustments_enabled"] = environment_enabled is True
+            input_available = enabled is True and bool(
+                row.get("available") or row.get("game_quotes")
+            )
+            input_reasons = list(row.get("unavailable_reasons", []))
+            if binding.get("reason"):
+                input_reasons.append(str(binding["reason"]))
+            if not input_available and not input_reasons:
+                input_reasons.append("No verified current-game market inputs")
             context["market_input_status"] = {
-                "status": (
-                    "available"
-                    if enabled is True and (row.get("available") or row.get("game_quotes"))
-                    else "unavailable"
+                "status": "available" if input_available else "unavailable",
+                "reason": (
+                    (input_reasons[0] if input_reasons else None)
+                    if enabled is True
+                    else "disabled_by_request"
                 ),
-                "reason": None if enabled is True else "disabled_by_request",
+                "unavailable_reasons": (
+                    list(dict.fromkeys(input_reasons))
+                    if enabled is True
+                    else ["disabled_by_request"]
+                ),
                 "warnings": market.get("warnings", []) + environment.get("warnings", []),
             }
             player.projection_context = context

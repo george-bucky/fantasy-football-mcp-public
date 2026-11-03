@@ -556,8 +556,11 @@ def _strategy_components(
     inputs: List[str] = []
     fallbacks: List[str] = []
 
+    context = player.projection_context if isinstance(player.projection_context, dict) else {}
     yahoo_projection = _finite_number(player.yahoo_projection)
-    if yahoo_projection is not None and yahoo_projection > 0:
+    if yahoo_projection is not None and (
+        yahoo_projection > 0 or context.get("yahoo_projection_present") is True
+    ):
         available_values["yahoo"] = yahoo_projection
         inputs.append("Yahoo projection")
     else:
@@ -596,7 +599,6 @@ def _strategy_components(
     else:
         fallbacks.append("Yahoo scoring format unavailable; PPR fallback used")
 
-    context = player.projection_context if isinstance(player.projection_context, dict) else {}
     provenance = context.get("source_provenance")
     recent_sources = ("recent_avg", "recent_floor", "recent_ceiling")
     recent_provenance_supplied = isinstance(provenance, dict) and any(

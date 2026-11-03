@@ -219,6 +219,12 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
             "note": "Empty roster - possibly off-season or parsing variation. Check logs for raw data.",
         }
 
+    if not effective_projections and arguments.get("yahoo_projection_snapshot") is not None:
+        result["yahoo_projection_snapshot_audit"] = {
+            "available": False, "applied_count": 0,
+            "reason": "projections_disabled_by_request",
+            "caller_provided": True, "server_refetched": False,
+        }
     if not needs_enhanced and not include_weekly_context:
         return result
 
@@ -300,6 +306,12 @@ async def handle_ff_get_roster(arguments: dict) -> dict:
         result["warnings"] = context_warnings
     else:
         result.pop("warnings", None)
+
+    if effective_projections:
+        players, result["yahoo_projection_snapshot_audit"] = matchup_handlers._apply_yahoo_snapshot(
+            players, arguments, lineup_context, league_key=league_key, team_key=team_key,
+            season=projection_season, week=effective_week,
+        )
 
     if include_weekly_context:
         try:

@@ -673,6 +673,17 @@ async def list_tools() -> list[Tool]:
                         "description": "Include Sleeper data, trending, and matchups",
                         "default": True,
                     },
+                    "yahoo_projection_snapshot": {
+                        "anyOf": [{"type": "object"}, {"type": "null"}],
+                        "description": (
+                            "Optional caller-observed Yahoo Proj Pts snapshot, not an automatic "
+                            "Yahoo forecast fetch. Requires source_kind=yahoo_visible_projection_snapshot, "
+                            "source_url=https://football.fantasysports.yahoo.com/f1/{leagueid}/{teamid}, "
+                            "season, week, scoring_basis, aware observed_at within 900 seconds, and "
+                            "rows of exact Yahoo player_id or player_key plus numeric projection. "
+                            "Do not include cookies, tokens or browser storage."
+                        ),
+                    },
                     "include_environment_adjustments": {
                         "type": "boolean",
                         "description": "Apply bounded provisional wind/heavy-rain adjustments at verified exposed venues when no overlapping player-prop adjustment is available",
@@ -820,6 +831,17 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "default": False,
                         "description": "Opt in to source-backed weekly NFL opponent evidence as a near-tie lineup tiebreak only",
+                    },
+                    "yahoo_projection_snapshot": {
+                        "anyOf": [{"type": "object"}, {"type": "null"}],
+                        "description": (
+                            "Optional caller-observed Yahoo Proj Pts snapshot, not an automatic "
+                            "Yahoo forecast fetch. Requires source_kind=yahoo_visible_projection_snapshot, "
+                            "source_url=https://football.fantasysports.yahoo.com/f1/{leagueid}/{teamid}, "
+                            "season, week, scoring_basis, aware observed_at within 900 seconds, and "
+                            "rows of exact Yahoo player_id or player_key plus numeric projection. "
+                            "Do not include cookies, tokens or browser storage."
+                        ),
                     },
                     "include_environment_adjustments": {
                         "type": "boolean",

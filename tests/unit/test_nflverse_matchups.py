@@ -23,7 +23,6 @@ from src.services.nflverse_matchups import (
     validate_target_week,
 )
 
-
 NOW = datetime(2026, 10, 20, 16, tzinfo=timezone.utc)
 TEAMS = sorted(CANONICAL_TEAMS)
 PAIRS = list(zip(TEAMS[::2], TEAMS[1::2]))
@@ -369,9 +368,7 @@ def test_stats_fail_closed_for_invalid_or_incomplete_rows(failure):
 def test_strength_rejects_missing_offense_and_31_of_32_defenses():
     rows = _stats_rows()
     missing_direction = [
-        row
-        for row in rows
-        if not (row["game_id"] == "2026_01_00" and row["team"] == PAIRS[0][0])
+        row for row in rows if not (row["game_id"] == "2026_01_00" and row["team"] == PAIRS[0][0])
     ]
     with pytest.raises(MatchupEvidenceError, match="Both offenses"):
         calculate_strength(
@@ -588,10 +585,7 @@ async def test_player_environment_context_exact_identity_similarity_and_provenan
         2025,
         2024,
     ]
-    assert all(
-        game["similarity_score"] == 1.0
-        for game in context["history"]["comparable_games"]
-    )
+    assert all(game["similarity_score"] == 1.0 for game in context["history"]["comparable_games"])
     assert [source["season"] for source in context["provenance"]["player_stats"]] == [
         2024,
         2025,
@@ -621,10 +615,10 @@ async def test_player_environment_context_exact_identity_similarity_and_provenan
     assert rejected_id["identity"]["status"] == "unmatched"
     assert rejected_id["identity"]["nflverse_player_id"] is None
     assert service._validated.await_count == 3
-    assert sum(
-        call.kwargs["url"].endswith("games.csv")
-        for call in service._validated.await_args_list
-    ) == 1
+    assert (
+        sum(call.kwargs["url"].endswith("games.csv") for call in service._validated.await_args_list)
+        == 1
+    )
     assert not any(
         call.kwargs["season"] == 2026 and "stats_player_week" in call.kwargs["url"]
         for call in service._validated.await_args_list
@@ -774,3 +768,33 @@ async def test_player_environment_context_reports_source_unavailable_without_gue
     assert context["identity"]["status"] == "unmatched"
     assert context["identity"]["nflverse_player_id"] is None
     assert len(context["warnings"]) == 3
+
+
+async def test_public_download_honors_environment_transport_and_preserves_actual_provenance(
+    monkeypatch,
+):
+    from unittest.mock import MagicMock
+
+    from src.services import nflverse_matchups
+
+    response = MagicMock()
+    response.status = 200
+    response.headers = {"ETag": '"actual-public-snapshot"'}
+    response.text = AsyncMock(return_value="actual downloaded schedule text")
+    response.__aenter__ = AsyncMock(return_value=response)
+    response.__aexit__ = AsyncMock(return_value=None)
+    session = MagicMock()
+    session.get.return_value = response
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+    factory = MagicMock(return_value=session)
+    monkeypatch.setattr(nflverse_matchups.aiohttp, "ClientSession", factory)
+    before = datetime.now(timezone.utc)
+    text, metadata = await WeeklyMatchupEvidenceService()._download(nflverse_matchups.SCHEDULE_URL)
+    after = datetime.now(timezone.utc)
+    assert factory.call_args.kwargs["trust_env"] is True
+    session.get.assert_called_once_with(nflverse_matchups.SCHEDULE_URL)
+    assert text == "actual downloaded schedule text"
+    assert metadata.source_url == nflverse_matchups.SCHEDULE_URL
+    assert metadata.version == '"actual-public-snapshot"'
+    assert before <= metadata.fetched_at <= after

@@ -224,6 +224,12 @@ async def test_runtime_collects_full_roster_and_preserves_baselines():
     assert len(collector.collect.call_args.args[0]) == 2
     assert result[0].yahoo_projection == 10
     assert result[1].projection_context["market_input_status"]["status"] == "unavailable"
+    assert (
+        result[1].projection_context["market_input_status"]["reason"] == "No matched input report"
+    )
+    assert result[1].projection_context["market_input_status"]["unavailable_reasons"] == [
+        "No matched input report"
+    ]
     assert assess_player_projection(result[0])["total_adjustment_points"] > 0
 
 

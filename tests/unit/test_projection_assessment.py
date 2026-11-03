@@ -474,3 +474,70 @@ def test_game_index_cannot_claim_expected_mean_under_distribution_policy():
     result = assessment(policy=policy, adjustments=[game])
     assert result["final_expected_points"] == 15
     assert result["adjustment_ledger"][0]["reason"] == "market_mean_not_established"
+
+
+@pytest.mark.parametrize("age", [None, True, -1, "900", float("nan"), float("inf")])
+def test_optional_source_freshness_rejects_invalid_limits(age):
+    result = assessment(source_provenance={"yahoo": {"as_of": AS_OF, "max_age_seconds": age}})
+    assert result["baseline_expected_points"] == 10
+    assert result["missing_sources"]["yahoo"] == "invalid_source_freshness_limit"
+
+
+@pytest.mark.parametrize("timestamp_field", ["as_of", "observed_at"])
+def test_source_freshness_is_checked_again_at_consumption(timestamp_field):
+    provenance = {
+        "yahoo": {timestamp_field: AS_OF - timedelta(seconds=900), "max_age_seconds": 900}
+    }
+    fresh = assessment(source_provenance=provenance)
+    assert fresh["baseline_expected_points"] == 15
+    stale = assessment(source_provenance=provenance, as_of=AS_OF + timedelta(microseconds=1))
+    assert stale["baseline_expected_points"] == 10
+    assert stale["missing_sources"]["yahoo"] == "stale_source_estimate"
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {},
+        {"observed_at": "bad"},
+        {"observed_at": AS_OF.replace(tzinfo=None)},
+        {"observed_at": AS_OF + timedelta(seconds=1)},
+        {"as_of": AS_OF, "observed_at": None},
+    ],
+)
+def test_optional_source_freshness_requires_verified_observation_time(metadata):
+    result = assessment(source_provenance={"yahoo": {**metadata, "max_age_seconds": 900}})
+    assert result["baseline_expected_points"] == 10
+    assert result["missing_sources"]["yahoo"] == "source_not_verified_as_of_request"
+
+
+def test_fresh_as_of_cannot_hide_old_observation_and_zero_limit_is_exact():
+    result = assessment(
+        source_provenance={
+            "yahoo": {
+                "as_of": AS_OF,
+                "observed_at": AS_OF - timedelta(seconds=901),
+                "max_age_seconds": 900,
+            }
+        }
+    )
+    assert result["missing_sources"]["yahoo"] == "stale_source_estimate"
+    exact = assessment(source_provenance={"yahoo": {"as_of": AS_OF, "max_age_seconds": 0}})
+    assert exact["baseline_expected_points"] == 15
+    unknown_clock = assessment(
+        source_provenance={"yahoo": {"as_of": AS_OF, "max_age_seconds": 900}}, as_of=None
+    )
+    assert unknown_clock["missing_sources"]["yahoo"] == "source_not_verified_as_of_request"
+
+
+def test_sources_without_freshness_budget_keep_previous_behavior():
+    result = assessment(source_provenance={"yahoo": {"as_of": AS_OF - timedelta(days=100)}})
+    assert result["baseline_expected_points"] == 15
+
+
+@pytest.mark.parametrize("timestamp", ["0001-01-01T00:00:00+01:00", "9999-12-31T23:59:59-01:00"])
+@pytest.mark.parametrize("field", ["observed_at", "as_of"])
+def test_source_freshness_rejects_datetime_utc_conversion_overflow(timestamp, field):
+    result = assessment(source_provenance={"yahoo": {field: timestamp, "max_age_seconds": 900}})
+    assert result["baseline_expected_points"] == 10
+    assert result["missing_sources"]["yahoo"] == "source_not_verified_as_of_request"

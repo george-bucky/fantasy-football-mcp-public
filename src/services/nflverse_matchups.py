@@ -1058,7 +1058,7 @@ class WeeklyMatchupEvidenceService:
 
     async def _download(self, url: str) -> tuple[str, SourceMetadata]:
         timeout = aiohttp.ClientTimeout(total=20)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
+        async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
             async with session.get(url) as response:
                 if response.status != 200:
                     raise MatchupEvidenceError(f"nflverse returned HTTP {response.status}")

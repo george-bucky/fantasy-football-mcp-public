@@ -280,3 +280,115 @@ class TestParseFreeAgentPlayers:
         assert len(result) == 1
         assert result[0]["owned_pct"] == 0
         assert result[0]["weekly_change"] == 0
+
+
+def _team_metadata_roster(metadata):
+    return {
+        "fantasy_content": {
+            "team": [
+                {
+                    "roster": {
+                        "0": {
+                            "players": {
+                                "0": {
+                                    "player": [
+                                        [
+                                            {"player_key": "461.p.123"},
+                                            {"name": {"full": "Public Test Player"}},
+                                            {"display_position": "WR"},
+                                            *metadata,
+                                        ],
+                                        {"selected_position": {"position": "BN"}},
+                                        {"player_points": {"total": "99"}},
+                                    ]
+                                },
+                                "count": 1,
+                            }
+                        }
+                    }
+                }
+            ]
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        [{"editorial_team_full_name": "Buffalo Bills"}, {"editorial_team_abbr": "BUF"}],
+        [{"editorial_team_abbr": "BUF"}, {"editorial_team_full_name": "Buffalo Bills"}],
+        [{"editorial_team_full_name": "Buffalo Bills"}, {"team": {"abbr": "BUF"}}],
+        [{"team": {"abbr": "BUF"}}, {"editorial_team_full_name": "Buffalo Bills"}],
+        [{"editorial_team_full_name": "Buffalo Bills", "team": {"abbr": "BUF"}}],
+        [{"team": {"name": "Buffalo Bills", "abbr": "BUF"}}],
+    ],
+)
+def test_team_abbreviation_wins_across_flat_and_nested_metadata_order(metadata):
+    player = parse_team_roster(_team_metadata_roster(metadata))[0]
+    assert player["team"] == "BUF"
+    assert player["player_key"] == "461.p.123"
+    assert player["position"] == "BN"
+    assert player["display_position"] == "WR"
+    assert "yahoo_projection" not in player  # actual points never become forecasts
+
+
+def test_team_full_name_without_abbreviation_remains_unknown_to_canonical_matcher():
+    from src.services.nflverse_matchups import canonical_team
+
+    player = parse_team_roster(
+        _team_metadata_roster(
+            [
+                {"editorial_team_full_name": "Buffalo Bills"},
+                {"editorial_team_abbr": " "},
+            ]
+        )
+    )[0]
+    assert player["team"] == "Buffalo Bills"
+    assert canonical_team(player["team"]) is None
+
+
+async def test_flat_yahoo_abbreviation_flows_into_optimizer_and_verified_game_binding():
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import AsyncMock
+
+    from lineup_optimizer import LineupOptimizer
+    from src.services.nflverse_matchups import (
+        SCHEDULE_URL,
+        ScheduleGame,
+        SourceMetadata,
+        WeeklyMatchupEvidenceService,
+    )
+
+    parsed = parse_team_roster(
+        _team_metadata_roster(
+            [
+                {"editorial_team_full_name": "Buffalo Bills"},
+                {"editorial_team_abbr": "BUF"},
+            ]
+        )
+    )
+    players = await LineupOptimizer().parse_yahoo_roster({"roster": parsed})
+    assert len(players) == 1
+    assert players[0].team == "BUF"
+    assert players[0].player_key == "461.p.123"
+    now = datetime(2026, 11, 3, 12, tzinfo=timezone.utc)
+    service = WeeklyMatchupEvidenceService()
+    service._validated = AsyncMock(
+        return_value=(
+            [
+                ScheduleGame("2026_09_BUF_MIA", 2026, 9, "MIA", "BUF", now + timedelta(days=2)),
+            ],
+            SourceMetadata(SCHEDULE_URL, "synthetic-trusted-fixture", now),
+        )
+    )
+    rows = await service.get_game_bindings(
+        [
+            {"team": players[0].team, "opponent": "MIA"},
+        ],
+        season=2026,
+        target_week=9,
+        now=now,
+    )
+    assert rows[0]["available"]
+    assert rows[0]["status"] == "matched"
+    assert rows[0]["team"] == "BUF"

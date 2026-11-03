@@ -1073,6 +1073,7 @@ class PropLineService:
         markets: Any = None,
         bookmakers: Any = None,
         player_context: dict[str, dict[str, str]] | None = None,
+        primary_lines_only: bool = False,
     ) -> dict[str, Any]:
         """Return normalized PropLine odds for requested NFL players or teams."""
         response = self._base_response(scope)
@@ -1251,9 +1252,15 @@ class PropLineService:
                             events_by_id[event_id] = event
                     valid_components.append(component)
                 elif component.kind == "event_odds":
-                    event_rows_by_id.setdefault(component.event_id or "", []).extend(
-                        self._rows(component, scope="next_game")
-                    )
+                    rows = self._rows(component, scope="next_game")
+                    if primary_lines_only:
+                        rows = [
+                            row
+                            for row in rows
+                            if row.get("line_type_source") == "provider"
+                            and row.get("line_type") == "main"
+                        ]
+                    event_rows_by_id.setdefault(component.event_id or "", []).extend(rows)
                     valid_components.append(component)
             except ProviderFailure as exc:
                 failures.append(exc)
@@ -1338,7 +1345,14 @@ class PropLineService:
             if scope in {"auto", "next_game"}:
                 game_matches, game_reason = self._match_team(
                     team,
-                    event_pairs,
+                    (
+                        [
+                            (event, [row for row in rows if row["market_key"] in TEAM_MARKETS])
+                            for event, rows in event_pairs
+                        ]
+                        if primary_lines_only
+                        else event_pairs
+                    ),
                     market_keys or list(TEAM_MARKETS),
                     bookmaker_keys,
                     explicit_filters=bool(market_keys or bookmaker_keys),
@@ -1418,6 +1432,7 @@ async def get_sportsbook_odds(
     markets: Any = None,
     bookmakers: Any = None,
     player_context: dict[str, dict[str, str]] | None = None,
+    primary_lines_only: bool = False,
 ) -> dict[str, Any]:
     """Fetch sportsbook odds through the shared PropLine service instance."""
     return await propline_service.get_sportsbook_odds(
@@ -1427,6 +1442,7 @@ async def get_sportsbook_odds(
         markets=markets,
         bookmakers=bookmakers,
         player_context=player_context,
+        primary_lines_only=primary_lines_only,
     )
 
 

@@ -363,6 +363,7 @@ async def ff_get_roster(
     include_weekly_context: bool = False,
     include_market_adjustments: bool = True,
     include_environment_adjustments: bool = True,
+    yahoo_projection_snapshot: Optional[Dict[str, Any]] = None,
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
     """
@@ -434,6 +435,7 @@ async def ff_get_roster(
             include_weekly_context=include_weekly_context,
             include_market_adjustments=include_market_adjustments,
             include_environment_adjustments=include_environment_adjustments,
+            yahoo_projection_snapshot=yahoo_projection_snapshot,
             data_level=data_level,
         )
         return result
@@ -603,6 +605,7 @@ async def ff_build_lineup(
     include_weekly_context: bool = False,
     include_market_adjustments: bool = True,
     include_environment_adjustments: bool = True,
+    yahoo_projection_snapshot: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_build_lineup",
@@ -616,6 +619,7 @@ async def ff_build_lineup(
         include_weekly_context=include_weekly_context,
             include_market_adjustments=include_market_adjustments,
             include_environment_adjustments=include_environment_adjustments,
+            yahoo_projection_snapshot=yahoo_projection_snapshot,
     )
 
 
