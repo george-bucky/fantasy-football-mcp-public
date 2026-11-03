@@ -149,3 +149,8 @@ callback_*.html
 yahoo_tokens.json
 yahoo-tokens.json
 yahoo_token_store.json
+
+# Local OAuth token artifacts must never enter source control
+**/.yahoo_token.json
+**/oauth2.json
+**/oauth.json
