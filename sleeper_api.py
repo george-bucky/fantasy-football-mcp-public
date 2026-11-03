@@ -7,6 +7,7 @@ No authentication required - completely free and open API
 import asyncio
 import aiohttp
 import json
+import math
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 import hashlib
@@ -14,8 +15,20 @@ import difflib
 import os
 import re
 
+
 # Import caching from our yahoo utils
 from src.api.yahoo_utils import ResponseCache
+
+
+def _finite_number(value: Any) -> Optional[float]:
+    """Accept genuine finite numeric values, including zero and negative totals."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        normalized = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return normalized if math.isfinite(normalized) else None
 
 
 class SleeperAPI:
@@ -40,7 +53,7 @@ class SleeperAPI:
         self._players_cache = None
         self._players_cache_time = None
 
-    async def _make_request(self, endpoint: str, use_cache: bool = True) -> Optional[Dict]:
+    async def _make_request(self, endpoint: str, use_cache: bool = True) -> Optional[Any]:
         """Make a request to Sleeper API."""
         # Ensure endpoint is str
         if not isinstance(endpoint, str):
@@ -52,10 +65,15 @@ class SleeperAPI:
             if cached is not None:
                 return cached
 
-        url = f"{self.BASE_URL}/{endpoint}"
+        url = (
+            endpoint
+            if endpoint.startswith("https://api.sleeper.app/")
+            else f"{self.BASE_URL}/{endpoint}"
+        )
 
         try:
-            async with aiohttp.ClientSession() as session:
+            timeout = aiohttp.ClientTimeout(total=15, connect=5)
+            async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
                 async with session.get(url) as response:
                     if response.status == 200:
                         data = await response.json()
@@ -316,12 +334,87 @@ class SleeperAPI:
             player_stats = stats.get("player_id_here")
             points = player_stats.get("pts_ppr", 0)
         """
-        endpoint = f"stats/nfl/{season}/{week}"
+        endpoint = self._weekly_data_url("stats", season, week)
         raw = await self._make_request(endpoint, use_cache=True) or {}
+        normalized = self._normalize_weekly_data(raw, season=season, week=week, source_url=endpoint)
+        for stats in normalized.values():
+            stats["stats_source"] = "sleeper_api"
+        return normalized
 
-        # Sleeper returns stats keyed by player_id
-        # No additional processing needed - return raw data
-        return raw if isinstance(raw, dict) else {}
+    @staticmethod
+    def _weekly_data_url(resource: str, season: int, week: int) -> str:
+        # The legacy /v1 endpoints return player IDs with empty stat objects.
+        return f"https://api.sleeper.app/{resource}/nfl/{season}/{week}?season_type=regular"
+
+    @staticmethod
+    def _normalize_weekly_data(
+        raw: Any, *, season: int, week: int, source_url: str
+    ) -> dict[str, dict]:
+        """Normalize current list/nested stats and legacy ID-keyed stat payloads."""
+        if isinstance(raw, list):
+            rows = [(row.get("player_id"), row) for row in raw if isinstance(row, dict)]
+        elif isinstance(raw, dict):
+            rows = list(raw.items())
+        else:
+            return {}
+
+        normalized: dict[str, dict] = {}
+        conflicting_ids: set[str] = set()
+        for player_id, row in rows:
+            if (
+                isinstance(player_id, bool)
+                or not isinstance(player_id, (str, int))
+                or not str(player_id).strip()
+                or not isinstance(row, dict)
+                or not row
+            ):
+                continue
+            player_id = str(player_id)
+            stats = row.get("stats", row)
+            if not isinstance(stats, dict) or not stats:
+                continue
+            # Never relabel conflicting identity/period metadata as the requested record.
+            if any(
+                str(metadata.get("player_id", player_id)) != player_id
+                or str(metadata.get("season", season)) != str(season)
+                or str(metadata.get("week", week)) != str(week)
+                or metadata.get("season_type", "regular") != "regular"
+                for metadata in (row, stats)
+            ):
+                continue
+            data = dict(row)
+            data.pop("stats", None)
+            data.update(stats)
+            # Invalid numerical fields remain missing, never provider-quality forecasts.
+            data = {
+                key: value
+                for key, value in data.items()
+                if not (
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and _finite_number(value) is None
+                )
+            }
+            for key in ("pts", "pts_std", "pts_ppr", "pts_half_ppr"):
+                if key in data and _finite_number(data[key]) is None:
+                    data.pop(key)
+            if "pts" not in data and _finite_number(data.get("pts_std")) is not None:
+                data["pts"] = data["pts_std"]
+            data.update(
+                player_id=player_id,
+                season=season,
+                week=week,
+                season_type="regular",
+                source_url=source_url,
+            )
+            if player_id in conflicting_ids:
+                continue
+            if player_id in normalized and normalized[player_id] != data:
+                normalized.pop(player_id)
+                conflicting_ids.add(player_id)
+                continue
+            normalized[player_id] = data
+        return normalized
 
     async def get_projections(
         self, season: int, week: int, positions: Optional[List[str]] = None
@@ -334,17 +427,19 @@ class SleeperAPI:
 
         Returns dict keyed by player_id with projection data.
         """
-        endpoint = f"projections/nfl/{season}/{week}"
+        endpoint = self._weekly_data_url("projections", season, week)
         raw = await self._make_request(endpoint) or {}
 
         # Check if we have real projection data
-        real_projections = {}
-        if isinstance(raw, dict):
-            real_projections = {
-                pid: pdata
-                for pid, pdata in raw.items()
-                if isinstance(pdata, dict) and pdata.get("pts") is not None
-            }
+        normalized = self._normalize_weekly_data(raw, season=season, week=week, source_url=endpoint)
+        real_projections = {
+            pid: pdata
+            for pid, pdata in normalized.items()
+            if any(
+                _finite_number(pdata.get(key)) is not None
+                for key in ("pts", "pts_std", "pts_ppr", "pts_half_ppr")
+            )
+        }
 
         # If no real projections, create fallback projections based on rankings
         if not real_projections:
@@ -653,7 +748,7 @@ class SleeperAPI:
         return rankings
 
     async def get_expert_advice(
-        self, player_name: str, week: Optional[int] = None
+        self, player_name: str, week: Optional[int] = None, *, scoring_format: str = "standard"
     ) -> Dict[str, Any]:
         """
         Generate comprehensive expert advice for a specific player using multiple data sources.
@@ -680,8 +775,41 @@ class SleeperAPI:
         projections = await self.get_projections(season, current_week, [position])
         player_projection = projections.get(str(player_id), {})
 
+        scoring_basis = str(scoring_format).strip().lower().replace("-", "_")
+        scoring_basis = {"std": "standard", "half": "half_ppr", "halfppr": "half_ppr"}.get(
+            scoring_basis, scoring_basis
+        )
+        scoring_keys = {
+            "standard": ("pts_std", "pts"),
+            "half_ppr": ("pts_half_ppr",),
+            "ppr": ("pts_ppr",),
+        }.get(scoring_basis, ())
+        projection_score = next(
+            (
+                value
+                for key in scoring_keys
+                if (value := _finite_number(player_projection.get(key))) is not None
+            ),
+            None,
+        )
+        if player_projection.get("projection_source") != "sleeper_api" or projection_score is None:
+            return {
+                "player_name": player_name,
+                "position": position,
+                "team": team,
+                "tier": "Unknown",
+                "search_rank": search_rank,
+                "recommendation": "Monitor",
+                "confidence": 0,
+                "advice": "Source-backed weekly projection unavailable; no start/sit recommendation.",
+                "week": current_week,
+                "projection": None,
+                "projection_source": player_projection.get("projection_source", "unavailable"),
+                "scoring_format": scoring_basis,
+                "unavailable_reason": "No finite source projection for the requested scoring format",
+            }
+
         # Base scoring factors
-        projection_score = player_projection.get("pts", 0)
         tier = player_projection.get("tier", "unknown")
 
         # Injury/health assessment
@@ -733,6 +861,8 @@ class SleeperAPI:
             "advice": advice_text,
             "week": current_week,
             "projection": projection_score,
+            "projection_source": "sleeper_api",
+            "scoring_format": scoring_basis,
             "matchup_score": matchup_score,
             "health_factor": health_factor,
             "trending_factor": trending_factor,

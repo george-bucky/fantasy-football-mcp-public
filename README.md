@@ -235,10 +235,95 @@ OCR and never submits a Yahoo pick; the user remains in control of the draft roo
 
 ### Optional Weekly Matchup Evidence
 
+Enhanced `ff_get_roster` and `ff_build_lineup` now use Yahoo and genuine Sleeper
+point forecasts as the canonical baseline. When both are available, the existing
+relative weighting becomes 62.5% Yahoo / 37.5% Sleeper; a missing source is
+excluded and remaining weights renormalize. Prior actual performance is supporting
+evidence, never a substitute baseline forecast.
+
+Current-game player-prop adjustments are enabled by default on these enhanced
+paths. Set `include_market_adjustments=false` to retain the provider baseline
+without market effects. Basic/Yahoo-only views and `include_external_data=false`
+remain free of external market effects. Existing separate strategy utility can
+still express recent-performance and risk preferences; expected points and
+selection scores are labeled separately.
+
+- Each recommendation refreshes odds subject to a short bounded cache; there is
+  no continuous background watcher. Every calculation starts from unchanged
+  provider forecasts, so adjustments never compound across requests.
+- The model fits a distribution from at least eight genuine prior stat observations
+  to current paired, margin-removed prop probabilities. It compares the modeled
+  mean with the corresponding genuine Sleeper stat forecast, translates the
+  difference using explicit Yahoo league stat modifiers, and applies 25% of the
+  difference with a shared absolute two-point budget per player.
+- These shrinkage/cap settings are provisional heuristics, not backtested weights.
+  The historical distribution's shape is assumed stable, and applying a
+  Sleeper-relative signal to the blended baseline may overlap information already
+  in provider forecasts. The assessment exposes each component, source, settings,
+  and limitation. Historical betting archives are optional.
+- Player/event/kickoff identity, current NFL week, source freshness and supported
+  scoring must be verified. Missing, ambiguous, stale or sparse data keeps the
+  baseline intact with an explicit reason. Zero actuals count only when reported;
+  missing appearances are never manufactured as zeroes.
+- Player-prop components are passing yards/TDs, rushing yards, receiving yards and
+  receptions. Anytime-TD probability is not converted into an expected TD count.
+  Nonlinear scoring bonuses are not modeled.
+- If usable player props are unavailable, verified main full-game team totals
+  (or same-book game total plus correctly oriented spread) provide a provisional
+  scoring-environment index. This index is compared with at least eight reported
+  prior team scores and adjusts only genuine Sleeper touchdown-point components,
+  using explicit league coefficients, 25% shrinkage and a two-point cap. A betting
+  threshold is not claimed to be an expected team score.
+- Verified exposed venues can receive a separate wind/heavy-rain volume adjustment.
+  Sustained winds across the full game window of 15/20/25 mph reduce supported
+  passing/receiving components by 2.5%/5%/10%. Explicit heavy rain reduces them by
+  2.5%; precipitation probability alone is insufficient. The strongest rule applies,
+  with a one-point weather cap. These rules are provisional and configurable.
+- Fresh player-prop adjustments take precedence over game and weather adjustments
+  to limit overlapping information. Otherwise game effects apply to TD components
+  and weather to passing/receiving volume; their combined absolute budget is two
+  points. Raw Yahoo and Sleeper forecasts remain unchanged.
+- `include_environment_adjustments=false` disables weather effects independently
+  from `include_market_adjustments=false`. Disabling both avoids these input
+  collectors; disabling weather alone also skips the venue registry and NWS calls.
+- Venue coordinates use an attributed independent stadium registry, cross-checked
+  against the exact scheduled stadium ID/name. Registry roof labels are ignored;
+  uncertain retractable roofs, unrecognized/renamed venues, foreign games and missing
+  forecasts produce explicit unavailable reasons. No home-stadium guess is made.
+
+Enhanced roster, player-search and waiver responses also expose `weekly_evidence`:
+source-backed Sleeper forecast snapshots and reported recent actual stat rows,
+separately labeled from modeled adjustments. Failed refreshes clear previous-period
+projection/recent evidence, and source snapshots are defensive copies. Source stat
+points do not imply that every custom Yahoo bonus/scoring rule has been applied.
+
+Set `include_weekly_context=true` on either `ff_get_roster` or
+`ff_build_lineup` for a report-only player-by-player view of the current game
+environment and comparable historical stat rows. The top-level
+`weekly_player_context` covers the full roster, including players beyond the
+five-player bench preview returned by `ff_build_lineup`.
+
+- Current context includes the scheduled weekday, day/night kickoff window,
+  home/away status, roof or indoor/outdoor venue type, surface, and rest when
+  nflverse provides those fields. It does not include a live weather forecast.
+- Historical context uses exact normalized name and position matching. A
+  unique name-and-position match is explicitly low-confidence unless a trusted
+  nflverse player ID is supplied and cross-checked. Ambiguous players fail
+  closed instead of receiving guessed history.
+- Similar-game averages describe past nflverse player stat rows. A missing stat
+  row is unknown coverage rather than a confirmed appearance or zero-point
+  game. Because historical pregame projections are not archived, the report
+  does not claim a projection-adjusted environment effect.
+- The context is descriptive only: it never changes projections, player scores,
+  or lineup selections. The normal roster or lineup still returns with an
+  explicit unavailable warning when a source or identity cannot be validated.
+
 Set `use_matchup_evidence=true` on `ff_build_lineup` to add the current opponent
 and a position-specific view of fantasy points allowed by that defense. The
 feature uses nflverse schedules and weekly player statistics; it does not use
-the old static Sleeper defensive rankings.
+the old static Sleeper defensive rankings. This remains a separate opt-in flag:
+unlike `include_weekly_context`, it can act as the existing narrow lineup
+tie-breaker described below.
 
 - Yahoo supplies the league season and current week. Sleeper is used for the
   current week only when Yahoo omits it and Sleeper reports the same season.
