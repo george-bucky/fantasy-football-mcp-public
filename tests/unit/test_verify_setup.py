@@ -1,7 +1,10 @@
 """Tests for the credential-safe readiness checker."""
 
 import stat
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from utils import verify_setup
 
@@ -106,6 +109,57 @@ def test_dependency_check_reports_missing_package(capsys):
         assert verify_setup.check_dependencies() is False
 
     assert "yfpy" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("missing_tool", [None, "ff_get_roster"])
+async def test_mcp_handshake_checks_current_tool_contract(missing_tool, capsys):
+    tool_names = {
+        "ff_get_leagues",
+        "ff_get_league_info",
+        "ff_get_standings",
+        "ff_get_teams",
+        "ff_get_roster",
+        "ff_get_matchup",
+        "ff_get_players",
+        "ff_compare_teams",
+        "ff_build_lineup",
+        "ff_refresh_token",
+        "ff_get_draft_results",
+        "ff_get_waiver_wire",
+        "ff_get_api_status",
+        "ff_clear_cache",
+        "ff_get_draft_rankings",
+        "ff_get_draft_recommendation",
+        "ff_analyze_draft_state",
+        "ff_analyze_reddit_sentiment",
+        "ff_get_player_news",
+        "ff_prepare_manual_draft",
+        "ff_get_manual_draft_recommendation",
+        "ff_get_espn_nfl_news",
+        "ff_get_sportsbook_odds",
+    }
+    if missing_tool:
+        tool_names.remove(missing_tool)
+
+    transport = AsyncMock()
+    transport.__aenter__.return_value = (Mock(), Mock())
+    session = AsyncMock()
+    session.__aenter__.return_value = session
+    session.list_tools.return_value = Mock(
+        tools=[SimpleNamespace(name=tool_name) for tool_name in tool_names]
+    )
+
+    with (
+        patch("mcp.client.stdio.stdio_client", return_value=transport),
+        patch("mcp.ClientSession", return_value=session),
+    ):
+        assert await verify_setup.check_mcp_server() is (missing_tool is None)
+
+    output = capsys.readouterr().out
+    if missing_tool:
+        assert "tool contract mismatch" in output
+    else:
+        assert "PASS: server initialized with all 23 tools" in output
 
 
 async def test_main_returns_failure_when_a_local_check_fails(monkeypatch):
