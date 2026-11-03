@@ -103,8 +103,29 @@ Report checks that were not run and why. Do not claim live Yahoo behavior from m
 - Keep formatting consistent with `pyproject.toml`: Black and Ruff use a 100-character line length; mypy is configured for strict checking.
 - Update user-facing docs when setup steps, environment variables, entrypoints, or MCP tool contracts change.
 
+## Weekly lineup and roster decisions
+
+- Confirm the league, week, scoring, roster slots, and exact players. Use saved context as a
+  baseline; verify live roster membership, starters, availability, and pending moves when relevant.
+- For start/sit, weigh projections, recent production and role, health, opponent, game conditions,
+  and lineup flexibility. Use sourced game-time weather when relevant. Prioritize evidence that
+  could change the decision; do not require every source for every recommendation.
+- Check player matching, scoring basis, and freshness. Label estimates and scoring fallbacks;
+  treat missing data as unknown. Distinguish source projections from your own adjustments, and
+  explain the evidence behind any adjustment.
+- Verify consequential injury/inactive status and kickoff/lock rules before proposing swaps.
+  Missing reports or default "Healthy" values do not establish that a player is active.
+- For add/drop, compare the exact pair: starter improvement, longer-term role, positional depth,
+  and injury/bye cover. Check that the resulting roster can fill all required slots; distinguish
+  qualitative outlook from sourced rest-of-season projections.
+- Lead with a recommendation, the decisive evidence, material uncertainty, and what would change
+  the call. Reconcile conflicting sources. Recommendations remain proposals; this MCP is read-only.
+
 ## Credentials and side effects
 
+- Check `data/league_rosters/provider-access.json` when present. Honor an unavailable provider
+  state until the user confirms restored access. Missing or dated status does not prove current
+  access. Keep API availability and browser permissions separate; follow current user authorization.
 - Never commit, print, or paste values from `.env`, OAuth tokens, API secrets, local MCP client configs, or generated auth files.
 - Do not run `utils/setup_yahoo_auth.py`, `utils/reauth_yahoo.py`, or `utils/refresh_yahoo_token.py` unless the user explicitly requests authentication work. These scripts can update `.env` and MCP client configuration.
 - `utils/verify_setup.py` makes a real Yahoo request when an access token is configured; use it only when live setup verification is intended.
