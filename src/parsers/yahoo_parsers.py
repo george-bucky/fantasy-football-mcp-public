@@ -66,6 +66,9 @@ def parse_team_roster(data: Dict) -> List[Dict]:
                 def _scan_container(container: Any) -> None:
                     if not isinstance(container, dict):
                         return
+                    player_key = container.get("player_key")
+                    if isinstance(player_key, str) and player_key.strip():
+                        info["player_key"] = player_key.strip()
                     name_dict = container.get("name")
                     if isinstance(name_dict, dict) and "full" in name_dict:
                         info["name"] = name_dict.get("full")

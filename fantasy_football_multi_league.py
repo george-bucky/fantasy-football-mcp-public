@@ -673,6 +673,24 @@ async def list_tools() -> list[Tool]:
                         "description": "Include Sleeper data, trending, and matchups",
                         "default": True,
                     },
+                    "include_environment_adjustments": {
+                        "type": "boolean",
+                        "description": "Apply bounded provisional wind/heavy-rain adjustments at verified exposed venues when no overlapping player-prop adjustment is available",
+                        "default": True,
+                    },
+                    "include_market_adjustments": {
+                        "type": "boolean",
+                        "description": "Apply bounded provisional current-game prop adjustments to provider forecasts when inputs are verified",
+                        "default": True,
+                    },
+                    "include_weekly_context": {
+                        "type": "boolean",
+                        "description": (
+                            "Include report-only current game environment and comparable "
+                            "historical stat rows for every roster player"
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["league_key"],
             },
@@ -802,6 +820,24 @@ async def list_tools() -> list[Tool]:
                         "type": "boolean",
                         "default": False,
                         "description": "Opt in to source-backed weekly NFL opponent evidence as a near-tie lineup tiebreak only",
+                    },
+                    "include_environment_adjustments": {
+                        "type": "boolean",
+                        "description": "Apply bounded provisional wind/heavy-rain adjustments at verified exposed venues when no overlapping player-prop adjustment is available",
+                        "default": True,
+                    },
+                    "include_market_adjustments": {
+                        "type": "boolean",
+                        "description": "Apply bounded provisional current-game prop adjustments to provider forecasts when inputs are verified",
+                        "default": True,
+                    },
+                    "include_weekly_context": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": (
+                            "Include report-only current game environment and comparable "
+                            "historical stat rows for every roster player"
+                        ),
                     },
                 },
                 "required": ["league_key"],
