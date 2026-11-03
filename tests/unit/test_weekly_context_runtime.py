@@ -212,7 +212,7 @@ def test_weather_optout_retains_game_market_and_yahoo_only_has_no_context_effect
     result = assess_player_projection(p)
     assert result["final_expected_points"] > 10
     assert {a["kind"] for a in result["adjustment_ledger"]} == {"market"}
-    assert assess_player_projection(_yahoo_only_player(p))["final_expected_points"] == 10
+    assert assess_player_projection(_yahoo_only_player(p))["final_expected_points"] is None
 
 
 @pytest.mark.asyncio
@@ -392,3 +392,28 @@ async def test_lineup_handler_rechecks_clock_after_delayed_decision_news(monkeyp
     assert assessment["as_of"] == clock["current"].isoformat()
     assert assessment["total_adjustment_points"] == 0
     assert assessment["final_expected_points"] == 10
+
+
+@pytest.mark.parametrize("game_odds", [False, True])
+@pytest.mark.parametrize(
+    "strategy,projection_weight,history_component",
+    [("balanced", 0.8, 1.6), ("conservative", 0.5, 2.8), ("aggressive", 0.5, 5.4)],
+)
+def test_strategy_uses_weather_and_game_adjusted_forecast_once(
+    game_odds, strategy, projection_weight, history_component
+):
+    p = player(context(game_odds=game_odds))
+    p.recent_performance_data = SimpleNamespace(
+        weeks_data=[{"points": value} for value in [4, 8, 12]]
+    )
+    result = assess_player_projection(p, strategy)
+    kinds = {a["kind"] for a in result["adjustment_ledger"] if a["applied"]}
+    assert "environment" in kinds
+    if game_odds:
+        assert "market" in kinds
+    assert result["final_expected_points"] == pytest.approx(10 + result["total_adjustment_points"])
+    assert result["strategy_utility"] == pytest.approx(
+        projection_weight * result["final_expected_points"] + history_component
+    )
+    assert assess_player_projection(p, strategy) == result
+    assert p.sleeper_projection_ppr == 10

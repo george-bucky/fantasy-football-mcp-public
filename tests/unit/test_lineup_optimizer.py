@@ -204,6 +204,8 @@ async def test_rookie_outlook_only_breaks_a_rounded_healthy_weekly_tie():
         team="BUF",
         roster_position="QB",
         yahoo_projection=20.04,
+        sleeper_projection_ppr=20.04,
+        sleeper_projection_source="sleeper_api",
     )
     rookie = Player(
         name="Rookie QB",
@@ -211,6 +213,8 @@ async def test_rookie_outlook_only_breaks_a_rounded_healthy_weekly_tie():
         team="NYJ",
         roster_position="BN",
         yahoo_projection=20.0,
+        sleeper_projection_ppr=20.0,
+        sleeper_projection_source="sleeper_api",
     )
     outlook = {
         rookie_identity_key("Rookie QB", "QB"): {
@@ -243,6 +247,8 @@ async def test_rookie_outlook_never_overrides_clear_weekly_or_health_evidence():
         team="BUF",
         roster_position="QB",
         yahoo_projection=20.2,
+        sleeper_projection_ppr=20.2,
+        sleeper_projection_source="sleeper_api",
     )
     rookie = Player(
         name="Rookie QB",
@@ -250,6 +256,8 @@ async def test_rookie_outlook_never_overrides_clear_weekly_or_health_evidence():
         team="NYJ",
         roster_position="BN",
         yahoo_projection=20.0,
+        sleeper_projection_ppr=20.0,
+        sleeper_projection_source="sleeper_api",
         status="O",
     )
     outlook = {rookie_identity_key("Rookie QB", "QB"): {"status": "matched", "base_rank": 1}}
@@ -270,6 +278,8 @@ async def test_rookie_outlook_cannot_break_zero_or_incomparable_weekly_evidence_
         team="BUF",
         roster_position="QB",
         yahoo_projection=20.0,
+        sleeper_projection_ppr=20.0,
+        sleeper_projection_source="sleeper_api",
     )
     rookie = Player(
         name="Rookie QB",
@@ -283,7 +293,7 @@ async def test_rookie_outlook_cannot_break_zero_or_incomparable_weekly_evidence_
     incomparable = await LineupOptimizer().optimize_lineup_smart(
         [veteran, rookie], rookie_intelligence=outlook
     )
-    veteran.yahoo_projection = 0.0
+    veteran.sleeper_projection_ppr = 0.0
     rookie.recent_performance_data = None
     zero_evidence = await LineupOptimizer().optimize_lineup_smart(
         [veteran, rookie], rookie_intelligence=outlook
@@ -303,6 +313,8 @@ async def test_same_name_different_positions_keep_distinct_lineup_evidence():
         team="BUF",
         roster_position="FLEX",
         yahoo_projection=20.0,
+        sleeper_projection_ppr=20.0,
+        sleeper_projection_source="sleeper_api",
     )
     receiver = Player(
         name="Same Name",
@@ -310,6 +322,8 @@ async def test_same_name_different_positions_keep_distinct_lineup_evidence():
         team="NYJ",
         roster_position="BN",
         yahoo_projection=20.0,
+        sleeper_projection_ppr=20.0,
+        sleeper_projection_source="sleeper_api",
     )
     outlook = {
         rookie_identity_key("Same Name", "RB"): {"status": "matched", "base_rank": 20},
@@ -742,7 +756,6 @@ class TestLineupOptimizer:
         evidence = result["player_evidence"]["Healthy Bench"]
         assert evidence["strategy_score"] == 0.0
         assert evidence["fallbacks"] == [
-            "Yahoo projection unavailable",
             "Sleeper real projection unavailable",
             "Sleeper recent actuals unavailable",
             "Yahoo scoring format unavailable; PPR fallback used",

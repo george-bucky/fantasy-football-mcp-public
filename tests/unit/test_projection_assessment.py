@@ -541,3 +541,65 @@ def test_source_freshness_rejects_datetime_utc_conversion_overflow(timestamp, fi
     result = assessment(source_provenance={"yahoo": {field: timestamp, "max_age_seconds": 900}})
     assert result["baseline_expected_points"] == 10
     assert result["missing_sources"]["yahoo"] == "source_not_verified_as_of_request"
+
+
+@pytest.mark.parametrize("projection_weight", [0, 0.5, 0.8, 1])
+def test_adjustment_enters_strategy_at_effective_forecast_weight_before_risk(projection_weight):
+    result = assessment(
+        adjustments=[ADJUSTMENT],
+        policy=POLICY,
+        strategy_base_utility=18,
+        strategy_projection_weight=projection_weight,
+        utility_multiplier=0.8,
+    )
+    assert result["baseline_expected_points"] == 15
+    assert result["final_expected_points"] == 13
+    assert result["total_adjustment_points"] == -2
+    assert result["strategy_utility"] == pytest.approx((18 - 2 * projection_weight) * 0.8)
+    trace = result["strategy_trace"]
+    assert trace["projection_weight"] == projection_weight
+    assert trace["raw_projection_input"] == 15
+    assert trace["adjusted_projection_input"] == 13
+    assert trace["weighted_projection_contribution"] == 13 * projection_weight
+    assert trace["weighted_adjustment_points"] == -2 * projection_weight
+    assert trace["weighted_before_risk"] == 18 - 2 * projection_weight
+
+
+def test_projection_weight_default_preserves_forecast_only_callers():
+    result = assessment(adjustments=[ADJUSTMENT], policy=POLICY, utility_multiplier=0.8)
+    assert result["strategy_utility"] == pytest.approx(13 * 0.8)
+    assert result["strategy_trace"]["projection_weight"] == 1
+    assert result["strategy_trace"]["weighted_before_risk"] == 13
+
+
+@pytest.mark.parametrize(
+    "weight", [None, True, "0.8", -0.01, 1.01, float("nan"), float("inf"), 10**400]
+)
+def test_invalid_strategy_projection_weight_disables_utility_without_changing_projection(weight):
+    import json
+
+    result = assessment(
+        adjustments=[ADJUSTMENT],
+        policy=POLICY,
+        strategy_base_utility=18,
+        strategy_projection_weight=weight,
+    )
+    assert result["final_expected_points"] == 13
+    assert result["adjustment_ledger"][0]["applied"] is True
+    assert result["strategy_utility"] is None
+    assert result["strategy_trace"]["weighted_before_risk"] is None
+    assert "Invalid strategy projection weight" in result["limitations"]
+    json.dumps(result, allow_nan=False)
+
+
+def test_rejected_adjustment_cannot_affect_weighted_strategy_input():
+    result = assessment(
+        adjustments=[ADJUSTMENT],
+        policy=None,
+        strategy_base_utility=18,
+        strategy_projection_weight=0.8,
+    )
+    assert result["strategy_utility"] == 18
+    assert result["strategy_trace"]["adjusted_projection_input"] == 15
+    assert result["strategy_trace"]["weighted_projection_contribution"] == 12
+    assert result["strategy_trace"]["weighted_adjustment_points"] == 0

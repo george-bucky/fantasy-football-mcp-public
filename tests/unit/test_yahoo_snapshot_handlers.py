@@ -49,9 +49,12 @@ async def passthrough(players, **kwargs):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("valid", [True, False])
-async def test_roster_standard_uses_snapshot_without_external_fetch(valid):
+@pytest.mark.parametrize("value", [0, 500])
+async def test_roster_standard_keeps_snapshot_for_comparison_without_forecast_fallback(
+    valid, value
+):
     p = player()
-    snap = snapshot(0)
+    snap = snapshot(value)
     if not valid:
         snap["week"] = 8
     with (
@@ -81,8 +84,9 @@ async def test_roster_standard_uses_snapshot_without_external_fetch(valid):
     )
     assert "yahoo_projection_snapshot_audit" in result
     if valid:
-        assert audit["applied_values"][0]["raw_snapshot_value"] == 0
-        assert result["all_players"][0]["projection_assessment"]["baseline_expected_points"] == 0
+        assert audit["applied_values"][0]["raw_snapshot_value"] == value
+        assert result["all_players"][0]["projection_assessment"]["baseline_expected_points"] is None
+        assert result["all_players"][0]["projection_assessment"]["effective_source_weights"] == {}
     else:
         assert audit["reason"] == "snapshot_period_or_scoring_mismatch"
 
@@ -136,7 +140,9 @@ async def test_lineup_snapshot_applied_before_enrichment_and_selection(valid):
     assert original.yahoo_projection == 0
     assert result["yahoo_projection_snapshot_audit"]["applied_count"] == (1 if valid else 0)
     assessment = result["optimal_lineup"]["QB"]["projection_assessment"]
-    assert assessment["baseline_expected_points"] == (16.875 if valid else 20)
+    assert assessment["baseline_expected_points"] == 20
+    assert assessment["effective_source_weights"] == {"sleeper": 1.0}
+    assert "yahoo" not in assessment["strategy_trace"]["utility_source_values"]
     if valid:
         assert assessment["source_provenance"]["yahoo"]["server_refetched"] is False
 
@@ -175,3 +181,78 @@ def test_absent_snapshot_preserves_existing_player_objects_and_audit():
     assert result[0] is players[0]
     assert audit["available"] is False
     assert audit["reason"] == "yahoo_forecast_not_provided_by_api_or_snapshot"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("snapshot_values", [None, (1, 1000), (1000, 1)])
+async def test_lineup_uses_sleeper_selection_and_points_despite_conflicting_yahoo(snapshot_values):
+    """Neither visible Yahoo forecasts nor requiring a snapshot may drive selection."""
+    players = [
+        Player(
+            name="Sleeper Favorite",
+            team="BUF",
+            position="QB",
+            roster_position="QB",
+            player_key="777.p.1001",
+            yahoo_projection=1,
+        ),
+        Player(
+            name="Yahoo Favorite",
+            team="MIA",
+            position="QB",
+            roster_position="BN",
+            player_key="777.p.1002",
+            yahoo_projection=1000,
+        ),
+    ]
+
+    async def enhance(roster, **kwargs):
+        for current, forecast in zip(roster, (20, 10)):
+            current.sleeper_projection = forecast
+            current.sleeper_projection_ppr = forecast
+            current.sleeper_projection_source = "sleeper_api"
+        return roster
+
+    arguments = {
+        "league_key": "777.l.1234",
+        "include_market_adjustments": False,
+        "include_environment_adjustments": False,
+    }
+    if snapshot_values is not None:
+        observation = snapshot()
+        observation["rows"] = [
+            {"player_id": identifier, "projection": forecast}
+            for identifier, forecast in zip(("1001", "1002"), snapshot_values)
+        ]
+        arguments["yahoo_projection_snapshot"] = observation
+    with (
+        patch.object(
+            matchup_handlers, "get_user_team_key", AsyncMock(return_value="777.l.1234.t.2")
+        ),
+        patch.object(matchup_handlers, "yahoo_api_call", AsyncMock(return_value={})),
+        patch.object(matchup_handlers, "_get_lineup_context", AsyncMock(return_value=CONTEXT)),
+        patch.object(lineup_optimizer, "parse_yahoo_roster", AsyncMock(return_value=players)),
+        patch.object(lineup_optimizer, "enhance_with_external_data", enhance),
+        patch(
+            "src.services.weekly_projection_runtime.enrich_weekly_projection_inputs",
+            side_effect=passthrough,
+        ),
+        patch.object(
+            matchup_handlers,
+            "get_decision_news_context",
+            AsyncMock(return_value={"by_player": {}, "sources": [], "warnings": []}),
+        ),
+    ):
+        result = await matchup_handlers.handle_ff_build_lineup(arguments)
+    assert result["status"] == "success"
+    starter = result["optimal_lineup"]["QB"]
+    assert starter["name"] == "Sleeper Favorite"
+    assert starter["expected_points"] == starter["selection_score"] == 20
+    assert result["bench"][0]["name"] == "Yahoo Favorite"
+    assert result["bench"][0]["expected_points"] == 10
+    assessment = starter["projection_assessment"]
+    assert assessment["effective_source_weights"] == {"sleeper": 1.0}
+    assert "yahoo" not in assessment["strategy_trace"]["utility_source_values"]
+    expected_yahoo = 1 if snapshot_values is None else snapshot_values[0]
+    assert assessment["raw_provider_values"]["yahoo"] == expected_yahoo
+    assert result["yahoo_projection_snapshot_audit"]["available"] is (snapshot_values is not None)
