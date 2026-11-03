@@ -197,6 +197,7 @@ def assess_projection(
     as_of: datetime | None = None,
     kickoff: datetime | None = None,
     strategy_base_utility: float | None = None,
+    strategy_projection_weight: float = 1.0,
     utility_multiplier: float = 1.0,
     eligible: bool = True,
     constraints: Sequence[str] = (),
@@ -211,7 +212,8 @@ def assess_projection(
     Baseline sources must be expected-point estimates in the requested scoring
     basis. Quote thresholds and weather observations are not baseline forecasts.
     The caller supplies any strategy-specific pre-multiplier utility separately;
-    accepting an adjustment adds its delta once before that multiplier. Ineligible
+    adjustments enter that blend at the forecast component's normalized weight
+    before the risk multiplier. The default weight preserves forecast-only callers. Ineligible
     players retain their counterfactual projection but have no selection utility.
     """
     basis, request_time, game_time = _basis(scoring_basis), _time(as_of), _time(kickoff)
@@ -402,17 +404,29 @@ def assess_projection(
     total_delta = math.fsum(accepted)
     final = math.fsum([baseline, total_delta]) if baseline is not None else None
     utility_base = baseline if strategy_base_utility is None else _number(strategy_base_utility)
+    projection_weight = _number(strategy_projection_weight)
+    valid_projection_weight = projection_weight is not None and 0 <= projection_weight <= 1
+    adjusted_contribution = (
+        final * projection_weight if final is not None and valid_projection_weight else None
+    )
+    weighted_delta = total_delta * projection_weight if valid_projection_weight else None
+    before_risk = None
+    if valid_projection_weight and utility_base is not None:
+        try:
+            before_risk = math.fsum([utility_base, weighted_delta])
+        except OverflowError:
+            pass
     multiplier = _number(utility_multiplier)
-    if multiplier is None or multiplier < 0:
+    if not valid_projection_weight:
+        limits.append("Invalid strategy projection weight")
+        utility = None
+    elif multiplier is None or multiplier < 0:
         limits.append("Invalid strategy utility multiplier")
         utility = None
     elif eligible is not True or utility_base is None:
         utility = None
     else:
-        try:
-            utility = math.fsum([utility_base, total_delta]) * multiplier
-        except OverflowError:
-            utility = None
+        utility = before_risk * multiplier if before_risk is not None else None
         if utility is None or not math.isfinite(utility):
             utility = None
             limits.append("Nonfinite strategy utility")
@@ -437,7 +451,16 @@ def assess_projection(
         "total_adjustment_points": total_delta,
         "final_expected_points": final,
         "strategy_utility": utility,
-        "strategy_trace": {"base_utility": utility_base, "multiplier": multiplier},
+        "strategy_trace": {
+            "base_utility": utility_base,
+            "multiplier": multiplier,
+            "projection_weight": projection_weight,
+            "raw_projection_input": baseline,
+            "adjusted_projection_input": final,
+            "weighted_projection_contribution": adjusted_contribution,
+            "weighted_adjustment_points": weighted_delta,
+            "weighted_before_risk": before_risk,
+        },
         "eligibility": {"eligible": eligible is True, "constraints": list(constraints)},
         "missing_sources": missing,
         "uncertainty": _json_safe(dict(uncertainty or {})),

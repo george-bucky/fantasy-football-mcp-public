@@ -14,7 +14,7 @@ parse_team_roster = None
 
 
 def _yahoo_only_player(player: Any) -> Any:
-    """Scope inputs on a copy so disabled external evidence cannot affect the estimate."""
+    """Keep Yahoo context/comparison only when external forecasts are disabled."""
     prior = player.projection_context if isinstance(player.projection_context, dict) else {}
     context = dict(prior)
     context.pop("weekly_projection_inputs", None)
@@ -66,7 +66,7 @@ def _scope_yahoo_assessment(assessment: dict) -> dict:
             for source in list(assessment[field]):
                 if source != "yahoo":
                     assessment[field][source] = None
-    for field in ("configured_source_weights", "effective_source_weights"):
+    for field in ("effective_source_weights",):
         if isinstance(assessment.get(field), dict):
             assessment[field] = {
                 key: value for key, value in assessment[field].items() if key == "yahoo"
@@ -83,9 +83,12 @@ def _scope_yahoo_assessment(assessment: dict) -> dict:
     assessment["input_policy"] = {
         "allowed_sources": ["yahoo"],
         "external_data": "disabled_by_request",
+        "forecast_sources": [],
+        "comparison_sources": ["yahoo"],
     }
     assessment.setdefault("limitations", []).append(
-        "External forecast, recent-performance, role, status and trending evidence disabled by request"
+        "Sleeper forecasts, recent-performance, role, status and trending evidence disabled by request; "
+        "Yahoo values are comparison data only"
     )
     return assessment
 

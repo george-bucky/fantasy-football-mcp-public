@@ -260,5 +260,58 @@ def test_external_disabled_copy_cannot_reuse_old_market_context():
     scoped = _yahoo_only_player(p)
     result = assess_player_projection(scoped)
     assert result["total_adjustment_points"] == 0
-    assert result["baseline_expected_points"] == 10
+    assert result["baseline_expected_points"] is None
+    assert result["effective_source_weights"] == {}
     assert "weekly_projection_inputs" in p.projection_context
+
+
+@pytest.mark.parametrize(
+    "strategy,projection_weight,history_component",
+    [("balanced", 0.8, 1.6), ("conservative", 0.5, 2.8), ("aggressive", 0.5, 5.4)],
+)
+def test_strategy_blends_adjusted_prop_forecast_before_risk(
+    strategy, projection_weight, history_component
+):
+    p = player()
+    p.recent_performance_data = SimpleNamespace(
+        weeks_data=[{"points": value} for value in [4, 8, 12]]
+    )
+    p.status = "Q"
+    original = deepcopy(p.projection_context)
+    result = assess_player_projection(p, strategy)
+    delta = result["total_adjustment_points"]
+    assert delta > 0
+    expected_before_risk = projection_weight * result["final_expected_points"] + history_component
+    risk = {"balanced": 0.88, "conservative": 0.78, "aggressive": 0.94}[strategy]
+    assert result["strategy_utility"] == pytest.approx(expected_before_risk * risk)
+    # A context change is part of the forecast component, not a second full-strength add-on.
+    raw_blend = projection_weight * 10 + history_component
+    assert result["strategy_utility"] != pytest.approx((raw_blend + delta) * risk)
+    assert assess_player_projection(p, strategy) == result
+    assert p.sleeper_projection_ppr == 10
+    assert p.projection_context == original
+
+
+@pytest.mark.asyncio
+async def test_lineup_uses_adjusted_projection_inside_strategy_weight():
+    candidate = player()
+    candidate.recent_performance_data = SimpleNamespace(
+        weeks_data=[{"points": value} for value in [4, 8, 12]]
+    )
+    delta = assess_player_projection(candidate)["total_adjustment_points"]
+    assert delta > 0
+    expected_score = 0.8 * (10 + delta) + 0.2 * 8
+    old_score = 0.8 * 10 + 0.2 * 8 + delta
+    midpoint = (expected_score + old_score) / 2
+    other = player(
+        context={},
+        name="Alternative receiver",
+        player_key="alternative",
+        sleeper_projection_ppr=midpoint,
+        recent_performance_data=SimpleNamespace(weeks_data=[{"points": midpoint}]),
+    )
+    result = await LineupOptimizer().optimize_lineup_smart(
+        [candidate, other], "balanced", roster_slots={"WR": 1}
+    )
+    assert result["starters"]["WR"].player_key == "alternative"
+    assert candidate.projection_assessment["strategy_utility"] == pytest.approx(expected_score)
