@@ -346,7 +346,8 @@ async def ff_get_league_info(
     description=(
         "⚠️ Get YOUR TEAM'S current roster (YOUR players only). "
         "DO NOT use this to search for available players! "
-        "Parameters: league_key, team_key, week, data_level, include_projections, include_external_data, include_analysis. "
+        "Parameters: league_key, team_key, week, data_level, include_projections, "
+        "include_external_data, include_analysis, include_weekly_context. "
         "For available players use ff_get_players or ff_get_waiver_wire."
     ),
     meta=_tool_meta("ff_get_roster"),
@@ -359,6 +360,9 @@ async def ff_get_roster(
     include_projections: bool = True,
     include_external_data: bool = True,
     include_analysis: bool = True,
+    include_weekly_context: bool = False,
+    include_market_adjustments: bool = True,
+    include_environment_adjustments: bool = True,
     data_level: Optional[Literal["basic", "standard", "full"]] = None,
 ) -> Dict[str, Any]:
     """
@@ -377,6 +381,7 @@ async def ff_get_roster(
         include_projections: Include Yahoo and/or Sleeper projections
         include_external_data: Include Sleeper rankings, matchup analysis, trending data
         include_analysis: Include enhanced player analysis and recommendations
+        include_weekly_context: Include report-only current environment and historical context
         data_level: "basic" (roster only), "standard" (+ projections), "full" (everything)
     """
 
@@ -426,6 +431,9 @@ async def ff_get_roster(
             include_projections=effective_projections,
             include_external_data=effective_external,
             include_analysis=effective_analysis,
+            include_weekly_context=include_weekly_context,
+            include_market_adjustments=include_market_adjustments,
+            include_environment_adjustments=include_environment_adjustments,
             data_level=data_level,
         )
         return result
@@ -592,6 +600,9 @@ async def ff_build_lineup(
     debug: bool = False,
     use_rookie_intelligence: bool = False,
     use_matchup_evidence: bool = False,
+    include_weekly_context: bool = False,
+    include_market_adjustments: bool = True,
+    include_environment_adjustments: bool = True,
 ) -> Dict[str, Any]:
     return await _call_legacy_tool(
         "ff_build_lineup",
@@ -602,6 +613,9 @@ async def ff_build_lineup(
         debug=debug,
         use_rookie_intelligence=use_rookie_intelligence,
         use_matchup_evidence=use_matchup_evidence,
+        include_weekly_context=include_weekly_context,
+            include_market_adjustments=include_market_adjustments,
+            include_environment_adjustments=include_environment_adjustments,
     )
 
 

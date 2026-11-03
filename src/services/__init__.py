@@ -4,6 +4,7 @@ from .decision_news_service import get_decision_news_context
 from .espn_news_service import get_espn_nfl_news
 from .nflverse_matchups import (
     MatchupEvidenceError,
+    empty_player_environment_context,
     weekly_matchup_evidence_service,
 )
 from .propline_service import (
@@ -30,6 +31,7 @@ __all__ = [
     "get_decision_news_context",
     "get_espn_nfl_news",
     "MatchupEvidenceError",
+    "empty_player_environment_context",
     "weekly_matchup_evidence_service",
     "SPORTSBOOK_ODDS_INPUT_SCHEMA",
     "PropLineService",

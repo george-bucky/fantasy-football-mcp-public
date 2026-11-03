@@ -127,7 +127,7 @@ async def test_lineup_news_failure_is_a_warning_not_a_lineup_failure():
 
     assert result["status"] == "success"
     assert result["optimal_lineup"]["QB"]["name"] == "Josh Allen"
-    assert result["warnings"] == ["Decision news unavailable: offline"]
+    assert "Decision news unavailable: offline" in result["warnings"]
 
 
 @pytest.mark.asyncio
