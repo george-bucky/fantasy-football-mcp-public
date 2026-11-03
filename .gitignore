@@ -142,3 +142,8 @@ nohup.out
 oauth_state.json
 session_*.json
 callback_*.html
+
+# Local OAuth token artifacts must never enter source control
+**/.yahoo_token.json
+**/oauth2.json
+**/oauth.json
