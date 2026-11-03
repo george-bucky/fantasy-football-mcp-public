@@ -221,6 +221,24 @@ def _bind_projection_request(
     return year, target
 
 
+def _apply_yahoo_snapshot(players, arguments, context, *, league_key, team_key, season, week):
+    """Apply only a caller-observed, scoped Yahoo forecast; never browse or refetch."""
+    from src.services.yahoo_projection_snapshot import apply_yahoo_projection_snapshot
+
+    snapshot = arguments.get("yahoo_projection_snapshot")
+    copied_players, audit = apply_yahoo_projection_snapshot(
+        players if snapshot is not None else [],
+        snapshot,
+        league_key=league_key,
+        team_key=team_key,
+        season=season,
+        week=week,
+        scoring_basis=context.get("canonical_scoring_basis", "unknown"),
+    )
+    # Without the optional bridge, retain the established shared-player behavior.
+    return (players if snapshot is None else copied_players), audit
+
+
 def _player_assessment_output(
     optimization: dict,
     players: Any,
@@ -631,6 +649,10 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
             )
         )
         projection_season, effective_week = _bind_projection_request(players, lineup_context, week)
+        players, yahoo_snapshot_audit = _apply_yahoo_snapshot(
+            players, arguments, lineup_context, league_key=league_key, team_key=team_key,
+            season=projection_season, week=effective_week,
+        )
         players = await lineup_optimizer.enhance_with_external_data(
             players, week=effective_week, season=projection_season
         )
@@ -754,7 +776,9 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
                 "matchup": player.matchup_description,
                 "composite_score": round(player.composite_score, 1),
                 "yahoo_proj": (
-                    round(player.yahoo_projection, 1) if player.yahoo_projection else None
+                    round(player.yahoo_projection, 1)
+                    if player.yahoo_projection or player.projection_context.get("yahoo_projection_present") is True
+                    else None
                 ),
                 "sleeper_proj": (
                     round(player.sleeper_projection, 1) if player.sleeper_projection else None
@@ -854,6 +878,7 @@ async def handle_ff_build_lineup(arguments: dict) -> dict:
             "team_key": team_key,
             "week": week or "current",
             "strategy": strategy,
+            "yahoo_projection_snapshot_audit": yahoo_snapshot_audit,
             "optimal_lineup": starters_formatted,
             "bench": bench_formatted,
             "recommendations": optimization["recommendations"],

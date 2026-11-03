@@ -43,3 +43,31 @@ When the player-prop model supplies usable corrections, game/weather layers are 
 Weather rules require exact scheduled venue/exposure and fresh, complete NWS game-window forecasts. Whole-window sustained wind tiers 15/20/25 mph apply 0.025/0.05/0.10 volume reductions; explicitly sourced heavy rain applies 0.025. Use the strongest rule, cap weather at one point, and share a two-point absolute component budget with game TD adjustments. These transparent configurable rules are not empirically calibrated. Rain chance is not severity, and unknown exposure/roof never means fair weather.
 
 `include_environment_adjustments` defaults true on enhanced roster/lineup paths and can be disabled independently of market adjustments. Market opt-out skips odds/history collection; weather opt-out skips registry/NWS while retaining team-history inputs if market adjustments remain enabled. Both disabled avoid the context collectors entirely. Unknown providers or source failures retain available Yahoo/Sleeper baselines. Independent game-source failures do not discard a valid weather estimate.
+
+The weekly odds collector requests DraftKings and FanDuel main lines only, with explicit partial-coverage provenance. This keeps response and result bounds intact; these two books are not assumed independent. The general odds tool retains its default all-line behavior. Provider failures and unmatched identities remain visible.
+
+## Optional observed Yahoo forecasts
+
+The verified Yahoo roster API response does not supply individual player forecasts.
+
+`ff_get_roster` (projection-enabled views) and `ff_build_lineup` accept an optional
+`yahoo_projection_snapshot` object. This is a caller-provided observation of Yahoo's
+visible **Proj Pts** column, not an automated forecast API or browser fetch. The
+caller must verify the league, team, week, season and scoring settings. Do not use
+actual `player_points` values as projections or supply cookies, tokens or browser storage.
+
+The object requires `source_kind: "yahoo_visible_projection_snapshot"`, the plain
+HTTPS Yahoo team `source_url` (`https://football.fantasysports.yahoo.com/f1/{leagueid}/{teamid}`,
+without a query), `season`, `week`, `scoring_basis`, an aware ISO `observed_at`, and
+`rows: [{"player_id": "1001", "projection": 15.5}]`. Each row can instead use the
+full scoped Yahoo `player_key`. Observations expire after 900 seconds. Exact roster
+IDs are required; names and NFL team abbreviations cannot identify a defense.
+
+The response exposes `yahoo_projection_snapshot_audit`. Invalid or stale snapshots
+leave provider values intact and include a reason; valid unrostered rows are skipped
+and counted. Explicit finite zero and negative forecasts are valid. Assessment
+provenance distinguishes observation time from the server assessment clock, labels
+the source caller-provided and not server-refetched, and preserves the original API
+value separately. Missing Yahoo forecasts remain unavailable when no usable snapshot
+is supplied; other valid providers continue normally. Basic/projections-disabled
+roster views do not consume the snapshot. No snapshot is persisted by this bridge.

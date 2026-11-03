@@ -466,3 +466,100 @@ def test_single_provider_point_forecast_renormalizes_without_recent_actuals():
     assert assessment["effective_source_weights"] == {"yahoo": 1.0}
     assert assessment["baseline_expected_points"] == 20
     assert assessment["strategy_utility"] != 20
+
+
+@pytest.mark.parametrize("value", [0, -2])
+def test_explicit_yahoo_projection_presence_preserves_nonpositive_forecast(value):
+    player = example_player(
+        yahoo_projection=value,
+        sleeper_projection_source=None,
+        recent_performance_data=None,
+        projection_context={"season": 2026, "week": 5, "yahoo_projection_present": True},
+    )
+    result = assess_player_projection(player)
+    assert result["baseline_expected_points"] == value
+    assert result["effective_source_weights"] == {"yahoo": 1}
+    assert result["strategy_utility"] == value
+
+
+@pytest.mark.parametrize("presence", [None, False, "true", 1])
+def test_default_yahoo_zero_remains_missing_without_explicit_presence(presence):
+    player = example_player(
+        yahoo_projection=0,
+        sleeper_projection_source=None,
+        recent_performance_data=None,
+        projection_context={"yahoo_projection_present": presence},
+    )
+    assert assess_player_projection(player)["baseline_expected_points"] is None
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_explicit_yahoo_presence_cannot_accept_nonfinite_forecast(value):
+    player = example_player(
+        yahoo_projection=value,
+        sleeper_projection_source=None,
+        recent_performance_data=None,
+        projection_context={"yahoo_projection_present": True},
+    )
+    assert assess_player_projection(player)["baseline_expected_points"] is None
+
+
+def test_explicit_snapshot_value_is_removed_from_projection_and_utility_when_stale():
+    from datetime import datetime, timedelta, timezone
+
+    clock = datetime(2026, 11, 3, 15, tzinfo=timezone.utc)
+    player = example_player(
+        yahoo_projection=-2,
+        sleeper_projection_source=None,
+        recent_performance_data=None,
+        projection_context={
+            "season": 2026,
+            "week": 5,
+            "as_of": clock.isoformat(),
+            "yahoo_projection_present": True,
+            "source_provenance": {
+                "yahoo": {
+                    "as_of": (clock - timedelta(seconds=901)).isoformat(),
+                    "max_age_seconds": 900,
+                }
+            },
+        },
+    )
+    result = assess_player_projection(player)
+    assert result["baseline_expected_points"] is None
+    assert result["strategy_utility"] == 0
+    assert "yahoo omitted: stale_source_estimate" in result["limitations"]
+
+
+@pytest.mark.parametrize("value", [0, -2, 12])
+async def test_external_enrichment_preserves_supplied_yahoo_value_and_provenance(value):
+    from unittest.mock import AsyncMock, patch
+
+    import sleeper_api
+    from src.services.player_enhancement import EnhancedPlayerData
+
+    context = {
+        "season": 2026,
+        "week": 5,
+        "yahoo_projection_present": True,
+        "source_provenance": {"yahoo": {"source_kind": "synthetic-ui", "max_age_seconds": 900}},
+    }
+    player = example_player(yahoo_projection=value, projection_context=copy.deepcopy(context))
+    with (
+        patch("sleeper_api.get_current_season", AsyncMock(return_value=2026)),
+        patch("sleeper_api.get_current_week", AsyncMock(return_value=5)),
+        patch.object(sleeper_api.sleeper_client, "get_all_players", AsyncMock(return_value={})),
+        patch.object(
+            sleeper_api.sleeper_client, "map_yahoo_to_sleeper", AsyncMock(return_value=None)
+        ),
+        patch(
+            "src.services.player_enhancement.enhance_player_with_context",
+            AsyncMock(return_value=EnhancedPlayerData(False, None, [], None, None, "fixture")),
+        ),
+    ):
+        result = await LineupOptimizer().enhance_with_external_data([player], season=2026, week=5)
+    assert result[0] is not player
+    assert result[0].yahoo_projection == value
+    assert result[0].projection_context["source_provenance"] == context["source_provenance"]
+    assert result[0].projection_context["yahoo_projection_present"] is True
+    assert player.projection_context == context

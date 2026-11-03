@@ -89,6 +89,8 @@ def setup(count=1, **kwargs):
 
     async def odds(**arguments):
         assert len(arguments["players"]) <= 10
+        assert arguments["bookmakers"] == ["draftkings", "fanduel"]
+        assert arguments["primary_lines_only"] is True
         return {
             "results": [
                 quote
@@ -189,6 +191,37 @@ async def test_provider_identity_requires_exact_fullname_game_and_nonempty_id(mu
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("suffix", [" (KC)", " (kc)", "  (KC)  "])
+async def test_exact_provider_name_with_verified_team_suffix_retains_player_identity(suffix):
+    service, _, odds = setup()
+    odds.side_effect = None
+    odds.return_value = {"results": [{**row, "subject": "Receiver 0" + suffix} for row in quotes()]}
+    report = (await collect(service))["players"]["461.p.0"]
+    assert report["available"]
+    assert report["player_id"] == "prop0"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "subject",
+    [
+        "Receiver 0 (BUF)",
+        "Receiver 0 (XYZ)",
+        "Receiver 0 Jr (KC)",
+        "Receiver 0 (KC) Jr",
+        "Receiver-0 (KC)",
+    ],
+)
+async def test_provider_suffix_never_overrides_conflicting_team_or_full_name(subject):
+    service, _, odds = setup()
+    odds.side_effect = None
+    odds.return_value = {"results": [{**row, "subject": subject} for row in quotes()]}
+    report = (await collect(service))["players"]["461.p.0"]
+    assert not report["available"]
+    assert "provider_identity_or_game_missing" in report["unavailable_reasons"]
+
+
+@pytest.mark.asyncio
 async def test_ambiguous_identity_and_explicit_id_constraint():
     service, _, odds = setup()
     bad = quotes()
@@ -255,6 +288,49 @@ async def test_provider_failure_is_partial_and_does_not_expose_exception_secrets
     assert "stats_fetch_failed" in result["warnings"]
     assert "synthetic-private-token" not in str(result)
     assert result["players"]["461.p.0"]["observations"] == []
+
+
+@pytest.mark.asyncio
+async def test_provider_envelope_failure_is_not_reported_as_bad_player_identity():
+    service, _, odds = setup()
+    odds.side_effect = None
+    odds.return_value = {
+        "status": "partial",
+        "results": [],
+        "error": {
+            "code": "invalid_response",
+            "stage": "event:public-game",
+            "message": "synthetic-private-token",
+            "http_status": 200,
+        },
+        "unmatched": [{"query": "Receiver 0", "reason": "no_market"}],
+    }
+    result = await collect(service)
+    report = result["players"]["461.p.0"]
+    assert report["unavailable_reasons"] == ["odds_provider_failure"]
+    assert report["odds_provider"]["error"] == {
+        "code": "invalid_response",
+        "stage": "event_odds",
+        "http_status": 200,
+    }
+    assert report["odds_provider"]["result_count"] == 0
+    assert report["odds_provider"]["unmatched_reasons"] == ["no_market"]
+    assert "synthetic-private-token" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_partial_provider_failure_preserves_successful_exact_player_quotes():
+    service, _, odds = setup()
+    odds.side_effect = None
+    odds.return_value = {
+        "status": "partial",
+        "results": quotes(),
+        "error": {"code": "provider_timeout", "stage": "event:other-game"},
+    }
+    report = (await collect(service))["players"]["461.p.0"]
+    assert report["available"]
+    assert report["odds_provider"]["error"]["code"] == "provider_timeout"
+    assert report["unavailable_reasons"] == ["odds_provider_failure"]
 
 
 def test_verified_sleeper_identity_requires_catalog_name_and_team():

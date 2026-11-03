@@ -42,6 +42,7 @@ def parse_team_roster(data: Dict) -> List[Dict]:
                     continue
 
                 info: Dict[str, Any] = {}
+                team_field_priority = 0
 
                 # Helper to robustly extract selected position regardless of structure
                 def _extract_position(selected_position_obj: Any) -> Optional[str]:
@@ -64,6 +65,7 @@ def parse_team_roster(data: Dict) -> List[Dict]:
                     return None
 
                 def _scan_container(container: Any) -> None:
+                    nonlocal team_field_priority
                     if not isinstance(container, dict):
                         return
                     player_key = container.get("player_key")
@@ -102,33 +104,34 @@ def parse_team_roster(data: Dict) -> List[Dict]:
                         except (TypeError, ValueError):
                             continue
 
-                    if "team" not in info:
-                        team_value: Optional[str] = None
-
-                        # Direct keys commonly present in Yahoo responses
-                        for key in (
-                            "editorial_team_abbr",
-                            "team_abbr",
-                            "team_abbreviation",
-                            "editorial_team_full_name",
-                            "editorial_team_name",
+                    # Yahoo spreads metadata across separate flat dictionaries. An
+                    # explicit abbreviation must supersede an earlier full-name
+                    # fallback, independent of metadata order. Do not infer codes.
+                    candidates = [
+                        (2, container.get(key))
+                        for key in ("editorial_team_abbr", "team_abbr", "team_abbreviation")
+                    ]
+                    team_container = container.get("team")
+                    if isinstance(team_container, dict):
+                        candidates.extend(
+                            (2, team_container.get(key)) for key in ("abbr", "abbreviation")
+                        )
+                    candidates.extend(
+                        (1, container.get(key))
+                        for key in ("editorial_team_full_name", "editorial_team_name")
+                    )
+                    if isinstance(team_container, dict):
+                        candidates.extend(
+                            (1, team_container.get(key)) for key in ("name", "nickname")
+                        )
+                    for priority, value in candidates:
+                        if (
+                            priority > team_field_priority
+                            and isinstance(value, str)
+                            and value.strip()
                         ):
-                            value = container.get(key)
-                            if isinstance(value, str) and value.strip():
-                                team_value = value
-                                break
-
-                        # Nested team objects occasionally hold the abbreviation/name
-                        if not team_value and isinstance(container.get("team"), dict):
-                            team_container = container["team"]
-                            for nested_key in ("abbr", "abbreviation", "name", "nickname"):
-                                nested_value = team_container.get(nested_key)
-                                if isinstance(nested_value, str) and nested_value.strip():
-                                    team_value = nested_value
-                                    break
-
-                        if team_value:
-                            info["team"] = team_value
+                            info["team"] = value.strip()
+                            team_field_priority = priority
 
                     if "bye_weeks" in container:
                         bye_weeks_data = container["bye_weeks"]

@@ -90,14 +90,33 @@ def _number(value: Any) -> float | None:
 
 
 def _time(value: Any) -> datetime | None:
-    if isinstance(value, str):
-        try:
+    try:
+        if isinstance(value, str):
             value = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
+        if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
             return None
-    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        return value.astimezone(timezone.utc)
+    except (ValueError, OverflowError):
         return None
-    return value.astimezone(timezone.utc)
+
+
+def _source_freshness_reason(meta: Mapping[str, Any], request_time: datetime | None) -> str | None:
+    """Recheck an optional source freshness budget when consuming a saved input."""
+    if "max_age_seconds" not in meta:
+        return None
+    limit = _number(meta["max_age_seconds"])
+    if limit is None or limit < 0:
+        return "invalid_source_freshness_limit"
+    stamps = [meta[key] for key in ("observed_at", "as_of") if key in meta]
+    if not stamps or request_time is None:
+        return "source_not_verified_as_of_request"
+    for stamp in stamps:
+        observed = _time(stamp)
+        if observed is None or observed > request_time:
+            return "source_not_verified_as_of_request"
+        if (request_time - observed).total_seconds() > limit:
+            return "stale_source_estimate"
+    return None
 
 
 def _json_safe(value: Any) -> Any:
@@ -235,6 +254,8 @@ def assess_projection(
             or _time(meta["as_of"]) > request_time
         ):
             reason = "source_not_verified_as_of_request"
+        else:
+            reason = _source_freshness_reason(meta, request_time)
         if reason:
             missing[source] = reason
         else:

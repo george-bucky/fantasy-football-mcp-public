@@ -366,6 +366,60 @@ def make_service(
     return service, factory, fixed_clock
 
 
+@pytest.mark.asyncio
+async def test_weekly_primary_subset_prevents_alt_and_team_prop_result_starvation():
+    payload = game_odds("one", player="Josh Allen")
+    main = payload["bookmakers"][0]["markets"][0]
+    main.update(line_type="main", team=None)
+    main["outcomes"].append({**main["outcomes"][0], "name": "Under"})
+    alternates = [
+        {
+            **main,
+            "line_type": "alternate",
+            "outcomes": [{**outcome, "point": float(index)} for outcome in main["outcomes"]],
+        }
+        for index in range(400)
+    ]
+    total = {
+        "key": "totals",
+        "line_type": "main",
+        "team": None,
+        "period": None,
+        "outcomes": [{"name": side, "point": 47.5, "price": -110} for side in ("Over", "Under")],
+    }
+    payload["bookmakers"][0]["markets"] = [*alternates, main, total]
+
+    async def request(primary):
+        service, factory, _ = make_service(
+            {
+                "/v1/sports/football_nfl/events": [FakeResponse([event("one")])],
+                "/v1/sports/football_nfl/events/one/odds": [FakeResponse(payload)],
+            }
+        )
+        result = await service.get_sportsbook_odds(
+            players=["Josh Allen"],
+            teams=["BUF"],
+            scope="next_game",
+            markets=["player_pass_yds", "totals"],
+            bookmakers=["draftkings", "fanduel"],
+            primary_lines_only=primary,
+        )
+        assert factory.calls[-1][1]["params"]["bookmakers"] == "draftkings,fanduel"
+        return result
+
+    bounded = await request(True)
+    assert bounded["status"] == "ok"
+    assert len(bounded["results"]) == 4
+    assert {row["entity_type"] for row in bounded["results"]} == {"player", "team"}
+    assert all(
+        row["market_key"] == "totals" for row in bounded["results"] if row["entity_type"] == "team"
+    )
+    all_lines = await request(False)
+    assert len(all_lines["results"]) == MAX_RESULTS
+    assert all_lines["status"] == "partial"
+    assert not any(row["entity_type"] == "player" for row in all_lines["results"])
+
+
 @pytest.fixture(autouse=True)
 def configured_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROPLINE_API_KEY", API_KEY)

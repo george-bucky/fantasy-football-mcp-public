@@ -19,7 +19,12 @@ from typing import Any
 
 from src.services.market_evidence import assess_player_markets
 from src.services.nflverse_matchups import canonical_team
-from src.services.propline_service import PLAYER_MARKETS, TEAM_ALIASES, TEAM_MARKETS
+from src.services.propline_service import (
+    _PLAYER_TEAM_SUFFIX_RE,
+    PLAYER_MARKETS,
+    TEAM_ALIASES,
+    TEAM_MARKETS,
+)
 
 STAT_KEYS = {
     "passing_yards": "pass_yd",
@@ -30,6 +35,86 @@ STAT_KEYS = {
     "receiving_touchdowns": "rec_td",
     "receptions": "rec",
 }
+
+# A bounded subset of quoted sportsbooks reduces current NFL event response size;
+# the transport cap still applies. This is partial coverage, not independent confirmation.
+WEEKLY_BOOKMAKERS = ("draftkings", "fanduel")
+
+
+def _odds_diagnostics(payload: Any, fetched_at: datetime | None) -> dict[str, Any]:
+    """Keep structural provider failures without serializing messages or requests."""
+    if not isinstance(payload, Mapping):
+        payload = {}
+    results = payload.get("results")
+    status = payload.get("status")
+    result = {
+        "status": (
+            status
+            if isinstance(status, str) and status in {"ok", "partial", "error"}
+            else "unknown"
+        ),
+        "result_count": len(results) if isinstance(results, list) else 0,
+        "bookmakers_requested": list(WEEKLY_BOOKMAKERS),
+        "coverage": "bounded_book_subset_not_independent_confirmation",
+    }
+    error = payload.get("error")
+    if isinstance(error, Mapping):
+        allowed_codes = {
+            "invalid_request",
+            "not_configured",
+            "invalid_credentials",
+            "access_denied",
+            "rate_limited",
+            "invalid_response",
+            "provider_timeout",
+            "provider_error",
+        }
+        code = error.get("code")
+        stage = error.get("stage")
+        result["error"] = {
+            "code": code if isinstance(code, str) and code in allowed_codes else "provider_error",
+            "stage": (
+                "event_odds"
+                if isinstance(stage, str) and stage.startswith("event:")
+                else (
+                    stage
+                    if isinstance(stage, str)
+                    and stage
+                    in {
+                        "configuration",
+                        "validation",
+                        "events",
+                        "normalize",
+                        "request",
+                        "overall",
+                        "session",
+                        "futures",
+                    }
+                    else "unknown"
+                )
+            ),
+        }
+        status = error.get("http_status")
+        if type(status) is int and 100 <= status <= 599:
+            result["error"]["http_status"] = status
+    elif fetched_at is None:
+        result["error"] = {"code": "provider_error", "stage": "collection"}
+    unmatched = payload.get("unmatched")
+    result["unmatched_reasons"] = (
+        sorted(
+            {
+                row["reason"]
+                for row in unmatched
+                if isinstance(row, Mapping)
+                and isinstance(row.get("reason"), str)
+                and row["reason"]
+                in {"ambiguous", "filtered_out", "no_market", "truncated", "not_found"}
+            }
+        )
+        if isinstance(unmatched, list)
+        else []
+    )
+    return result
 
 
 def _time(value: Any) -> datetime | None:
@@ -46,6 +131,20 @@ def _time(value: Any) -> datetime | None:
 
 def _name(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
+
+
+def _provider_name_matches(subject: Any, identity: Mapping[str, Any]) -> bool:
+    """Remove only a verified terminal provider team annotation, not name tokens."""
+    if not isinstance(subject, str):
+        return False
+    suffix = _PLAYER_TEAM_SUFFIX_RE.search(subject)
+    if suffix:
+        annotation = suffix.group().strip()[1:-1]
+        suffix_team = canonical_team(annotation)
+        if suffix_team is None or suffix_team != canonical_team(identity.get("team")):
+            return False
+        subject = subject[: suffix.start()]
+    return _name(subject) == _name(identity["name"])
 
 
 def _team_keys(value: Any) -> frozenset[str]:
@@ -305,6 +404,8 @@ class WeeklyProjectionInputsService:
                         teams=teams,
                         scope="next_game",
                         markets=[*PLAYER_MARKETS, *TEAM_MARKETS],
+                        bookmakers=list(WEEKLY_BOOKMAKERS),
+                        primary_lines_only=True,
                         player_context=context,
                     ),
                 )
@@ -313,6 +414,9 @@ class WeeklyProjectionInputsService:
                     warnings.extend(str(item) for item in odds.get("warnings", []))
                 for row in chunk:
                     report = reports[str(row["player_key"])]
+                    report["odds_provider"] = _odds_diagnostics(odds, odds_at)
+                    if report["odds_provider"].get("error"):
+                        report["unavailable_reasons"].append("odds_provider_failure")
                     sid = str(row["sleeper_id"])
                     report["source_fetched_at"]["odds"] = odds_at.isoformat() if odds_at else None
                     game_quotes = self._match_game_quotes(row, quotes)
@@ -345,11 +449,12 @@ class WeeklyProjectionInputsService:
                         ]
                     bindings = {(str(q["event_id"]), str(q["provider_entity_id"])) for q in matched}
                     if len(bindings) != 1:
-                        report["unavailable_reasons"].append(
-                            "ambiguous_provider_identity"
-                            if bindings
-                            else "provider_identity_or_game_missing"
-                        )
+                        if bindings or not report["odds_provider"].get("error"):
+                            report["unavailable_reasons"].append(
+                                "ambiguous_provider_identity"
+                                if bindings
+                                else "provider_identity_or_game_missing"
+                            )
                         continue
                     event_id, player_id = next(iter(bindings))
                     report.update(
@@ -480,7 +585,7 @@ class WeeklyProjectionInputsService:
             ):
                 continue
             if (
-                _name(quote.get("subject")) != _name(identity["name"])
+                not _provider_name_matches(quote.get("subject"), identity)
                 or not quote.get("provider_entity_id")
                 or not quote.get("event_id")
                 or _time(event.get("commence_time")) != identity["kickoff"]
