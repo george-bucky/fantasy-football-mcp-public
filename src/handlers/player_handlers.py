@@ -7,6 +7,7 @@ from src.services import (
     build_rookie_add_recommendations,
     rookie_identity_key,
 )
+from src.services.player_enhancement import serialize_weekly_evidence
 
 # These will be injected from main file
 yahoo_api_call = None
@@ -118,9 +119,7 @@ def _preserve_rookie_add_order(
     remaining = [dict(player) for player in enhanced_players]
     ordered: list[dict[str, Any]] = []
     for complete_player in complete_rookie_players:
-        identity = rookie_identity_key(
-            complete_player.get("name"), complete_player.get("position")
-        )
+        identity = rookie_identity_key(complete_player.get("name"), complete_player.get("position"))
         match_index = next(
             (
                 index
@@ -268,6 +267,11 @@ async def handle_ff_get_players(arguments: dict) -> dict:
                     ),
                     "sleeper_id": player.sleeper_id,
                     "sleeper_match_method": player.sleeper_match_method,
+                    "weekly_evidence": serialize_weekly_evidence(
+                        player,
+                        include_projections=include_projections,
+                        include_recent=include_external_data,
+                    ),
                     "floor_projection": player.floor_projection if include_projections else None,
                     "ceiling_projection": (
                         player.ceiling_projection if include_projections else None
@@ -565,6 +569,11 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
                     ),
                     "sleeper_id": player.sleeper_id,
                     "sleeper_match_method": player.sleeper_match_method,
+                    "weekly_evidence": serialize_weekly_evidence(
+                        player,
+                        include_projections=include_projections,
+                        include_recent=include_external_data,
+                    ),
                     "floor_projection": player.floor_projection if include_projections else None,
                     "ceiling_projection": (
                         player.ceiling_projection if include_projections else None
@@ -827,9 +836,7 @@ async def handle_ff_get_waiver_wire(arguments: dict) -> dict:
                             else None
                         ),
                         "position_scarcity": (
-                            position_scarcity
-                            if include_analysis and not rookie_only
-                            else None
+                            position_scarcity if include_analysis and not rookie_only else None
                         ),
                         "warnings": (
                             [

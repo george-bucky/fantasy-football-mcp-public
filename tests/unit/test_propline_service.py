@@ -31,6 +31,122 @@ API_KEY = "unit-test-propline-key"
 NOW = datetime(2026, 8, 31, 16, 0, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize("explicit_period", [True, False])
+def test_normalized_rows_preserve_format_period_and_snapshot_provenance(explicit_period):
+    payload = game_odds("one")
+    market = payload["bookmakers"][0]["markets"][0]
+    if not explicit_period:
+        market.pop("period")
+    component = propline_service.Component(
+        source_id="event:one",
+        kind="event_odds",
+        payload=payload,
+        fetched_at="2026-08-31T16:00:00Z",
+        served_from_cache=True,
+        cache_age_seconds=12,
+        cache_ttl_seconds=60,
+        quota={},
+        event_id="one",
+    )
+    row = PropLineService()._rows(component, scope="next_game")[0]
+    assert row["period"] == "full_game"
+    assert row["period_source"] == (
+        "provider" if explicit_period else "propline_documented_contract"
+    )
+    assert row["odds_format"] == "american"
+    assert row["odds_format_source"] == "propline_documented_default"
+    assert row["quote_fetched_at"] == component.fetched_at
+    assert row["quote_served_from_cache"] is True
+    payload["odds_format"] = "decimal"
+    row = PropLineService()._rows(component, scope="next_game")[0]
+    assert row["odds_format"] == "decimal"
+    assert row["odds_format_source"] == "provider"
+
+
+@pytest.mark.parametrize(
+    "book,expected",
+    [
+        ("prizepicks", "synthetic_dfs"),
+        ("draftkings", "quoted_single_leg"),
+        ("underdog", "quoted_single_leg"),
+        ("unknown-dfs", "unknown"),
+    ],
+)
+def test_normalized_price_semantics_follow_book_contract_not_even_money(book, expected):
+    payload = game_odds("one", book=book)
+    payload["bookmakers"][0]["markets"][0]["outcomes"][0]["price"] = 100
+    component = propline_service.Component(
+        source_id="event:one",
+        kind="event_odds",
+        payload=payload,
+        fetched_at="2026-08-31T16:00:00Z",
+        served_from_cache=False,
+        cache_age_seconds=0,
+        cache_ttl_seconds=60,
+        quota={},
+        event_id="one",
+    )
+    row = PropLineService()._rows(component, scope="next_game")[0]
+    assert row["price"] == 100
+    assert row["pricing_semantics"] == expected
+    assert row["pricing_semantics_reference"] == "https://prop-line.com/docs"
+
+
+def test_normalization_preserves_explicit_synthetic_markers_and_real_dfs_payout():
+    payload = game_odds("one", book="underdog")
+    outcome = payload["bookmakers"][0]["markets"][0]["outcomes"][0]
+    outcome["payout_multiplier"] = 0.86
+    component = propline_service.Component(
+        source_id="event:one",
+        kind="event_odds",
+        payload=payload,
+        fetched_at="2026-08-31T16:00:00Z",
+        served_from_cache=False,
+        cache_age_seconds=0,
+        cache_ttl_seconds=60,
+        quota={},
+        event_id="one",
+    )
+    row = PropLineService()._rows(component, scope="next_game")[0]
+    assert row["pricing_semantics"] == "quoted_single_leg"
+    assert row["payout_multiplier"] == 0.86
+    payload["synthetic_price"] = True
+    outcome["synthetic_price"] = False
+    row = PropLineService()._rows(component, scope="next_game")[0]
+    assert row["pricing_semantics"] == "synthetic_dfs"
+    assert row["is_synthetic"] is True
+
+
+def test_normalized_game_markets_keep_explicit_team_null_and_primary_line_provenance():
+    payload = game_odds("one", market="totals")
+    market = payload["bookmakers"][0]["markets"][0]
+    market.update({"team": None, "line_type": "main", "suspended_at": "2026-08-31T15:59:00Z"})
+    component = propline_service.Component(
+        source_id="event:one",
+        kind="event_odds",
+        payload=payload,
+        fetched_at="2026-08-31T16:00:00Z",
+        served_from_cache=False,
+        cache_age_seconds=0,
+        cache_ttl_seconds=60,
+        quota={},
+        event_id="one",
+    )
+    row = PropLineService()._rows(component, scope="next_game")[0]
+    assert row["market_team"] is None and row["market_team_source"] == "provider"
+    assert row["line_type"] == "main" and row["line_type_source"] == "provider"
+    assert row["market_suspended_at"] == market["suspended_at"]
+    market["team"] = "Buffalo Bills"
+    assert (
+        PropLineService()._rows(component, scope="next_game")[0]["market_team"] == "Buffalo Bills"
+    )
+    market.pop("team")
+    market.pop("line_type")
+    row = PropLineService()._rows(component, scope="next_game")[0]
+    assert row["market_team_source"] == "unavailable"
+    assert row["line_type_source"] == "unavailable"
+
+
 class Clock:
     def __init__(self) -> None:
         self.elapsed = 100.0
@@ -248,6 +364,60 @@ def make_service(
         session_factory=factory,
     )
     return service, factory, fixed_clock
+
+
+@pytest.mark.asyncio
+async def test_weekly_primary_subset_prevents_alt_and_team_prop_result_starvation():
+    payload = game_odds("one", player="Josh Allen")
+    main = payload["bookmakers"][0]["markets"][0]
+    main.update(line_type="main", team=None)
+    main["outcomes"].append({**main["outcomes"][0], "name": "Under"})
+    alternates = [
+        {
+            **main,
+            "line_type": "alternate",
+            "outcomes": [{**outcome, "point": float(index)} for outcome in main["outcomes"]],
+        }
+        for index in range(400)
+    ]
+    total = {
+        "key": "totals",
+        "line_type": "main",
+        "team": None,
+        "period": None,
+        "outcomes": [{"name": side, "point": 47.5, "price": -110} for side in ("Over", "Under")],
+    }
+    payload["bookmakers"][0]["markets"] = [*alternates, main, total]
+
+    async def request(primary):
+        service, factory, _ = make_service(
+            {
+                "/v1/sports/football_nfl/events": [FakeResponse([event("one")])],
+                "/v1/sports/football_nfl/events/one/odds": [FakeResponse(payload)],
+            }
+        )
+        result = await service.get_sportsbook_odds(
+            players=["Josh Allen"],
+            teams=["BUF"],
+            scope="next_game",
+            markets=["player_pass_yds", "totals"],
+            bookmakers=["draftkings", "fanduel"],
+            primary_lines_only=primary,
+        )
+        assert factory.calls[-1][1]["params"]["bookmakers"] == "draftkings,fanduel"
+        return result
+
+    bounded = await request(True)
+    assert bounded["status"] == "ok"
+    assert len(bounded["results"]) == 4
+    assert {row["entity_type"] for row in bounded["results"]} == {"player", "team"}
+    assert all(
+        row["market_key"] == "totals" for row in bounded["results"] if row["entity_type"] == "team"
+    )
+    all_lines = await request(False)
+    assert len(all_lines["results"]) == MAX_RESULTS
+    assert all_lines["status"] == "partial"
+    assert not any(row["entity_type"] == "player" for row in all_lines["results"])
 
 
 @pytest.fixture(autouse=True)

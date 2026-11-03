@@ -17,6 +17,7 @@ from urllib.parse import quote, urlparse
 
 import aiohttp
 
+from src.services.market_evidence import SYNTHETIC_PRICE_FLAGS, quote_pricing_semantics
 from src.utils.constants import NFL_TEAMS
 
 BASE_URL = "https://api.prop-line.com/v1"
@@ -769,6 +770,26 @@ class PropLineService:
                             or outcome.get("entity_id")
                             or outcome.get("participant_id")
                         )
+                        explicit_period = market.get("period") or outcome.get("period")
+                        explicit_format = (
+                            outcome.get("odds_format")
+                            or market.get("odds_format")
+                            or book.get("odds_format")
+                            or container.get("odds_format")
+                        )
+                        pricing_fields: dict[str, Any] = {"bookmaker_key": book_key}
+                        synthetic_declared = False
+                        for source in (container, book, market, outcome):
+                            if quote_pricing_semantics(source)[0] == "synthetic_dfs":
+                                synthetic_declared = True
+                            for field in ("pricing_semantics", *SYNTHETIC_PRICE_FLAGS):
+                                if field in source:
+                                    pricing_fields[field] = source[field]
+                        if synthetic_declared:
+                            pricing_fields["is_synthetic"] = True
+                        if "pricing_semantics" in pricing_fields:
+                            pricing_fields["pricing_semantics_source"] = "provider"
+                        pricing_semantics, pricing_source = quote_pricing_semantics(pricing_fields)
                         row: dict[str, Any] = {
                             "source_id": component.source_id,
                             "event_id": str(event_id),
@@ -786,11 +807,40 @@ class PropLineService:
                             "bookmaker": book.get("title") or book.get("name") or book_key,
                             "market_key": market_key,
                             "market_description": market.get("description") or market.get("title"),
+                            "market_team": market.get("team"),
+                            "market_team_source": "provider" if "team" in market else "unavailable",
+                            "line_type": outcome.get("line_type") or market.get("line_type"),
+                            "line_type_source": (
+                                "provider"
+                                if outcome.get("line_type") or market.get("line_type")
+                                else "unavailable"
+                            ),
+                            "market_suspended_at": market.get("suspended_at"),
                             "selection": selection,
                             "subject": subject,
-                            "period": market.get("period")
-                            or outcome.get("period")
+                            "period": explicit_period
                             or ("season" if scope == "season" else "full_game"),
+                            "period_source": (
+                                "provider"
+                                if explicit_period
+                                else (
+                                    "propline_documented_contract"
+                                    if scope == "next_game"
+                                    else "inferred"
+                                )
+                            ),
+                            "period_reference": "https://prop-line.com/docs",
+                            "odds_format": explicit_format or "american",
+                            "odds_format_source": (
+                                "provider" if explicit_format else "propline_documented_default"
+                            ),
+                            "odds_format_reference": "https://prop-line.com/docs",
+                            "pricing_semantics": pricing_semantics,
+                            "pricing_semantics_source": pricing_source,
+                            "pricing_semantics_reference": "https://prop-line.com/docs",
+                            "quote_fetched_at": component.fetched_at,
+                            "quote_served_from_cache": component.served_from_cache,
+                            "quote_cache_age_seconds": component.cache_age_seconds,
                             "provider_observed_at": market.get("last_update")
                             or book.get("last_update")
                             or container.get("last_update"),
@@ -805,6 +855,12 @@ class PropLineService:
                             ),
                             "subject_normalized": _normalized_player(subject),
                         }
+                        for field in SYNTHETIC_PRICE_FLAGS:
+                            if field in pricing_fields:
+                                row[field] = pricing_fields[field]
+                        if outcome.get("payout_multiplier") is not None:
+                            # Underdog's quoted American price already includes this multiplier.
+                            row["payout_multiplier"] = outcome["payout_multiplier"]
                         line = outcome.get("point", outcome.get("line"))
                         if line is not None:
                             row["line"] = line
@@ -1017,6 +1073,7 @@ class PropLineService:
         markets: Any = None,
         bookmakers: Any = None,
         player_context: dict[str, dict[str, str]] | None = None,
+        primary_lines_only: bool = False,
     ) -> dict[str, Any]:
         """Return normalized PropLine odds for requested NFL players or teams."""
         response = self._base_response(scope)
@@ -1195,9 +1252,15 @@ class PropLineService:
                             events_by_id[event_id] = event
                     valid_components.append(component)
                 elif component.kind == "event_odds":
-                    event_rows_by_id.setdefault(component.event_id or "", []).extend(
-                        self._rows(component, scope="next_game")
-                    )
+                    rows = self._rows(component, scope="next_game")
+                    if primary_lines_only:
+                        rows = [
+                            row
+                            for row in rows
+                            if row.get("line_type_source") == "provider"
+                            and row.get("line_type") == "main"
+                        ]
+                    event_rows_by_id.setdefault(component.event_id or "", []).extend(rows)
                     valid_components.append(component)
             except ProviderFailure as exc:
                 failures.append(exc)
@@ -1282,7 +1345,14 @@ class PropLineService:
             if scope in {"auto", "next_game"}:
                 game_matches, game_reason = self._match_team(
                     team,
-                    event_pairs,
+                    (
+                        [
+                            (event, [row for row in rows if row["market_key"] in TEAM_MARKETS])
+                            for event, rows in event_pairs
+                        ]
+                        if primary_lines_only
+                        else event_pairs
+                    ),
                     market_keys or list(TEAM_MARKETS),
                     bookmaker_keys,
                     explicit_filters=bool(market_keys or bookmaker_keys),
@@ -1362,6 +1432,7 @@ async def get_sportsbook_odds(
     markets: Any = None,
     bookmakers: Any = None,
     player_context: dict[str, dict[str, str]] | None = None,
+    primary_lines_only: bool = False,
 ) -> dict[str, Any]:
     """Fetch sportsbook odds through the shared PropLine service instance."""
     return await propline_service.get_sportsbook_odds(
@@ -1371,6 +1442,7 @@ async def get_sportsbook_odds(
         markets=markets,
         bookmakers=bookmakers,
         player_context=player_context,
+        primary_lines_only=primary_lines_only,
     )
 
 

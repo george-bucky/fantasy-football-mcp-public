@@ -8,8 +8,9 @@ This module provides enhancements to player data including:
 """
 
 import logging
+import math
+from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Tuple
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,105 @@ class EnhancedPlayerData:
     adjusted_projection: Optional[float]
     recommendation_override: Optional[str]
     context_message: str
+
+
+def _public_evidence_copy(value: Any) -> Any:
+    """Copy source evidence without nonfinite values or credential-shaped fields."""
+    if isinstance(value, dict):
+        private = ("secret", "password", "token", "api_key", "authorization", "headers", "cookie")
+        return {
+            key: _public_evidence_copy(item)
+            for key, item in value.items()
+            if isinstance(key, str) and not any(part in key.casefold() for part in private)
+        }
+    if isinstance(value, (list, tuple)):
+        return [_public_evidence_copy(item) for item in value]
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            return value if math.isfinite(float(value)) else None
+        except (ValueError, OverflowError):
+            return None
+    return None
+
+
+def serialize_weekly_evidence(
+    player: Any, *, include_projections: bool, include_recent: bool
+) -> dict[str, Any]:
+    """Expose source weekly rows, separately from model estimates and custom scoring."""
+    raw = getattr(player, "raw", {})
+    projection = raw.get("weekly_projection", {}) if isinstance(raw, dict) else {}
+    if not isinstance(projection, dict):
+        projection = {}
+    context = getattr(player, "projection_context", {})
+    context = context if isinstance(context, dict) else {}
+    source_backed = (
+        getattr(player, "sleeper_projection_source", "") == "sleeper_api"
+        and isinstance(projection, dict)
+        and bool(projection)
+        and projection.get("projection_source") == "sleeper_api"
+    )
+    expected_id = str(getattr(player, "sleeper_id", "") or "")
+    if expected_id and str(projection.get("player_id") or "") != expected_id:
+        source_backed = False
+    for field in ("season", "week"):
+        if context.get(field) is not None and str(projection.get(field)) != str(context[field]):
+            source_backed = False
+    if source_backed:
+        finite_total = False
+        for key in ("pts", "pts_std", "pts_ppr", "pts_half_ppr"):
+            value = projection.get(key)
+            try:
+                finite_total |= (
+                    isinstance(value, (int, float))
+                    and not isinstance(value, bool)
+                    and math.isfinite(float(value))
+                )
+            except (ValueError, OverflowError):
+                continue
+        source_backed = finite_total
+    recent = getattr(player, "recent_performance_data", None) if include_recent else None
+    recent_valid = isinstance(recent, RecentPerformance)
+    if recent_valid:
+        try:
+            recent_valid = (
+                type(recent.weeks_analyzed) is int
+                and recent.weeks_analyzed > 0
+                and isinstance(recent.avg_points, (int, float))
+                and not isinstance(recent.avg_points, bool)
+                and isinstance(recent.total_points, (int, float))
+                and not isinstance(recent.total_points, bool)
+                and math.isfinite(float(recent.avg_points))
+                and math.isfinite(float(recent.total_points))
+            )
+        except (TypeError, ValueError, OverflowError):
+            recent_valid = False
+    return {
+        "scoring_basis": getattr(player, "scoring_format", "ppr"),
+        "scoring_scope": "Provider scoring format; custom Yahoo scoring is not applied",
+        "projection": {
+            "status": (
+                ("available" if source_backed else "unavailable")
+                if include_projections
+                else "not_requested"
+            ),
+            "source": "Sleeper" if source_backed and include_projections else None,
+            "provider_data": (
+                _public_evidence_copy(projection) if source_backed and include_projections else None
+            ),
+            "on_bye": getattr(player, "on_bye", False),
+        },
+        "recent_performance": {
+            "status": (
+                ("available" if recent_valid else "unavailable")
+                if include_recent
+                else "not_requested"
+            ),
+            "source": "Sleeper" if recent_valid else None,
+            "data": _public_evidence_copy(asdict(recent)) if recent_valid else None,
+        },
+    }
 
 
 def detect_bye_week(player_bye: Any, current_week: int) -> bool:
@@ -95,7 +195,7 @@ def _points_for_format(stats: Dict[str, Any], scoring_format: str) -> Optional[f
     }.get(normalized, ("pts_ppr",))
     for key in keys:
         value = stats.get(key)
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
             return float(value)
     return None
 
@@ -117,7 +217,7 @@ def calculate_recent_avg(stats_list: List[Dict[str, Any]], scoring_format: str =
 
     for week_stats in stats_list:
         points = _points_for_format(week_stats, scoring_format)
-        if points is not None and points > 0:
+        if points is not None:
             total_points += points
             valid_weeks += 1
 
