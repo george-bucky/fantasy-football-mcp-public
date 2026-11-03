@@ -487,17 +487,40 @@ Connect via HTTP transport at `http://localhost:8000`
 python fantasy_football_multi_league.py
 ```
 
+### Codex Cloud Runtime (Stdio)
+
+Use the portable Python 3.11 launcher for the existing root 23-tool server:
+
+```bash
+bash scripts/cloud_setup.sh
+.venv/bin/python scripts/cloud_mcp.py --check
+.venv/bin/python scripts/cloud_mcp.py --config
+```
+
+Setup installs pinned dependencies; `--check` verifies initialization/tool names
+with provider calls disabled, and `--config` prints a names-only registration
+preview. The launcher uses injected environment variables, skips the repo `.env`,
+and opens no HTTP listener. These commands do not deploy a cloud environment,
+register an MCP, provision credentials, or migrate private state.
+
+Optional token persistence needs an approved preprovisioned durable POSIX volume
+for one runtime group. A fresh Codex checkout or ephemeral disk is not durable
+storage, and injected secrets are not a write-back token manager. If a suitable
+volume is unavailable, a separate durable backend/adapter must be chosen before
+activation. See [Cloud stdio setup](docs/CLOUD_SETUP.md) for provider/network roles,
+private-state exclusions, sequential approvals, and refresh/restart acceptance.
+
 ### Docker Deployment
 ```bash
 docker build -t fantasy-football-mcp .
 docker run -p 8080:8080 --env-file .env fantasy-football-mcp
 ```
 
-### Cloud Deployment (Render/Railway/etc.)
-The server includes multiple compatibility layers for various cloud platforms:
-- `render_server.py` - Render.com deployment
-- `simple_mcp_server.py` - Generic HTTP/WebSocket server
-- `fastmcp_server.py` - FastMCP cloud deployments
+### Separate HTTP Hosting
+
+`fastmcp_server.py` is the alternative FastMCP HTTP entrypoint. HTTP hosting is
+separate from the cloud stdio runtime above and requires its own authentication,
+access-control, and deployment configuration review.
 
 ## 🧪 Testing
 

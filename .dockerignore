@@ -60,3 +60,11 @@ test_*.py
 .cache/
 .mypy_cache/
 .ruff_cache/
+
+# Private session state, token files, and local orchestration notes
+.tokens/
+data/league_rosters/
+.codex/
+**/yahoo_tokens.json
+**/yahoo-tokens.json
+**/yahoo_token_store.json
