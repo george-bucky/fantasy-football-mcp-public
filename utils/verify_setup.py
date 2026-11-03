@@ -30,10 +30,14 @@ EXPECTED_TOOLS = {
     "ff_get_api_status",
     "ff_clear_cache",
     "ff_get_draft_rankings",
+    "ff_prepare_manual_draft",
+    "ff_get_manual_draft_recommendation",
     "ff_get_draft_recommendation",
     "ff_analyze_draft_state",
     "ff_analyze_reddit_sentiment",
     "ff_get_player_news",
+    "ff_get_espn_nfl_news",
+    "ff_get_sportsbook_odds",
 }
 
 REQUIRED_IMPORTS = {
